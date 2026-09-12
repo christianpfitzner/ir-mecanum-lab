@@ -143,6 +143,19 @@ def test_keine_schaetzung_ist_ein_klarer_begrundungstext():
     assert "kf/pose" in ergebnis["begruendung"]
 
 
+def test_untere_k3_grenze_bleibt_unter_der_gemessenen_streuung():
+    """The floor is 0.05 because paced runs measure NEES 0.09 … 0.65 for the reference filter.
+
+    With the old 0.15 one of those runs — RMSE 0.039 m, 17x improvement over GPS — lost 20
+    points for being cautious. Tightening this number again without new measurements is the
+    kind of change that turns a grade into a lottery; the upper bound is the one that matters.
+    """
+    from mecanum_lab import tasks
+    k3 = [a for a in tasks.load_tasks()["tasks"] if a["id"] == "kf_kovarianz"][0]["nees"]
+    assert k3[0] <= 0.09, k3
+    assert k3[1] >= 3.0, k3
+
+
 def test_pruefprofil_abweichung_wird_gemeldet():
     profil = {"gps": {"rate": 5.0, "sigma_xy": 0.5}}
     soll = dict(AUFTRAG, sim={"gps": {"rate": 5.0, "sigma_xy": 0.5}})

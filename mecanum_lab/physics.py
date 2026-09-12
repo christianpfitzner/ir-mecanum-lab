@@ -5,9 +5,11 @@ counter-clockwise (CCW) positive. Wheel order is everywhere
 [FL, FR, RL, RR], matching what later travels on the `wheel_speeds` topic.
 The signs are CONTRACT §5 — they are the point of the exercise.
 
-Slip is not modelled: four wheel speeds determine the body velocity
-uniquely (pseudo-inverse of the kinematics). Noise does not belong in the
-mechanics but in sensors.py — the truth stays deterministic.
+Slip is modelled where it physically happens: against an obstacle the body stands still while
+the wheels keep the speed the motor demands (`robot.slip`, 1 = full slip) — that is the one
+place where odometry may lie, because it integrates wheel speeds. Everywhere else four wheel
+speeds give the body velocity uniquely (pseudo-inverse of the kinematics). Noise does not belong
+in the mechanics but in sensors.py — the truth stays deterministic.
 """
 from dataclasses import dataclass, fields
 import math
@@ -27,6 +29,7 @@ class Geometry:
     max_accel: float = 40.0                 # rad/s² per wheel
     tau: float = 0.06                       # s, first-order time constant
     footprint_r: float = 0.21               # collision circle
+    slip: float = 1.0                       # 1 = wheels spin on at a wall, 0 = static friction
     name: str = "stock"
 
     @property
@@ -126,10 +129,10 @@ class Chassis:
                 else:
                     p.y = w.y1 + r
         if hit:
-            self.wheels = [0.0] * 4
-            # At the obstacle the body velocity is zero: recompute the twist from the
-            # standing wheels, or the robot keeps reporting motion against the wall.
-            self.twist.vx, self.twist.vy, self.twist.omega = forward_kinematics(g, self.wheels)
+            # The body is blocked, the motor is not: the wheels keep what the motor wants, so
+            # odometry integrates metres that were never driven (robot.slip=0 -> standstill).
+            self.wheels = [c * g.slip for c in self.cmd]
+            self.twist.vx, self.twist.vy, self.twist.omega = 0.0, 0.0, 0.0
             if not self.touching:
                 self.contacts += 1
         self.touching = hit

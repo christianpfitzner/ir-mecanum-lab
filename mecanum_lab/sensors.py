@@ -139,10 +139,12 @@ class GpsSensor:
     Named GpsSensor (not Gps) because types.Gps is the message — this sensor produces
     it. Same reasoning as for OdometrySensor and Lidar.
 
-    Two interventions are what make the Kalman filter tasks interesting: `gap`
+    Three interventions are what make the Kalman filter tasks interesting: `gap`
     suppresses every fix for `gap[1]` seconds from `gap[0]` on (GPS outage in the
     arena), `bias_step` adds an extra offset on top for the same time (multi-path — the
-    absolute classic indoors).
+    absolute classic indoors), and `zones` degrade or kill the fix **by place** instead
+    of by time — the shadow under a shelf, the corner between two metal walls. Empty by
+    default: a task that wants them asks for them (see config/demo_gps_shadow.json).
     """
 
     def __init__(self, noise: Noise, cfg: dict | None = None):
@@ -153,6 +155,7 @@ class GpsSensor:
         self.bias = cfg.get("bias_xy") or (0.0, 0.0)
         self.gap = _fenster(cfg.get("gap"), 2)
         self.step = _fenster(cfg.get("bias_step"), 4)
+        self.zones = _zonen(cfg.get("zones"))          # place-based degradation, [] = off
         self.t0 = 0.0                                # time reference of the windows (see set_task)
 
     def fix(self, pose, t: float = 0.0) -> Gps | None:
@@ -164,12 +167,47 @@ class GpsSensor:
         auf_t = t - self.t0                      # time since task start
         if self.gap and self.gap[0] <= auf_t < self.gap[0] + self.gap[1]:
             return None
+        zone = self._zone(pose)
+        if zone and zone["block"]:
+            return None                                # no satellite visible from here
+        sigma = self.sigma_xy * (zone["sigma_scale"] if zone else 1.0)
         dx = dy = 0.0
         if self.step and self.step[0] <= auf_t < self.step[0] + self.step[1]:
             dx, dy = self.step[2], self.step[3]
-        return Gps(t=0.0, x=pose.x + self.bias[0] + dx + self.noise.gauss(self.sigma_xy),
-                   y=pose.y + self.bias[1] + dy + self.noise.gauss(self.sigma_xy),
+        if zone:
+            dx += zone["bias"][0]
+            dy += zone["bias"][1]
+        return Gps(t=0.0, x=pose.x + self.bias[0] + dx + self.noise.gauss(sigma),
+                   y=pose.y + self.bias[1] + dy + self.noise.gauss(sigma),
                    theta=wrap_angle(pose.theta + self.noise.gauss(self.sigma_theta)))
+
+    def _zone(self, pose):
+        """The first zone rectangle that contains `pose`, or None (then nothing changes)."""
+        for z in self.zones:
+            x0, y0, x1, y1 = z["rect"]
+            if x0 <= pose.x <= x1 and y0 <= pose.y <= y1:
+                return z
+        return None
+
+
+def _zonen(wert) -> list:
+    """Check `gps.zones`: [{name, rect:[x0,y0,x1,y1], sigma_scale, bias_xy, block}, …].
+
+    Rectangles are world metres, the first zone containing the robot wins, and one broken
+    entry is dropped instead of killing the run — a typo in a demo file must not stop a lab.
+    """
+    out = []
+    for z in wert or []:
+        try:
+            x0, y0, x1, y1 = [float(v) for v in z["rect"]]
+            bias = [float(v) for v in (z.get("bias_xy") or (0.0, 0.0))][:2]
+            out.append({"name": str(z.get("name", f"zone {len(out) + 1}")),
+                        "rect": (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)),
+                        "sigma_scale": max(1.0, float(z.get("sigma_scale", 1.0))),
+                        "bias": (bias + [0.0, 0.0])[:2], "block": bool(z.get("block"))})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
 
 
 def _fenster(wert, n: int) -> list | None:

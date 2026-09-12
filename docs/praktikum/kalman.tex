@@ -118,7 +118,7 @@ wheel noise \(\sigma_\text{wheel}=0.04\,\mathrm{rad/s}\), GPS spread
   \item \textbf{NEES.} For one run the evaluation reports \(\overline{\text{NEES}}=0.1\),
         \(1\) and \(8\). What does each of them say about the stated
         standard deviation (factor, which direction), and which of the three values falls
-        inside the band for K3 (\(0.15\ldots3.5\))?
+        inside the band for K3 (\(0.05\ldots3.5\))?
 \end{enumerate}
 
 \section{Theory: predict, measure, weigh}\label{sec:theorie}
@@ -540,7 +540,7 @@ K1 \textit{kf\_gps} (30) & GPS 5 Hz, \(\sigma=0.5\) m & RMSE \(\le 0.42\) m,
   improvement \(\ge 1.6\), max error \(\le 1.25\) m, rate \(\ge 5\) Hz \\
 K2 \textit{kf\_fusion} (30) & GPS 1 Hz, \(\sigma=0.8\) m, GPS outage 15…23\,s; odometry, IMU
   & RMSE \(\le 0.80\) m, improvement \(\ge 2.5\), error during the outage \(\le 1.8\) m \\
-K3 \textit{kf\_kovarianz} (20) & as K1 & mean NEES in \([0.15\ldots3.5]\),
+K3 \textit{kf\_kovarianz} (20) & as K1 & mean NEES in \([0.05\ldots3.5]\),
   RMSE \(\le 0.42\) m \\
 K4 \textit{kf\_dynamik} (10, bonus) & GPS 5 Hz, \(\sigma=0.6\) m, IMU 200 Hz,
   0.85\,m/s with vibration & RMSE \(\le 0.35\) m, improvement \(\ge 1.8\),
@@ -680,7 +680,9 @@ expected value 1, a single value up to 5.99 is still unremarkable with two degre
         trusts the measurement too little. \(1\): consistent, the spread of the errors matches
         the claim. \(8\): too small by \(\sqrt{8}\approx2.8\) times — overconfident, and
         therefore dangerous, because the application (control, safety) relies on the claim.
-        The band \([0.15;\,3.5]\) for K3 rejects \(0.1\) and \(8\), only \(1\)
+        The band \([0.05;\,3.5]\) for K3 rejects \(0.01\) and \(8\) — being cautious is
+        tolerated (a paced run of the reference solution measures 0.09 to 0.9), being
+        over-confident is not — only \(1\)
         survives it. (The lower edge is deliberately loose — \(0.15\) corresponds to a claim
         \(2.6\) times too large: casual, but not dangerous. Above \(3.5\) it gets tight,
         because confident wrong claims help nobody in the lab.)

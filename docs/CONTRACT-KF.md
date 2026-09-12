@@ -90,7 +90,7 @@ independent of what `config/default.json` happens to say.
 |---|---|---|---|---|
 | `kf_gps` | 30 | KF with CV model, GPS only | σ=0.5 m, 5 Hz | RMSE ≤ 0.42 m, improvement ≥ 1.6, max error ≤ 1.25 m, rate ≥ 5 Hz |
 | `kf_fusion` | 30 | GPS + odometry + IMU, GPS outage | σ=0.8 m, 1 Hz, outage 15…23 s after task start, gyro bias 0.002 rad/s | RMSE ≤ 0.80 m, improvement ≥ 2.5, outage error ≤ 1.8 m |
-| `kf_kovarianz` | 20 | consistent 1σ (NEES) | σ=0.5 m, 5 Hz | mean NEES in [0.15 … 3.5], RMSE ≤ 0.42 m |
+| `kf_kovarianz` | 20 | consistent 1σ (NEES) | σ=0.5 m, 5 Hz | mean NEES in [0.05 … 3.5], RMSE ≤ 0.42 m |
 | `kf_dynamik` | 10 | fast + faithful following error | σ=0.6 m, 5 Hz, IMU 200 Hz | RMSE ≤ 0.35 m, improvement ≥ 1.8, max error ≤ 0.9 m, rate ≥ 10 Hz |
 
 `--task kf_alle` selects every task with `"versuch": 2` (`tasks.resolve` can do that, and
@@ -124,7 +124,8 @@ reference solution): at 1 Hz GPS with σ = 0.8 m the *absolute* error is noise-l
 same implementation measures 0.27…0.60 m RMSE depending on the noise realization. An
 absolute limit of 0.45 m would become a lottery, so `verbesserung_min` (stable: 3.4…6.2)
 and the outage limit do the checking. On NEES the same solution scatters between 0.27 and
-1.04; the lower bound at 0.15 only punishes clearly inflated covariance, the upper one
+1.04; the lower bound (0.05 since the paced runs below) only punishes wildly inflated
+covariance, the upper one
 (3.5) any smug filter.
 
 ## 6. File ownership for experiment 2

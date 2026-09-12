@@ -15,9 +15,10 @@ LAYERS = (("show_scan", "lidar scan", "l"), ("show_trails", "odometry trail", "t
           ("show_gps", "gps fix", "g"), ("show_kf", "estimate + σ ellipse", "k"),
           ("show_wheels", "wheels", "w"), ("show_velocity", "velocity vector", "v"),
           ("show_markers", "floor markings", "d"), ("show_goal", "goal", "z"),
-          ("show_hud", "readout lines", "h"))
+          ("show_hud", "readout lines", "h"), ("show_zones", "gps shadow zones", "s"),
+          ("show_ghost", "odometry ghost + drift", "o"))
 HEAD = "view layers"
-FUSS = "m shows and hides · l t g k w v d z h"
+FUSS = "m shows and hides · l t g k w v d z h s o"
 WIDTH, ROW, PAD = 210, 19, 6
 
 

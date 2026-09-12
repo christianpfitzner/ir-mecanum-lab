@@ -205,3 +205,82 @@ it still draws).
 **Reproduce:** `git ls-files | grep -E '\.(py[cod]|aux|fls|log|toc|out)$'` must print nothing,
 and `git status` must stay clean after `python3 -m compileall -q mecanum_lab && python3 -m pytest
 tests -q`.
+
+## 6. Wheel slip, keyboard turning, and the IMU in the readout (after the arena picture)
+
+Someone driving by hand could not see odometry drift: at an obstacle the old chassis set the
+wheel speeds to **zero**, so the odometry — which integrates wheel speeds, as it must — stayed
+honest exactly where a real mecanum robot lies. `physics.py` now models that one situation: the
+body velocity goes to 0, the wheels keep `robot.slip` × the commanded speed (default 1, `0` is
+the old ideal static friction). Measured with seed 5, 4 s of full throttle into the east wall of
+`arena`: the body moves 0.69 m, the odometry counts 1.55 m — **0.86 m of phantom distance**, and
+0.003 m with `robot.slip=0`. Tests: `test_slip_am_hindernis_taeuscht_der_odometrie_a` (both
+settings) and `test_slip_wert_kommt_aus_der_konfiguration_a` (the knob really reaches
+`Geometry`). Grading is unaffected: the reference solution drives without contacts, so it never
+enters the slip branch.
+
+Turning by keyboard existed but was undiscoverable, and one of its two keys killed the window:
+`q` is both "yaw left" in `tasten()` and "quit" in the renderer. Yaw is now `q`/`,` and `e`/`.`
+(±0.9 rad/s, `e` = counter-clockwise = left), the renderer only quits on `q` when teleop is off
+(`ESC` always works), and while teleop is on the HUD header prints the driving keys instead of
+the view keys.
+
+The IMU was already published at `imu.rate` (100 Hz by default, in every mode — 99.3 Hz measured
+over 3 s) but was invisible without ROS. The per-robot readout line now shows `ax`, `ay`, `gz`
+(`--set imu.rate=0` prints "no imu"), which is also what `messung.csv` records as
+`ax_imu, ay_imu, gz_imu`.
+
+Budget: `render.py` 455 → 470 (readout field, teleop help line, `teleop` state), core total
+4197/4300. `tools/loc.py` and CONTRACT §7 carry the new number.
+
+## 7. GPS shadow zones, three overlays, and four findings from reading the code
+
+`gps.zones` (default `[]`) degrades the fix by **place**: first rectangle containing the robot
+multiplies `sigma_xy`, adds a bias (multipath) or blocks the fix. Measured with 400 fixes per
+spot: open floor σ 0.06 m, under the shelf σ 0.37 m and mean offset (+0.83, −0.51) m, in the
+multipath corner σ 0.18 m/−0.39 m, in the dock **no fix at all**. It ships empty and the demo
+lives in `config/demo_gps_shadow.json`, because the graded tasks are calibrated on the plain GPS
+of their experiment. `overlays.py` (new) draws the shadow, the odometry ghost with the drift in
+metres (`o`) and the rubber that slipping wheels leave behind; two new view layers, no physics.
+
+**Four things the code review turned up, all fixed and tested:**
+
+1. `tasks.welt_fuer` chose the arena with `max(set(hints), key=hints.count)`. Set order follows
+   the string hash, and CPython randomises that per process — measured: `--task beide` picked
+   `arena` under `PYTHONHASHSEED=0,6,7` and `production` under `1…5`. The same seed graded a
+   different hall. Now the tie goes to the first task, as the docstring always promised.
+2. `types.Scan` promised "clockwise from front-left" while the lidar, the helper
+   `seitlicher_abstand` and CONTRACT §5 use beam 0 forward, counter-clockwise. That is the central
+   sign convention of experiment 1 and it was written down backwards in the file students read.
+3. The GPS cross was drawn inside `_schaetzung`, which the frame loop calls only for the estimate
+   layer — so the menu row and key `g` did nothing as soon as `k` was off. Now its own method.
+4. `./lab teleop` — documented in CONTRACT §6.9 and in the handout's first exercise — did not
+   exist; students got `lab: error: unrecognized arguments: teleop`. It is now `sim` with one
+   robot and the keyboard on.
+
+Two more were found while making the picture: `spawn()` never reset the odometer, so a robot put
+down at (7.5, 3.5) reported its own pose as (0, 0) plus travel (the drift overlay showed 22 m of
+error while it drove a straight line), and `Robot.pose` kept the dataclass default `(0,0)` until
+the first physics step — enough to streak a trail across the whole hall. Both are set at spawn now
+and covered by tests.
+
+**Still open (from the same review, none of them fixed here):** the simulation clock comes from
+`time.monotonic()` and the 0.5 s accumulator clamp throws whole seconds away silently, and the
+grader is fed that wall-clock `dt` (CONTRACT §1 says: never wall clock); `OdometrySensor` receives
+the *true* `Geometry`, so a wrong wheel radius or lever arm — the biggest real odometry error
+source — cannot be expressed; `kf.gps_delay` and `lidar.max_walls` are config keys nothing reads;
+`_merge` deletes a key when an override is `None`, which is how `{"world": None}` wipes the
+`world` from `config/default.json`.
+
+## 8. The grader now runs on the simulation clock
+
+`simlauf` used to hand the grader the wall-clock delta, so `Grader.tick()` — whose docstring says
+"advance one **simulation** step" — advanced on the wall: pausing the window kept the student's
+task clock running, and a scheduling hiccup shifted the whole drive plan relative to the
+simulator. It now receives `eng.t - sim_zeit`, the time the simulator actually advanced, so
+grading stays consistent with what the robot experienced, and pausing pauses both.
+
+That also exposed the last piece of randomness in KF grading: K3's NEES floor (now 0.05, with the
+measured spread written into `config/tasks.json` and CONTRACT-KF §5). The remaining fix — a
+fixed-step grading run that does not pace on the wall clock at all — is still open, and would need
+every KF threshold re-measured, because `rate_hz` is measured against sim time.

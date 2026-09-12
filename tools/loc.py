@@ -40,13 +40,29 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #                           in a run that was fine the time before.
 #   tools/kfplot.py        190 -> 250   ASCII diagram with axis labels and the
 #                           diagnostic lines; replaces matplotlib, which is not available.
+#
+# Addendum, GPS shadow zones + the overlays that make them visible (numbers measured):
+#   sensors.py 295 -> 330    gps.zones in GpsSensor.fix (place-based sigma, multipath bias,
+#                            blackout) and _zonen(), which drops a broken demo entry instead
+#                            of killing a lab run. Empty by default, so every graded task
+#                            measures exactly what it measured before this existed.
+#   overlays.py new, 140    three effects that belong to no existing file: hatched GPS
+#                            shadow, the odometry ghost with the drift in metres, rubber
+#                            from wheel slip. A new file rather than 135 more lines inside
+#                            render.py — that one builds a frame, this is a kit drawn on top.
+#   overlays.py 140 -> 150   a label has to clear the readout block (one line per robot).
+#   node.py 540 -> 550     `teleop` becomes the command that CONTRACT §6.9 and the handout
+#                          already promise (one robot + keyboard), instead of the handout
+#                          line ending in "unrecognized arguments".
+#   CORE_TOTAL 4300 -> 4450 sensors +35 and overlays +150; nothing else grew.
 BUDGET = {
     "mecanum_lab/types.py": 345, "mecanum_lab/stub.py": 115,
     "mecanum_lab/engine.py": 340, "mecanum_lab/worlds.py": 135,
-    "mecanum_lab/physics.py": 140, "mecanum_lab/sensors.py": 295,
-    "mecanum_lab/render.py": 455, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
+    "mecanum_lab/physics.py": 140, "mecanum_lab/sensors.py": 330,
+    "mecanum_lab/overlays.py": 150,
+    "mecanum_lab/render.py": 470, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
-    "mecanum_lab/node.py": 540, "mecanum_lab/robot_io.py": 255,
+    "mecanum_lab/node.py": 550, "mecanum_lab/robot_io.py": 255,
     "mecanum_lab/tasks.py": 170, "mecanum_lab/grade.py": 620,
     "mecanum_lab/logbook.py": 100,
     "student/controller_template.py": 125, "student/solution.py": 310,
@@ -56,7 +72,7 @@ BUDGET = {
     "tools/kfplot.py": 250, "tools/fastgrade.py": 140, "tools/worldpic.py": 240,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 4300
+CORE_TOTAL = 4450
 
 
 def loc(path):

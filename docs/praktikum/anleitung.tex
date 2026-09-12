@@ -263,8 +263,12 @@ Collision & circle \(r=0.21\,\mathrm{m}\) & position is pushed out of the wall,
 
 Exact (deterministic, no noise) are only the \emph{truth} in \ordner{physics.py} and
 — if switched on — the topic \thema{<robot>/truth}.
-Slip is not modelled: four wheel speeds give a unique
-\((v_x,v_y,\omega)\) by \cref{eq:fk}.
+Four wheel speeds give a unique
+\((v_x,v_y,\omega)\) by \cref{eq:fk} — with one deliberate exception: against an obstacle the
+body stands still while the wheels keep their speed (\thema{robot.slip}, default 1). Odometry
+integrates wheel speeds, so it then counts metres that were never driven. Drive into a wall with
+the keyboard (the up arrow) and watch \thema{odom} in the readout run ahead of the picture; with
+\thema{--set robot.slip=0} the wheels stand still and the odometry is honest again.
 
 \subsection{pass-through mode and wheels mode}
 So that the first day does not fail on the kinematics, every robot starts in
@@ -291,7 +295,8 @@ source /opt/ros/$ROS_DISTRO/setup.bash
 \end{lstlisting}
 \subsection{Trying it out}
 \begin{lstlisting}[language=bash]
-./lab teleop --robot alice               # twist remote control on cmd_vel
+./lab teleop --robot alice    # keyboard is the remote: up/down drive, left/right
+                              # strafe, q or , turn right, e or . turn left
 ./lab robots                             # who drives, in which mode?
 ros2 topic list
 ros2 topic echo /alice/odom --once

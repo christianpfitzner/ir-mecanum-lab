@@ -89,7 +89,11 @@ class Odom:
 
 @dataclass
 class Scan:
-    """2D LIDAR rays, relative to the robot edge, clockwise from front-left."""
+    """2D LIDAR rays in the body frame: beam 0 straight ahead, then counter-clockwise.
+
+    Same handedness as everything else (CONTRACT §5: x forward, y left, theta CCW) — reading
+    it the other way round mirrors the whole exercise, so this is not a detail.
+    """
     t: float = 0.0
     angle_min: float = 0.0
     angle_increment: float = 0.0
@@ -250,6 +254,7 @@ DEFAULT_CONFIG = {
         "max_speed": 12.0,          # rad/s
         "max_accel": 40.0,          # rad/s^2
         "tau": 0.06,                # s, 1st-order motor inertia
+        "slip": 1.0,                # 1 = wheels spin on at a wall, 0 = ideal static friction
         "variants": {"stock": {}, "slow": {"max_speed": 8.0, "tau": 0.12},
                      "fast": {"max_speed": 16.0}, "agile": {"max_accel": 80.0,
                                                             "tau": 0.03}},
@@ -261,7 +266,9 @@ DEFAULT_CONFIG = {
               "sigma": 0.015, "max_walls": 400},
     "gps": {"rate": 5.0, "sigma_xy": 0.06, "sigma_theta": 0.03, "bias_xy": [0, 0],
             "gap": None,              # [start, duration] in s: no fix in this window
-            "bias_step": None},       # [start, duration, dx, dy]: jumping bias (outlier)
+            "bias_step": None,        # [start, duration, dx, dy]: jumping bias (outlier)
+            "zones": []},             # place-based degradation, see sensors.GpsSensor._zonen
+
     # Realistic MEMS IMU (MPU-6050/ICM-20948 class). Densities in unit/√Hz,
     # bias random walk in unit/√s — so the arithmetic stays checkable.
     "imu": {"rate": 100.0, "gyro_noise": 1.0e-4, "gyro_bias": 5.0e-3,

@@ -194,8 +194,12 @@ class Chassis:
 ```
 Motor: first-order lag with `tau` plus an angular-acceleration limit
 `max_accel`. Collision: circle `footprint_r` against rectangles, the position is pushed
-out along the smallest penetration depth, the affected wheel speed is set to 0,
-`contacts += 1` (only on a new contact). No slip model — document that.
+out along the smallest penetration depth, `contacts += 1` (only on a new contact). **Slip is
+modelled at the obstacle only**: the body velocity becomes 0 while the wheels keep
+`robot.slip` × the commanded speed (default `1` = full slip, `0` = ideal static friction). That
+is the one place where odometry may lie — it integrates wheel speeds — and it is there on purpose
+so that T1's drift is visible without turning any noise up. Everywhere else four wheel speeds give
+the body velocity uniquely.
 
 ### 6.4 `mecanum_lab/sensors.py` [A]
 ```python
@@ -213,6 +217,11 @@ noise included), never from the truth pose → drift arises naturally and is
 the point of Experiment 1. LIDAR: ray/AABB slab test, hits clamped to `range_max`,
 no hit = `inf` → reported in `LaserScan.ranges` as `range_max` (`inf` only
 internally). Hits against other robots: no (Experiment 1).
+`gps.zones` (default `[]`) degrades the fix **by place** instead of by time: the first rectangle
+that contains the robot multiplies `sigma_xy` by `sigma_scale`, adds `bias_xy` to the existing
+bias, or returns no fix at all when `block` is set. `_zonen()` drops malformed entries rather
+than crashing, and with the default `[]` the noise calls are exactly the ones of the old sensor —
+so graded results are unchanged. `config/demo_gps_shadow.json` is the demo that turns it on.
 
 ### 6.5 `mecanum_lab/engine.py` [MINE, already written — read only]
 ```python
@@ -310,6 +319,18 @@ docs    shows the topics of all robots
 `./lab <command>` (bash) = `python3 -m mecanum_lab.node <command>` with the correct
 `PYTHONPATH` and `source /opt/ros/$ROS_DISTRO/setup.bash`, if present.
 
+### 6.10 `mecanum_lab/overlays.py` [integrator]
+```python
+def zones(rend) -> None                    # gps.zones as hatched shadow, red where blocked
+def odom_ghost(rend, robot) -> None        # where odometry thinks the robot is + Δ in m
+def skid_marks(rend, robot, dt) -> None    # rubber on the floor while the wheels slip
+```
+Drawing only: reads `engine.sensor_profile()` and the robot's own messages, never writes to the
+bus and never touches physics. State (the fading skid marks) lives on the renderer, not in module
+globals, so two windows in one process stay apart. `render.py` calls the three functions and owns
+the two layers (`s` shadow, `o` ghost). `import render` happens inside the functions because
+`render` imports this module — no import cycle at load time.
+
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 
 Authoritative list is `BUDGET` in `tools/loc.py` (`python3 tools/loc.py` prints the tally).
@@ -319,13 +340,14 @@ Current frame after the view and TF work:
 |---|---|---|---|---|
 | types.py | 345 | | ros_bridge.py | 490 |
 | stub.py | 115 | | tf_bcast.py | 135 |
-| engine.py | 340 | | node.py | 540 |
+| engine.py | 340 | | node.py | 550 |
 | worlds.py | 135 | | robot_io.py | 255 |
 | physics.py | 140 | | tasks.py | 170 |
-| sensors.py | 295 | | grade.py | 620 |
-| render.py | 455 | | logbook.py | 100 |
+| sensors.py | 330 | | grade.py | 620 |
+| render.py | 470 | | logbook.py | 100 |
 | cam.py | 115 | | menu.py | 90 |
-| **simulator core (mecanum_lab/)** | **≤ 4300** | | | |
+| overlays.py | 140 | | | |
+| **simulator core (mecanum_lab/)** | **≤ 4450** | | | |
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
 layer menu, and because `tf_bcast.py` is new. Physics, bus and grading did not grow. The rule
@@ -338,7 +360,7 @@ behind the numbers still stands: nothing that a student must read gets longer wi
 | `kinematik` | T1 | IK signs/wheel assignment | 3 phases of 3 s each (vx=0.3 / vy=0.3 / ω=0.6): Δx>+0.35, \|Δy\|<0.12, \|Δθ\|<0.18 rad etc. |
 | `quadrat` | T2 | control loop + odometry | 1 m sides, 90° turns, back within 0.20 m / 15° of the start, time < 90 s |
 | `korridor` | T3 | LIDAR look-ahead | reach the goal without a wall contact (`contacts == 0`), lateral distance 0.25–0.8 m |
-| `gps_anfahrt` | T4 (bonus) | GPS instead of odometry | reach the goal from `world.goal` with GPS feedback, \|error\| < 0.25 m |
+| `gps_anfahrt` | T4 (bonus) | GPS instead of odometry | reach the goal from `world.goal` with GPS feedback, |error| < 0.45 m (0.30 m was inside the spread a finished solution measures: 0.07…0.33 m, timing at the end of the plan — see `abgabe` and `tests/test_grenzwerte_integrator.py`) |
 
 Grading runs **over the topics**, never by code analysis: students may
 implement however they like, behaviour is what gets measured. T1 checks in the order

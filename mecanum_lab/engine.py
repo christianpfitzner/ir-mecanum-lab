@@ -61,8 +61,12 @@ class SimEngine:
         r = Robot(spec=spec, chassis=physics.Chassis(geom, pose or self.world.spawn_pose(idx),
                                                      seed=idx + (self._index or 1)))
         r.odometer = sensors.OdometrySensor(geom, self._noise, cfg_get(self.cfg, "odom"))
+        r.odometer.reset(r.chassis.pose)          # odom origin = spawn pose, not (0,0)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
         self._zeitbezug(r)
+        # The truth pose is only copied into the robot by a physics step; until the first one the
+        # dataclass default (0, 0) would be reported — enough to streak a trail across the hall.
+        r.pose = Pose(r.chassis.pose.x, r.chassis.pose.y, r.chassis.pose.theta)
         self.robots[name] = r
         self.publish_world()
         p = r.chassis.pose

@@ -61,13 +61,65 @@ To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless
 | mouse wheel | zoom **to the cursor** · `+`/`-` zoom to the middle · `f` shows the whole world |
 | drag with the left button | pan (the map follows the mouse) · right button centres again |
 | `1`…`9` / `0` | follow one robot / show everything · window resizable, the camera keeps up |
-| `SPACE` pause · `q` quit | as before |
-| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines |
-| `l t g k w v d z h` | switch a single layer — the same as clicking its row |
+| `Up`/`Down` drive · `Left`/`Right` **strafe** | keyboard driving, on unless `--no-teleop`; the keys set body speeds, this is not a game |
+| `q` or `,` turn right · `e` or `.` turn left | ±0.9 rad/s yaw. With teleop on, `q` **turns** instead of quitting — `ESC` or the window's close button ends the run |
+| `SPACE` pause | `q` quits only when teleop is off |
+| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines, gps shadow zones, odometry ghost |
+| `l t g k w v d z h s o` | switch a single layer — the same as clicking its row (`s` GPS shadow, `o` odometry ghost) |
 
 The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu` and your `kf/pose`
 keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
-is deliberate: hide the dots, keep the data, and see which layer belongs to which topic.
+is deliberate: hide the dots, keep the data, and see which layer belongs to which topic. The
+per-robot readout line also carries the IMU (`ax`, `ay`, `gz`) — it is live in **every** run, not
+only in Experiment 2: default `imu.rate` is 100 Hz with bias random walk, scale error, tilt
+cross-coupling and vibration, and `az ≈ +9.81 m/s²` while standing still.
+
+### GPS that gets bad by place: the shadow demo (not the default)
+
+`gps.zones` degrades the fix **where the robot is**, not when: the first rectangle that contains
+it multiplies `sigma_xy`, adds a bias (multi-path pushes the fix away from the reflector) or
+suppresses the fix completely. It ships empty, because the graded tasks in `config/tasks.json`
+are calibrated on the plain GPS of each experiment — a permanent shadow would silently move what
+every filter is graded against. `config/demo_gps_shadow.json` is the demo that turns it on:
+
+```bash
+./lab sim --world production --config config/demo_gps_shadow.json     # drive into it yourself
+./lab run --world production --config config/demo_gps_shadow.json \
+          --robot muster --controller student/solution.py --seconds 30
+```
+
+Measured with 400 fixes per spot (σ=0.06 m is the lab default):
+
+| spot | σ of a fix | median error | mean offset | fixes |
+|---|---|---|---|---|
+| open floor | 0.06 / 0.06 m | 0.07 m | (−0.01, 0.00) m | 400/400 |
+| under the high shelf (σ×6, bias +0.8/−0.5) | 0.37 / 0.36 m | 1.03 m | (+0.83, −0.51) m | 400/400 |
+| multipath in the corner (σ×3) | 0.18 / 0.18 m | 0.52 m | (−0.39, +0.30) m | 400/400 |
+| loading dock (`"block": true`) | — | — | — | **no fix at all** |
+
+The window draws the zones as hatched shadow (`s`), the blackout in the error colour, and labels
+each with what it does to the fix. Together with the odometry ghost (`o`) and the rubber that
+slipping wheels leave on the floor, one frame shows a student the three ways a position can be
+wrong: noisy, biased, or missing — and how much of it the odometry invented (`overlays.py`).
+
+### Wheel slip: odometry you can watch lying
+
+Press the robot against a wall and the odometry keeps counting metres that were never driven.
+That is the drift of Experiment 1 in its purest form — no sensor noise needed. The model is
+physical: against an obstacle the body stands still while the wheels keep the speed the motor
+demands, and odometry integrates wheel speeds (`sensors.py` integrates what the wheels report,
+never the truth). `robot.slip` scales it: `1` = full slip (default), `0` = ideal static friction
+with honest odometry. Measured in `arena`, 4 s of full throttle east into the wall, seed 5:
+
+| `robot.slip` | body really moved | odometry counted | phantom distance |
+|---|---|---|---|
+| `1` (default) | 0.69 m | 1.55 m | **+0.86 m** |
+| `0` | 0.69 m | 0.69 m | −0.003 m |
+
+By hand: `./lab sim --world arena`, then `Up` into the east wall — the `odom x` in the readout
+climbs while the robot's dot stays where it is. To record it: `./lab grade --task kinematik
+--controller student/solution.py --log messung.csv` writes `ax_imu, ay_imu, gz_imu` next to the
+other columns (`python3 tools/kfplot.py messung.csv --list` shows all of them).
 
 ## Task and arena belong together
 

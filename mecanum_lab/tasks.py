@@ -102,7 +102,11 @@ def welt_fuer(cfg: dict, ids=None, default: str = "production") -> str:
     hints = [t.get("welt") for t in resolve(cfg, ids) if t.get("welt")]
     if not hints:
         return default
-    return max(set(hints), key=hints.count)
+    # dict.fromkeys, not set: set order follows the string hash, which is randomised per process,
+    # so `max(set(...))` picked another arena on a tie in another run — with `--task beide` (four
+    # tasks in production, four in arena) that made the graded arena a dice roll.
+    zahlen = {welt: hints.count(welt) for welt in dict.fromkeys(hints)}     # in task order
+    return max(zahlen, key=zahlen.get)                                      # first one on a tie
 
 
 # ------------------------------------------------------------------------ measurements

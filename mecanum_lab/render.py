@@ -17,9 +17,11 @@ import pygame
 
 from . import cam as kamera
 from . import menu as menue
+from . import overlays                                  # shadow, ghost, rubber
 from .types import cfg_get
 
 HELP = "q quit | SPACE pause | m menu | f fit | 0 all | 1..9 robot | wheel zoom | drag pan"
+HELP_TELEOP = "arrows drive/strafe | q or , turn right, e or . left | SPACE pause | ESC quit"
 GREY = (210, 212, 218)
 GPS_FARBE = (250, 210, 90)                         # measurement: flat and angular
 KF_FARBE = (120, 240, 170)                         # estimate: bright and round
@@ -43,7 +45,8 @@ SHAPES = {
 KEYS = {"space": ("paused", "pause"), "l": ("show_scan", "toggle_lidar"),
         "t": ("show_trails", "toggle_trail"), "k": ("show_kf", "toggle_kf"),
         "g": ("show_gps", ""), "w": ("show_wheels", ""), "v": ("show_velocity", ""),
-        "d": ("show_markers", ""), "z": ("show_goal", ""), "h": ("show_hud", "")}
+        "d": ("show_markers", ""), "z": ("show_goal", ""), "h": ("show_hud", ""),
+        "s": ("show_zones", ""), "o": ("show_ghost", "")}
 
 
 def body(theta: float, dx: float, dy: float) -> tuple:
@@ -99,6 +102,8 @@ class Renderer:
         self.show_scan = self.show_trails = self.show_gps = self.show_kf = True
         self.show_wheels = self.show_velocity = True
         self.show_markers = self.show_goal = self.show_hud = True
+        self.show_zones = self.show_ghost = True           # GPS shadow, odometry ghost
+        self.teleop = False                          # node.simlauf sets this, changes the help
         self.paused = False
         self.kf_spur, self.trails, self.phase = {}, {}, {}           # per robot name
         self.focus = None
@@ -173,13 +178,20 @@ class Renderer:
         self._cam()
         self.screen.fill(self.col_void)
         self._world()
+        if self.show_zones:
+            overlays.zones(self)                              # where the GPS gets bad
         self.trails = {k: v for k, v in self.trails.items() if k in eng.robots}
         self.kf_spur = {k: v for k, v in self.kf_spur.items() if k in eng.robots}
         self.phase = {k: v for k, v in self.phase.items() if k in eng.robots}
         for robot in eng.robots.values():
+            overlays.skid_marks(self, robot, dt)              # rubber under slipping wheels
             self._trail(robot)                              # kept while hidden, not thrown away
+            if self.show_ghost:
+                overlays.odom_ghost(self, robot)                  # before the real chassis
             if self.show_scan:
                 self._scan_dots(robot)
+            if self.show_gps:
+                self._messpunkt(robot)
             if self.show_kf:
                 self._schaetzung(robot)
         for robot in eng.robots.values():
@@ -233,18 +245,21 @@ class Renderer:
             p = self.px(wx, wy)
             pygame.draw.rect(sc, color, (p, (groesse, groesse)))
 
+    def _messpunkt(self, robot) -> None:
+        """The raw GPS fix as a cross — its own layer, so `g` works without `k`."""
+        if robot.gps:
+            px = self.px(robot.gps.x, robot.gps.y)
+            pygame.draw.line(self.screen, GPS_FARBE, (px[0] - 5, px[1]), (px[0] + 5, px[1]), 2)
+            pygame.draw.line(self.screen, GPS_FARBE, (px[0], px[1] - 5), (px[0], px[1] + 5), 2)
+
     def _schaetzung(self, robot) -> None:
-        """Lab 2: raw measurement (cross), own estimate (diamond + σ ellipse), error tick.
+        """Experiment 2: own estimate (diamond + σ ellipse) and the error tick to the truth.
 
         The ellipse is no decoration: report a σ that is too small and you see a filter
         running next to the truth while drawing a tiny scatter circle — exactly the
         self-deception that task K3 penalizes.
         """
         sc = self.screen
-        if robot.gps and self.show_gps:
-            px = self.px(robot.gps.x, robot.gps.y)
-            pygame.draw.line(sc, GPS_FARBE, (px[0] - 5, px[1]), (px[0] + 5, px[1]), 2)
-            pygame.draw.line(sc, GPS_FARBE, (px[0], px[1] - 5), (px[0], px[1] + 5), 2)
         kf = robot.kf
         if not kf:
             return
@@ -344,7 +359,8 @@ class Renderer:
         """Header line plus one line per robot; two columns from 5 robots up."""
         eng = self.engine
         self._text(f"{eng.world.name}  t={eng.t:6.1f}s  {self.clock.get_fps():4.0f} fps  "
-                   f"{self.s:3.0f} px/m  robots: {len(eng.robots)}  task: {eng.task or '-'}  {HELP}",
+                   f"{self.s:3.0f} px/m  robots: {len(eng.robots)}  task: {eng.task or '-'} "
+                   f"{HELP_TELEOP if self.teleop else HELP}",
                    8, 6, (235, 235, 240), big=True)
         width = self.size[0] // 2 if len(eng.robots) > 4 else self.size[0]
         for i, r in enumerate(eng.robots.values()):
@@ -357,6 +373,8 @@ class Renderer:
                           (r.mode, GREY),
                           (f"|v|={math.hypot(r.twist.vx, r.twist.vy):.2f} m/s", GREY),
                           (f"w={r.twist.omega:+.2f}", GREY), ("odom " + o, GREY),
+                          ("imu " + (f"ax={r.imu.ax:+.2f} ay={r.imu.ay:+.2f} "
+                                     f"gz={r.imu.gz:+.3f}" if r.imu else "no imu"), GREY),
                           ("gps " + (f"x={r.gps.x:+.2f} y={r.gps.y:+.2f}" if r.gps
                                      else "no fix"), GREY),
                           ("kf " + (f"x={r.kf.x:+.2f} y={r.kf.y:+.2f} "
@@ -425,7 +443,7 @@ class Renderer:
             setattr(self, attribut, not getattr(self, attribut))
             if flank:
                 flags[flank] = True
-        elif key in ("q", "escape"):
+        elif key == "escape" or (key == "q" and not self.teleop):        # in teleop q turns
             self._alive, flags["quit"] = False, True
         elif key == "m":
             flags["menu"] = "menu"

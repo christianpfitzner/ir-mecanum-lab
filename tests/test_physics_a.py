@@ -11,6 +11,7 @@ import pytest
 
 from mecanum_lab.physics import Chassis, Geometry, forward_kinematics, make_geometry
 from mecanum_lab.physics import inverse_kinematics
+from mecanum_lab import sensors
 from mecanum_lab.types import Pose, Rect, load_config, cfg_get
 
 DT = 1.0 / 50.0
@@ -118,8 +119,32 @@ def test_kollision_zaehlt_und_stoppt_a():
     fahrt(ch, 3.0, wand)
     assert ch.contacts == 1                                  # one event, not one per step
     assert ch.pose.x + 0.21 <= 1.0 + 1e-6                     # stays outside, in front of the wall
-    assert ch.wheels == [0.0] * 4
-    assert ch.twist.vx == pytest.approx(0.0, abs=1e-9)
+    assert ch.twist.vx == pytest.approx(0.0, abs=1e-9)        # the body stands still
+    assert ch.wheels == pytest.approx([8.0] * 4)             # but the wheels keep spinning
+
+
+@pytest.mark.parametrize("slip,drift", [(1.0, 0.5), (0.0, 0.0)])
+def test_slip_am_hindernis_taeuscht_der_odometrie_a(slip, drift):
+    """The teaching point of T1: against a wall the wheels keep their speed, so the odometry
+    integrates metres that were never driven. With robot.slip=0 the wheels stand still and the
+    odometry stays as honest as its noise allows.
+    """
+    wand = [Rect(1.0, -1.0, 3.0, 1.0)]
+    ch = Chassis(geom(footprint_r=0.21, slip=slip), Pose(0.9, 0.0, 0.0), seed=7)
+    od = sensors.OdometrySensor(ch.geom, sensors.Noise(3), cfg_get(load_config(), "odom"))
+    od.reset(ch.pose)
+    ch.set_wheels([8, 8, 8, 8])
+    for _ in range(round(2.0 / DT)):
+        ch.step(DT, wand)
+        od.update(ch.wheels, DT)
+    assert ch.contacts == 1 and ch.twist.vx == pytest.approx(0.0, abs=1e-9)
+    assert ch.pose.x < 1.0                                    # the truth did not move through
+    assert od.pose.x - ch.pose.x >= drift - 1e-6              # the odometry ran ahead by slip
+    assert (od.pose.x - ch.pose.x) < 0.5 if slip == 0.0 else True
+
+
+def test_slip_wert_kommt_aus_der_konfiguration_a():
+    assert make_geometry(cfg_get(load_config(), "robot")).slip == pytest.approx(1.0)
 
 
 def test_kollision_seitlich_und_ecke_a():

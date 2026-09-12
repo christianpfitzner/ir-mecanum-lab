@@ -41,7 +41,7 @@ WELTEN = ", ".join(list_worlds())
 
 def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None):
     """One tick: step the simulation, put measurements on the bus, draw, grade, log."""
-    pubs, letzte, t_clock, t_json = {}, time.monotonic(), 0.0, 0.0
+    pubs, letzte, t_clock, t_json, sim_zeit = {}, time.monotonic(), 0.0, 0.0, eng.t
     letzte_schaetzung = {}                      # so the log counts each kf/pose message only once
     letzte_robots, t_robots = None, 0.0
     send_task = bus.pub("task")
@@ -51,6 +51,7 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
         letzte = jetzt
         if rend is None or not rend.paused:
             eng.step(dt)
+        verstrichen, sim_zeit = eng.t - sim_zeit, eng.t   # what the simulator really advanced
         for kind, robot, payload in eng.drain():          # measurements -> topics
             if tap:
                 tap.tap(kind, robot, payload)
@@ -80,6 +81,7 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
             send_task(eng.task)
             t_json = jetzt
         if teleop and rend is not None:
+            rend.teleop = True                             # HUD shows the driving keys
             tw = tasten()
             if tw and tw != (0, 0, 0):
                 for name in eng.robots:
@@ -89,7 +91,7 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
                 break
             rend.draw()
         for g in graders:
-            g.tick(dt)
+            g.tick(verstrichen)                 # its clock is simulation time, not the wall clock
         if graders and all(getattr(g, "fertig", False) for g in graders):
             break                                       # grader is done -> end the run
         bus.spin(1.0 / hz if rend is None else 0.002)
@@ -97,11 +99,12 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
 
 
 def tasten() -> tuple:
-    """Arrow keys to body speed: up/forward, down/back, left/right, q/e yaw."""
+    """Keys to body speed: up/down drive, left/right strafe (mecanum), q/, right, e/. left."""
     import pygame
     k = pygame.key.get_pressed()
     return (0.35 * (k[pygame.K_UP] - k[pygame.K_DOWN]), 0.35 * (k[pygame.K_LEFT] - k[pygame.K_RIGHT]),
-            0.9 * (k[pygame.K_e] - k[pygame.K_q]))
+            0.9 * (k[pygame.K_e] + k[pygame.K_PERIOD]
+                   - k[pygame.K_q] - k[pygame.K_COMMA]))
 
 
 def parse_set(text: str) -> tuple:
@@ -475,7 +478,9 @@ def parser():
     p.add_argument("--seconds", type=float, default=0.0, help="End after N s of simulation time")
     p.add_argument("--headless", action="store_true", help="Without the Pygame window")
     p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
-    p.add_argument("--no-teleop", action="store_true", help="Turn keyboard control off")
+    p.add_argument("--no-teleop", action="store_true",
+                   help="turn keyboard control off (Up/Down drive, Left/Right strafe, "
+                        "q/, right, e/. left)")
     p.add_argument("--seed", type=int, default=1, help="Noise seed (reproducibility)")
     p.add_argument("--config", default=None, help="JSON config on top of config/default.json")
     p.add_argument("--set", action="append", metavar="PATH=VALUE",
@@ -494,7 +499,21 @@ def parser():
     return p
 
 
-BEFEHLE = {"run": cmd_run, "sim": cmd_sim, "controller": cmd_controller, "grade": cmd_grade,
+def cmd_teleop(args):
+    """`./lab teleop --robot alice` — one robot, the keyboard is the remote (CONTRACT §6.9).
+
+    Up/Down drive, Left/Right strafe, q or , turn right, e or . turn left. The handout's first
+    exercise names this command, so it has to be one — and it is `sim` with one robot and the
+    keyboard left on, nothing else.
+    """
+    if args.robot and not (args.robots or "").strip():
+        args.robots = args.robot
+    args.no_teleop = False
+    return cmd_sim(args)
+
+
+BEFEHLE = {"run": cmd_run, "sim": cmd_sim, "teleop": cmd_teleop,
+           "controller": cmd_controller, "grade": cmd_grade,
            "spawn": lambda a: cmd_client(a, "spawn"),
            "despawn": lambda a: cmd_client(a, "despawn"),
            "reset": lambda a: cmd_client(a, "reset"),

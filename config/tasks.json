@@ -138,7 +138,7 @@
    "ziel": "spawn",
    "ziel_index": -1,
    "messung": "gps",
-   "ziel_max": 0.3,
+   "ziel_max": 0.45,
    "kontakte_max": 0,
    "weg_min": 0.5,
    "weg_max": 40.0,
@@ -154,7 +154,7 @@
     "Always form the heading error with types.wrap_angle(), otherwise the robot turns 350 degrees around the goal.",
     "The loading spot is world()['spawns'][-1]; T3's gate is world()['goal']."
    ],
-   "abgabe": "Robot stands within 0.3 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand.",
+   "abgabe": "Robot stands within 0.45 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)",
    "zeit_max": 90
   },
   {
@@ -377,13 +377,13 @@
     }
    },
    "nees": [
-    0.15,
+    0.05,
     3.5
    ],
    "rmse_max": 0.42,
    "rate_min": 5.0,
    "kontakte_max": 0,
-   "text": "A filter without an honest covariance is a crank: the values may be right, the uncertainty never is. So here almost exclusively your announced standard deviation is graded — with the normalised error squared mean (NEES: mean of (error/σ)² over both axes). Around 1 means you know exactly what you are doing; 0.2 means 'I report myself far too confident', 5 means 'no idea'. Take K1 or K2 as your base and tune Q and R so that the covariance describes the actual error.",
+   "text": "A filter without an honest covariance is a crank: the values may be right, the uncertainty never is. So here almost exclusively your announced standard deviation is graded — with the normalised error squared mean (NEES: mean of (error/σ)² over both axes). Around 1 means you know exactly what you are doing; 0.2 means 'my reported σ is far larger than my actual error' (cautious), 5 means 'far smaller' (confident — that is the one that makes you a hazard). Take K1 or K2 as your base and tune Q and R so that the covariance describes the actual error.",
    "prueft": [
     "Difference between process noise Q (what the model lacks) and measurement noise R (what the sensor lacks) — and how both make the covariance grow or shrink",
     "NEES as the test quantity for the uncertainty you announce yourself",
@@ -395,7 +395,7 @@
     "Check your arithmetic by scaling sx and sy by 1.1 as a test: if that moves the NEES a lot, you are computing in the wrong place.",
     "The GPS scatter is given (0.5 m): R = diag(0.25; 0.25) m² — anything more is guesswork."
    ],
-   "abgabe": "Mean NEES between 0.15 and 3.5 with an RMSE below 0.42 m — the announced uncertainty has to fit the actual error (1 = exactly right, 0.15 = 2.6 times too cautious, 3.5 = 1.9 times too confident). The upper bound is tight: anyone who under-reports is lying.",
+   "abgabe": "Mean NEES between 0.05 and 3.5 with an RMSE below 0.42 m — the announced uncertainty has to fit the actual error (1 = exactly right, 0.05 = σ twenty times larger than the error, 3.5 = σ 1.9 times too small). The upper bound is the strict one: anyone who under-reports is lying. The lower bound is deliberately generous — a well-tuned filter measured under real-time pacing lands anywhere between 0.09 and 0.9, and failing an excellent run (RMSE 0.04 m, 17x improvement) for being cautious would be arbitrary.",
    "verbesserung_min": 1.0,
    "max_fehler_max": 1.25
   },

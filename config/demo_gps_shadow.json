@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "DEMO, not the default: GPS that gets worse or disappears by PLACE instead of by time.",
+    "",
+    "Run it in the window (teleop on, so you can drive into the shadow yourself):",
+    "    ./lab sim --world production --config config/demo_gps_shadow.json",
+    "    ./lab sim --world arena --config config/demo_gps_shadow.json",
+    "Watch it from the outside (the odometry ghost and the rubber show the drift directly):",
+    "    ./lab run --world production --config config/demo_gps_shadow.json \\",
+    "            --robot muster --controller student/solution.py --seconds 30",
+    "Or make it one student task by measuring it:",
+    "    ./lab grade --world production --config config/demo_gps_shadow.json --task kinematik \\",
+    "                --controller student/solution.py --log messung.csv",
+    "",
+    "Why a file and not the default: the graded tasks in config/tasks.json are calibrated on the",
+    "default GPS (sigma_xy 0.06 m in experiment 1, 0.5/0.8 m plus a timed outage in experiment 2).",
+    "A zone that is always on would silently change what every filter is graded against. So the",
+    "default is gps.zones = [] and a demo asks for the zones it wants. Do not use this file when",
+    "you grade, unless you also recalibrate the thresholds.",
+    "",
+    "Semantics (sensors.GpsSensor._zonen): rectangles are world metres, the first zone containing",
+    "the robot wins, sigma_scale multiplies gps.sigma_xy, bias_xy is added to the existing bias",
+    "(multipath pushes the fix away from the reflector), block means 'no fix at all'.",
+    "Broken entries are dropped rather than crashing the run. Turn the drawing off with `s`.",
+    "Every number here is also what the logbook records, so the same file can be an exercise:"
+  ],
+  "gps": {
+    "zones": [
+      {
+        "name": "under the high shelf",
+        "rect": [8.0, 0.6, 19.4, 4.6],
+        "sigma_scale": 6,
+        "bias_xy": [0.8, -0.5]
+      },
+      {
+        "name": "multipath in the corner",
+        "rect": [0.6, 7.0, 6.0, 11.4],
+        "sigma_scale": 3,
+        "bias_xy": [-0.4, 0.3]
+      },
+      {
+        "name": "loading dock, no sky",
+        "rect": [16.6, 8.6, 19.4, 11.4],
+        "block": true
+      }
+    ]
+  },
+  "debug_truth": true,
+  "_comment_tail": "debug_truth publishes /<robot>/truth so ghost, truth and GPS can be compared."
+}

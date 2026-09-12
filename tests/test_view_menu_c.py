@@ -253,3 +253,15 @@ def _schritte(eng, bus, n):
             bus.pub(art, roboter)(payload)
             gesendet.append((art, roboter))
     return gesendet
+
+
+def test_q_turns_instead_of_quitting_while_keyboard_driving(rend):
+    """q is a driving key in teleop, so it must not close the window there — ESC always quits."""
+    for teleop, quits in ((False, True), (True, False)):
+        rend.teleop = teleop
+        flagen = {"quit": False, "key": "", "camera": None, "menu": ""}
+        rend._ev_key(SimpleNamespace(key=pygame.K_q), flagen)
+        assert flagen["quit"] is quits, f"teleop={teleop}"
+        flagen["quit"] = False
+        rend._ev_key(SimpleNamespace(key=pygame.K_ESCAPE), flagen)
+        assert flagen["quit"] is True
