@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Einstiegspunkt für beide Versuche: ./lab <befehl> [optionen]
+# Setzt PYTHONPATH, holt ROS 2 dazu, wenn es die Maschine hergibt, und ruft den Knoten.
+set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+export PYGAME_HIDE_SUPPORT_PROMPT=1   # kein pygame-Werbetext im Terminal der Studierenden
+
+if ! python3 -c "import pygame" >/dev/null 2>&1; then
+  echo "pygame fehlt — einmalig:" >&2
+  echo "  ./install.sh                       (empfohlen, prüft auch ROS und Tests)" >&2
+  echo "  sudo apt install python3-pygame    (oder: pip3 install --user pygame)" >&2
+  exit 3
+fi
+
+# ROS 2 only wenn vorhanden; MECANUM_ROS=stub zwingt den In-Prozess-Bus (kein ROS nötig).
+# set +u ist Pflicht: die ROS-Setup-Skripte lesen AMENT_*-Variablen, die beim ersten
+# Source noch nicht gesetzt sind — mit `set -u` würde der Launcher hier lautlos sterben.
+if [[ "${MECANUM_ROS:-}" != "stub" ]]; then
+  set +u
+  for f in "${ROS_SETUP:-}" "/opt/ros/${ROS_DISTRO:-kilted}/setup.bash" \
+           /opt/ros/humble/setup.bash /opt/ros/jazzy/setup.bash /opt/ros/rolling/setup.bash; do
+    if [[ -n "$f" && -f "$f" ]]; then
+      # shellcheck disable=SC1090
+      source "$f" 2>/dev/null && break
+    fi
+  done
+  set -u
+fi
+
+case "${1:-}" in
+  -h|--help|help|"")
+    python3 -m mecanum_lab.node -h
+    cat <<'HILFE'
+
+Beispiele Versuch 1 (alles ohne ROS, nur mit pygame):
+  ./lab run --robot alice --controller student/controller_template.py
+      Simulator + dein Knoten in einem Prozess, mit Fenster. Abbruch mit q.
+  ./lab run --robot alice --controller student/solution.py --world track --seconds 60
+      Dasselbe mit der Musterlösung.
+  ./lab grade --robot alice --task v1 --json bericht.json
+      Versuch-1-Aufträge durchprüfen; Exit 2 wenn nicht bestanden.
+
+Beispiele Versuch 2 (Zustandsschätzung / Kalman-Filter):
+  ./lab run --world arena --task kf_gps --robot alice \
+      --controller student/kf_template.py --truth
+      Filterwerkstatt mit Fenster; die Sim fährt, du schätzt nur.
+  ./lab grade --task kf_alle --controller student/kf_solution.py --log messung.csv
+      Alle KF-Aufträge bewerten und die Messreihe für den Bericht mitschreiben.
+  ./lab run --world arena --task kf_fusion --set gps.sigma_xy=1.2 --set imu.rate=400
+      Sensorik frei verstellen — alles über --set, keine JSON-Datei nötig.
+
+ROS-2-Betrieb:
+  ./lab sim --world production --robots alice,bob --headless
+  ./lab spawn --name carlo              # Roboter zu einer laufenden Simulation hinzufügen
+  ./lab robots                          # Was fährt gerade?
+  ros2 launch launch/kf.launch.py       # Versuch 2 komplett konfiguriert (siehe --show-args)
+  MECANUM_ROS=stub ./lab sim --headless --seconds 5      # bewusst ohne ROS
+HILFE
+    ;;
+  *) exec python3 -m mecanum_lab.node "$@" ;;
+esac

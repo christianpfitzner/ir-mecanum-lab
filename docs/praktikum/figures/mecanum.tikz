@@ -1,0 +1,74 @@
+% TikZ-Figur: Mecanum-Fahrwerk von oben.
+% Die vier Wirkrichtungen d_i sind aus der Konvention in CONTRACT 5 abgeleitet
+% (r*w_FL = vx - vy  =>  d_FL = (1,-1) usf.) — der Text leitet das erst her.
+\begin{tikzpicture}[
+  scale=0.92, every node/.style={font=\small},
+  wheel/.style={draw=black!75, line width=0.7pt, fill=black!10,
+                minimum width=1.35cm, minimum height=0.58cm, inner sep=0pt},
+  drive/.style={-{Stealth[length=2mm]}, draw=blue!60!black, line width=0.9pt},
+  free/.style={-{Stealth[length=2mm]}, draw=black!40, dashed, line width=0.7pt},
+  roller/.style={draw=black!55, line width=0.5pt},
+  axis/.style={-{Stealth[length=2.6mm]}, line width=1pt},
+  dim/.style={-{Stealth[length=1.5mm]}-{Stealth[length=1.5mm]}, draw=black!55,
+              line width=0.5pt, font=\footnotesize},
+  box/.style={draw=black!60, rounded corners=2pt, fill=yellow!12, inner sep=3pt,
+              font=\footnotesize, align=left},
+]
+\def\lx{1.75}   % halbe Fahrzeuglaenge in Bild Einheiten (kein Massstab!)
+\def\ly{1.25}   % halbe Fahrzeugbreite
+
+% Karosserie
+\draw[line width=0.8pt, rounded corners=3pt, fill=black!4]
+  (-\lx-0.45,-\ly-0.42) rectangle (\lx+0.45,\ly+0.42);
+\node[font=\footnotesize\itshape, text=black!55] at (0.55,0) {Basisplatte};
+
+% Rad: Position und Winkel der Wirkrichtung in Grad (Labels stehen separat)
+\newcommand{\mwheel}[3]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \node[wheel] at (0,0) {};
+    % Rollen: schraffierte Streifen senkrecht auf der Freigleit-Richtung
+    \begin{scope}[rotate={#3+90}]
+      \draw[roller] (-0.42,-0.26) -- (-0.18,0.26);
+      \draw[roller] (-0.06,-0.26) -- (0.18,0.26);
+      \draw[roller] ( 0.30,-0.26) -- ( 0.54,0.26);
+    \end{scope}
+    \draw[free,  rotate={#3+90}] (-0.05,0) -- (0.95,0)
+      node[right=0pt, font=\scriptsize, text=black!55] {$f$};
+    \draw[drive, rotate=#3] (-0.05,0) -- (1.05,0)
+      node[right=0pt, font=\scriptsize, text=blue!60!black] {$d$};
+  \end{scope}}
+
+\mwheel{ \lx}{ \ly}{-45}   % VL: vorne links
+\mwheel{ \lx}{-\ly}{ 45}   % VR: vorne rechts
+\mwheel{-\lx}{ \ly}{ 45}   % HL
+\mwheel{-\lx}{-\ly}{-45}   % HR
+
+\fill[black] (0,0) circle (1.4pt);
+\node[anchor=north east, font=\footnotesize] at (0,-0.1) {Schwerpunkt};
+
+% Welt-/Körperachsen
+\draw[axis] (0,0) -- (2.9,0)   node[right, font=\footnotesize] {$x$ (vorn)};
+\draw[axis] (0,0) -- (0,2.15)  node[above, font=\footnotesize] {$y$ (links)};
+\draw[axis, draw=black!65] (0.95,0) arc (0:74:0.95) node[right, font=\footnotesize] {$\theta$ (CCW $+$)};
+
+% Spurmass und Radstand
+\draw[dim] (-\lx,-\ly-0.78) -- (-\lx,-\ly-0.18);
+\draw[dim] ( \lx,-\ly-0.78) -- ( \lx,-\ly-0.18);
+\draw[dim] (-\lx,-\ly-0.62) -- ( \lx,-\ly-0.62) node[midway, above=1pt] {$2\,l_x$ (Radstand)};
+\draw[dim] (\lx+0.72,-\ly) -- (\lx+0.72,\ly);
+\node[rotate=90, font=\footnotesize, text=black!70] at (\lx+0.98,0) {$2\,l_y$ (Spurweite)};
+
+% Radlabels
+\node[font=\footnotesize, anchor=south] at ( \lx, \ly+0.42) {$w_\text{FL}$ VL};
+\node[font=\footnotesize, anchor=north] at ( \lx,-\ly-0.42) {$w_\text{FR}$ VR};
+\node[font=\footnotesize, anchor=south] at (-\lx, \ly+0.42) {$w_\text{RL}$ HL};
+\node[font=\footnotesize, anchor=north] at (-\lx,-\ly-0.42) {$w_\text{RR}$ HR};
+
+% Randnotiz mit der Konvention
+\node[box, anchor=north west] at (0.2,-3.15) {%
+  Rand-und-Vorn-Regel: $x$ nach vorn, $y$ nach \emph{links}, $\theta$ gegen den Uhrzeigersinn\\
+  Rollachsen-Pfeile $d$ ergeben in der Draufsicht ein X ($X$-Anordnung).\\
+  $f$ = Freigleit-Richtung (dreht das Fahrzeug auf der Stelle, bleibt unvermittelt).\\
+  Radreihenfolge in allen Themen: $[w_\text{FL}, w_\text{FR}, w_\text{RL}, w_\text{RR}]
+   = [\text{VL}, \text{VR}, \text{HL}, \text{HR}]$};
+\end{tikzpicture}

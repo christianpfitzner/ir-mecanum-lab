@@ -1,0 +1,41 @@
+% TikZ-Figur: Datenfluss im Simulator — von der ASCII-Karte bis zum Radkommando.
+\begin{tikzpicture}[
+  every node/.style={font=\small},
+  blk/.style={draw=black!70, line width=0.6pt, rounded corners=2pt, fill=black!5,
+              align=center, inner sep=4pt, minimum height=8.6mm},
+  ros/.style={blk, fill=blue!7, draw=blue!50!black},
+  stu/.style={blk, fill=green!9, draw=green!45!black, very thick},
+  fl/.style={-{Stealth[length=2mm]}, line width=0.7pt, draw=black!70},
+  flw/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=green!40!black},
+  lbl/.style={font=\scriptsize\ttfamily, inner sep=1.5pt, fill=white, fill opacity=0.9},
+]
+\node[blk] (world) {worlds/\texttt{*.txt} \\ (ASCII-Grid)};
+\node[blk, right=10mm of world] (eng) {\textbf{engine.SimEngine}\\[1pt]
+  \scriptsize Takt, Sensorraten, Watchdog};
+\node[blk, right=10mm of eng] (phys) {physics.Chassis\\ \scriptsize Wahrheit, Kollision};
+\node[blk, below=10mm of eng] (sen) {sensors\\ \scriptsize Odometry, Lidar, GpsSensor};
+\node[ros, below=10mm of sen] (bus) {ros\_bridge.RclpyBus \quad$\vert$\quad stub.StubBus};
+\node[blk, below=7mm of phys, xshift=4mm] (gui) {render.py\\ \scriptsize Pygame-HUD};
+\node[stu, below=11mm of bus] (io) {robot\_io.RobotIO\\ \scriptsize Messwerte rein, Räder raus};
+\node[stu, right=10mm of io] (ctrl) {student/controller\\\_template.py\\
+  \scriptsize inverse\_kinematics, mission};
+
+\draw[fl] (world) -- (eng) node[lbl, midway] {Wände, Starts, Ziel};
+\draw[fl] (eng) -- (phys) node[lbl, midway] {\texttt{step(dt)}};
+\draw[fl] (phys.west) -- ++(-0.4,0) |- (sen.east)
+  node[lbl, near end, below] {Pose, Rad-Istwerte};
+\draw[fl] (sen) -- (bus) node[lbl, midway] {Messungen};
+\draw[fl] (eng.south west) |- (bus.north west);
+\draw[fl] (eng.east) |- node[lbl, pos=0.3, above, sloped] {read only} (gui.west);
+\draw[fl] (bus) -- (io) node[lbl, midway] {ROS-Themen};
+\draw[flw] (io) -- (ctrl);
+\draw[flw] (ctrl.east) -- ++(0.7,0) |- node[lbl, pos=0.62, right]
+  {\texttt{<robot>/wheel\_speeds}} (bus.east);
+
+\node[anchor=north west, font=\scriptsize\ttfamily, text=black!70]
+  at ($(sen.north west)+(0.25,0.26)$) {odom 50\,Hz \quad scan 20\,Hz \quad gps 5\,Hz};
+\node[anchor=north west, font=\scriptsize\itshape, text=black!60, align=left]
+  at ($(bus.south west)+(-0.15,-1.05)$)
+  {Ohne ROS übernimmt \texttt{stub.StubBus} alle Kanten — derselbe Studentencode.\\
+   \texttt{cmd\_vel} (Twist) läuft gegenläufig: Bewerter oder Teleop $\to$ Sim.};
+\end{tikzpicture}

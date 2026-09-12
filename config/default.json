@@ -1,0 +1,10 @@
+{
+  "_comment": "Alle Werte hier ueberschreiben mecanum_lab/types.py:DEFAULT_CONFIG. Schluessel darf man weglassen.",
+  "world": "maze",
+  "rate": 50,
+  "gui_rate": 30,
+  "debug_truth": false,
+  "lidar": {"beams": 360, "range_max": 8.0, "sigma": 0.015},
+  "gps": {"rate": 5.0, "sigma_xy": 0.06},
+  "odom": {"sigma_xy": 0.0015, "sigma_theta": 0.0012}
+}

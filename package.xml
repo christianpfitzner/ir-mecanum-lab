@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mecanum_lab</name>
+  <version>0.1.0</version>
+  <description>Kleiner 2D-Mecanum-Simulator (Pygame) mit ROS-2-Anbindung fuer den Praktikumsversuch 1.</description>
+  <maintainer email="praktikum@uni.example">Praktikum Intelligente Robotik</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>python3-pygame</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

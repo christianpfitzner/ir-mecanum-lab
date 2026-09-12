@@ -1,0 +1,9 @@
+# Der Simulator braucht nur pygame. Alles andere ist optional:
+#   ROS 2 (rclpy + std/geometry/nav/sensor/rosgraph_msgs) — nur fuer den ROS-Betrieb.
+#     Ohne ROS laeuft alles trotzdem, dann uebernimmt mecanum_lab/stub.py den Bus:
+#     ./lab run --robot alice --controller student/controller_template.py
+#   pytest — nur fuer die Tests (tests/).
+#
+# Ubuntu:  sudo apt install python3-pygame            (empfohlen, kein veno nötig)
+# sonst:   pip3 install -r requirements.txt
+pygame>=2.5

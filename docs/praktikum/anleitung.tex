@@ -1,0 +1,574 @@
+% Praktikumsanleitung Versuch 1 — Mecanum-Ansteuerung im 2D-Simulator mit ROS 2.
+% Bauen: make  (latexmk -pdf). Zwei TikZ-Figuren, keine externen Grafiken nötig.
+\documentclass[12pt,a4paper]{scrartcl}
+\usepackage[ngerman]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[a4paper,left=2.8cm,right=2.6cm,top=3.0cm,bottom=2.8cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,calc,arrows.meta,patterns,shapes.geometric}
+\usepackage[font=small,skipt=4pt]{caption}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,
+            citecolor=blue!55!black]{hyperref}
+\usepackage{cleveref}
+
+\lstset{language=Python, basicstyle=\ttfamily\small, columns=fullflexible,
+        keepspaces=true, tabsize=4, showstringspaces=false, breaklines=true,
+        keywordstyle=\bfseries, commentstyle=\itshape\color{black!55},
+        stringstyle=\color{black!65}, frame=l, framerule=0.3pt,
+        rulecolor=\color{black!30}, xleftmargin=6pt, framexleftmargin=6pt,
+        aboveskip=8pt, belowskip=6pt, numbers=none, escapechar=|}
+
+\newcommand{\thema}[1]{\texttt{#1}}
+\newcommand{\ordner}[1]{\texttt{#1}}
+\newcommand{\kommando}[1]{\texttt{#1}}
+\setlist[enumerate,1]{leftmargin=*,itemsep=2pt}
+\setlist[itemize,1]{leftmargin=*,itemsep=1pt,topsep=3pt}
+\hyphenation{Mechanik Messwerte}
+
+\title{\textbf{Mecanum-Ansteuerung im Simulator}\\[2pt]
+  \large Praktikumsversuch 1 — Intelligente Robotik}
+% TODO(integrator): Betreuer und Datum eintragen
+\author{Betreuung: Robotik-Labor}
+\date{Version 0.1 — Wintersemester}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Sie schreiben die \emph{Ansteuerung der vier Mecanum-Räder} eines mobilen Roboters.
+Dazu übersetzen Sie eine gewünschte Körpergeschwindigkeit in vier Radgeschwindigkeiten
+in \(\mathrm{rad/s}\) und veröffentlichen sie auf ein ROS-Thema. Ein kleiner
+2D-Simulator (Pygame, rund 1400 Zeilen Python) fährt Ihren Code in einer von drei
+Umgebungen und liefert Odometrie, LIDAR und eine globale Position zurück.
+Der Simulator ist absichtlich winzig: Sie können die Physik in einer halben Stunde
+lesen und sind damit in der Lage, ihn für eigene Fragen zu verändern.
+\end{abstract}
+
+\tableofcontents
+
+\section{Versuchsziel und Vorfragen}
+
+\subsection{Ziel}
+Nach dem Versuch können Sie
+\begin{itemize}
+  \item die Kinematik eines Mecanum-Fahrwerks aus der Rolleranordnung herleiten
+        und die Vorzeichen begründen (statt sie zu kopieren),
+  \item den Unterschied zwischen inverse und forward Kinematik sowie deren
+        pseudo-inverse Auflösung erklären,
+  \item einen ROS-2-Knoten schreiben, der Themen liest (\thema{odom}, \thema{scan},
+        \thema{gps}) und veröffentlicht (\thema{cmd\_vel}, \thema{wheel\_speeds}),
+  \item die Drift einer Dead-Reckening-Odometrie messen und einordnen.
+\end{itemize}
+Gearbeitet wird allein pro Person: ein Robotername pro Teilnehmer, ein Knoten pro
+Roboter. Der Bewerter misst ausschließlich über die Themen — wie Sie implementieren,
+steht Ihnen frei.
+
+\subsection{Vorfragen (vor dem Praktikumsstermin rechnen)}
+Verwenden Sie die Simulatorwerte aus \cref{tab:parameter}:
+\(l_x = 0{,}14\,\mathrm{m}\), \(l_y = 0{,}13\,\mathrm{m}\), \(r = 0{,}05\,\mathrm{m}\),
+\(a = l_x + l_y = 0{,}27\,\mathrm{m}\), maximale Radgeschwindigkeit
+\(w_{\max} = 12\,\mathrm{rad/s}\). Lösungen: \cref{sec:loesungen}.
+
+\begin{enumerate}
+  \item \textbf{Vorwärts.} Wie schnell dreht jedes der vier Räder bei
+        \(v_x = 0{,}4\,\mathrm{m/s}\), \(v_y = \omega = 0\)?
+  \item \textbf{Seitwärts.} Gesucht \(v_y = +0{,}25\,\mathrm{m/s}\) (nach links).
+        Berechnen Sie die vier Raddrehzahlen und erklären Sie, warum zwei Räder
+        negativ sind, obwohl der Roboter nicht dreht.
+  \item \textbf{Drehen auf der Stelle.} Für \(\omega = +1{,}2\,\mathrm{rad/s}\)
+        (gegen den Uhrzeigersinn): welche Vorzeichen haben VL und HL — und warum
+        dieselben?
+  \item \textbf{Diagonalfahrt.} \(v_x = v_y = 0{,}3\,\mathrm{m/s}\). Ein Rad steht
+        still. Welches? Welche Konsequenz hat das für die höchstfahrbare
+        Diagonalgeschwindigkeit, wenn alle Räder mit \(w_{\max}\) begrenzt sind?
+  \item \textbf{Rückwärtsrechnen.} Die Räder messen
+        \([w_\text{FL}, w_\text{FR}, w_\text{RL}, w_\text{RR}] =
+        [8, 0, 0, 8]\,\mathrm{rad/s}\). Bestimmen Sie \(v_x\), \(v_y\), \(\omega\)
+        und geben Sie Fahrtrichtung und Betrag an.
+\end{enumerate}
+
+\section{Das Mecanum-Prinzip}
+\subsection{Rolleranordnung}
+Ein Mecanum-Rad ist ein normales Rad, dessen Mantel aus schräg (45°) montierten
+Rollen besteht. Es kann damit (i) wie ein normales Rad angetrieben in seine
+Wirkrichtung \(d\) rollen und (ii) senkrecht dazu, \(f\), frei gleiten.
+In der Draufsicht zeigen die vier Wirkrichtungen nach vorn-innen; es entsteht ein X —
+die \emph{X-Anordnung} (Abbildung~\ref{fig:mecanum}).
+
+\begin{figure}[ht]
+  \centering
+  \input{figures/mecanum.tikz}
+  \caption{Mecanum-Fahrwerk von oben. Blaue Pfeile \(d\) = angetriebene
+    Wirkrichtung, gestrichelte Pfeile \(f\) = Freigleit-Richtung, schraffierte
+    Streifen = Rollen. Achsen und Vorzeichen sind exakt die des Simulators.}
+  \label{fig:mecanum}
+\end{figure}
+
+\subsection{Geschwindigkeitszerlegung an einem Rad}
+Der Schwerpunkt habe die Körpergeschwindigkeit \(\boldsymbol{\xi} =
+(v_x, v_y, \omega)^{\mathsf T}\); das Rad \(i\) sitze an der Stelle
+\(\mathbf p_i = (\pm l_x, \pm l_y)\). Sein Kontaktpunkt bewegt sich mit
+\begin{equation}
+  \mathbf v_i \;=\; \begin{pmatrix} v_x \\ v_y\end{pmatrix}
+  + \omega \begin{pmatrix} -p_{i,y} \\ p_{i,x}\end{pmatrix},
+  \qquad\text{z.\,B. für VL:}\quad
+  \mathbf v_\text{FL} = \begin{pmatrix} v_x - l_y\omega \\ v_y + l_x\omega\end{pmatrix}.
+\end{equation}
+Das Rad liefert nur in Wirkrichtung Drehzahl, in Freigleit-Richtung überträgt es
+nichts. Mit den Wirkrichtungen aus \cref{fig:mecanum},
+\(d_\text{FL} = (1,-1)\), \(d_\text{FR} = (1,1)\), \(d_\text{RL} = (1,1)\),
+\(d_\text{RR} = (1,-1)\) (Projektion ohne Normierung — der Faktor \(\sqrt2\) steckt in
+der effektiven Radradius-Kalibrierung), folgt \(r\,w_i = \mathbf v_i \cdot d_i\):
+\begin{align}
+  r\,w_\text{FL} &= (v_x - l_y\omega) - (v_y + l_x\omega) = v_x - v_y - a\,\omega
+   \label{eq:fl}\\
+  r\,w_\text{FR} &= (v_x + l_y\omega) + (v_y - l_x\omega) = v_x + v_y + a\,\omega
+   \label{eq:fr}\\
+  r\,w_\text{RL} &= (v_x - l_y\omega) + (v_y + l_x\omega) = v_x + v_y - a\,\omega
+   \label{eq:rl}\\
+  r\,w_\text{RR} &= (v_x + l_y\omega) - (v_y - l_x\omega) = v_x - v_y + a\,\omega
+   \label{eq:rr}
+\end{align}
+mit dem Gier-Hebelarm \(a = l_x + l_y\). Das ist die \textbf{inverse Kinematik} — Ihre
+Aufgabe in T1. Als Matrix (Radreihenfolge \([\)FL, FR, RL, RR\(]\)):
+\begin{equation}
+  \mathbf w = J\,\boldsymbol{\xi},\qquad
+  J = \frac{1}{r}\begin{pmatrix}
+    1 & -1 & -a\\ 1 & 1 & a\\ 1 & 1 & -a\\ 1 & -1 & a
+  \end{pmatrix}.
+  \label{eq:J}
+\end{equation}
+
+\subsection{Vorwärtskinematik als Pseudo-Inverse}
+Gesucht ist \(\boldsymbol\xi\) aus gemessenen Raddrehzahlen, also \(\mathbf w = J
+\boldsymbol\xi\) mit vier Gleichungen und drei Unbekannten. Da \(J\) Spaltenrank 3 hat,
+ist die Moore-Penrose-Lösung \(^+\)die Pseudo-Inverse
+\(J^{+} = (J^{\mathsf T}J)^{-1}J^{\mathsf T}\). Es ist
+\(J^{\mathsf T}J = \tfrac{1}{r^2}\operatorname{diag}(4,4,4a^2)\) — die drei
+Freiheitsgrade sind also \emph{entkoppelt}, und es ergibt sich
+\begin{equation}
+  J^{+} = \frac{r}{4}\begin{pmatrix}
+    1 & 1 & 1 & 1\\ -1 & 1 & 1 & -1\\
+    -\tfrac{1}{a} & \tfrac{1}{a} & -\tfrac{1}{a} & \tfrac{1}{a}
+  \end{pmatrix}
+  \;\Rightarrow\;
+  \begin{aligned}
+    v_x    &= \tfrac{r}{4}\,(w_\text{FL} + w_\text{FR} + w_\text{RL} + w_\text{RR})\\
+    v_y    &= \tfrac{r}{4}\,(-w_\text{FL} + w_\text{FR} + w_\text{RL} - w_\text{RR})\\
+    \omega &= \tfrac{r}{4a}\,(-w_\text{FL} + w_\text{FR} - w_\text{RL} + w_\text{RR})
+  \end{aligned}
+  \label{eq:fk}
+\end{equation}
+Der Simulator benutzt \cref{eq:fk} für die Odometrie: Was die Räder tatsächlich
+machen, entscheidet, wo der Roboter ankommt — nicht das, was Sie wollten. Deshalb
+wirkt sich ein falsches Vorzeichen in T1 sofort als Fehlfahrt aus.
+
+\begin{quote}\small
+\textbf{Vorzeichen-Box (Merksatz).}\ \newline
+\(x\) nach vorn, \(y\) nach \textbf{links}, \(\theta\) gegen den Uhrzeigersinn positiv.
+Radreihenfolge in \emph{allen} Themen: \([\)FL, FR, RL, RR\(^] = [\text{VL}, \text{VR},
+\text{HL}, \text{HR}]\). Drehzahl in \(\mathrm{rad/s}\), Körpergeschwindigkeit in
+\(\mathrm{m/s}\) bzw. \(\mathrm{rad/s}\).
+\end{quote}
+
+\section{Der Simulator}
+\subsection{Architektur}
+\begin{figure}[ht]
+  \centering
+  \input{figures/architektur.tikz}
+  \caption{Datenfluss. Der geschlossene Regelkreis läuft über \thema{wheel\_speeds}:
+    Nur Ihre vier Radzahlen bestimmen die Pose. Der Renderer ist rein lesend.}
+  \label{fig:architektur}
+\end{figure}
+
+Der Simulator existiert in zwei Spielarten, am selben Code:
+\emph{mit} ROS 2 (\ordner{ros\_bridge.py} → echter DDS-Bus) und \emph{ohne} ROS
+(\ordner{stub.py} → Bus im selben Prozess). Für Sie ist der Studentencode identisch.
+
+\subsection{Themen und Typen}
+Frames: \thema{map} (Welt), \thema{odom} (Odometrie-Ursprung), \thema{base\_link}
+(Roboter), \thema{laser}. Roboternamen tragen ihre Themen als Namensraum.
+
+\begin{table}[ht]\centering\small
+\caption{ROS-Schnittstelle (Pfad \thema{<robot>} = Robotername).}
+\label{tab:themen}
+\begin{tabular}{@{}p{4.3cm}p{4.9cm}p{5.2cm}@{}}
+\toprule
+Thema & Typ (ROS 2) & Bedeutung \\
+\midrule
+\thema{<robot>/cmd\_vel} & \thema{geometry\_msgs/msg/Twist}
+  & Soll-Körpergeschwindigkeit; \(v_y>0\) heißt \emph{links} \\
+\thema{<robot>/wheel\_speeds} & \thema{std\_msgs/msg/Float64MultiArray} (4)
+  & Ihre vier Radzahlen in \(\mathrm{rad/s}\) — der Übungsteil \\
+\thema{<robot>/odom} & \thema{nav\_msgs/msg/Odometry}
+  & Dead Reckoning aus \emph{gemessenen} Raddrehzahlen, verrauscht \\
+\thema{<robot>/scan} & \thema{sensor\_msgs/msg/LaserScan}
+  & 360 Strahlen über \(2\pi\); Strahl 0 zeigt in Fahrtrichtung, wachsender Index
+  gegen den Uhrzeigersinn; kein Treffer \(=\) \thema{range\_max} \\
+\thema{<robot>/gps} & \thema{geometry\_msgs/msg/PoseStamped}
+  & globale Position (UWB/MoCap-Charakter), verrauscht \\
+\thema{<robot>/truth} & \thema{geometry\_msgs/msg/PoseStamped}
+  & exakte Pose — nur, wenn \thema{debug\_truth} eingeschaltet ist \\
+\thema{<robot>/mission\_state} & \thema{std\_msgs/msg/String}
+  & \thema{idle}, \thema{running}, \thema{done}, \thema{failed:<grund>} \\
+\thema{/sim/robots} & \thema{std\_msgs/msg/String} (JSON)
+  & alle Roboter mit Farbe, Marker, Motorvariante, Modus \\
+\thema{/sim/world} & \thema{std\_msgs/msg/String} (JSON)
+  & Weltname, Größe, Ziel, Startposes \% TODO(integrator): in CONTRACT 3 ergänzen \\
+\thema{/sim/task} & \thema{std\_msgs/msg/String}
+  & aktiver Auftrag des Bewerters \\
+\thema{/sim/spawn\_robot} & Service, siehe \cref{sec:service}
+  & Roboter hinzufügen (eindeutiger Name Pflicht) \\
+\thema{/sim/despawn\_robot} & Service, siehe \cref{sec:service}
+  & Roboter entfernen \\
+\thema{/sim/reset} & \thema{std\_srvs/srv/Trigger} & alle Roboter zurück an den Start \\
+\thema{/clock} & \thema{rosgraph\_msgs/msg/Clock} & Simulationszeit (\thema{use\_sim\_\_time}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Was verrauscht, was exakt ist}
+\begin{table}[ht]\centering\small
+\caption{Parameter aus \ordner{config/default.json} (Auszug).}
+\label{tab:parameter}
+\begin{tabular}{@{}llp{7.3cm}@{}}
+\toprule
+Größe & Wert & Bemerkung \\
+\midrule
+Physikrate & 50 Hz & feste Schrittweite, damit Läufe reproduzierbar sind \\
+Odometrie & 50 Hz & Rauschen \(\sigma_{\text{wheel}}=0{,}04\,\mathrm{rad/s}\) auf
+  jeder Radmessung \(\Rightarrow\) integrierte Drift; \(\sigma_{xy}=1{,}5\,\mathrm{mm}\),
+  \(\sigma_\theta=1{,}2\,\mathrm{mrad}\) auf dem Ausgang \\
+LIDAR & 20 Hz & 360 Strahlen, \(0\ldots8\,\mathrm{m}\), \(\sigma=15\,\mathrm{mm}\);
+  Roboter sehen sich in Versuch 1 nicht \\
+Globale Position & 5 Hz & \(\sigma_{xy}=6\,\mathrm{cm}\), \(\sigma_\theta=0{,}03\,\mathrm{rad}\) \\
+Motor & \(\tau=0{,}06\,\mathrm{s}\) & Trägheit 1. Ordnung,
+  \(|\dot w|\le 40\,\mathrm{rad/s^2}\), \(|w|\le 12\,\mathrm{rad/s}\) \\
+Kommando-Wachdog & 0{,}35 s & ohne neue Meldungrollen die Räder aus \\
+Kollision & Kreis \(r=0{,}21\,\mathrm{m}\) & Position wird aus der Wand geschoben,
+  Berührungen zählen (\thema{contacts}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Exakt (deterministisch, kein Rauschen) sind nur die \emph{Wahrheit} in
+\ordner{physics.py} und — falls eingeschaltet — das Thema \thema{<robot>/truth}.
+Schlupf wird nicht modelliert: vier Radzahlen ergeben eindeutig
+\((v_x,v_y,\omega)\) nach \cref{eq:fk}.
+
+\subsection{pass-through-Modus und wheels-Modus}
+Damit der erste Tag nicht an der Kinematik scheitert, startet jeder Roboter im
+\textbf{pass-through}-Modus: Kommt \thema{cmd\_vel} und \emph{nie} eine
+\thema{wheel\_speeds}-Meldung, rechnet die Simulation die Twist selbst in vier Räder —
+der Roboter fährt, als wäre Ihre Lösung schon richtig. Senden Sie die erste
+\thema{wheel\_speeds}-Meldung, kippt der Roboter für immer in den
+\textbf{wheels}-Modus: jetzt gilt ausschließlich, was Sie rechnen (Modus steht in
+\thema{/sim/robots} und im HUD). Ein kaputtes Vorzeichen ist damit sofort sichtbar —
+und genau so gemeint.
+
+\section{Inbetriebnahme}
+\subsection{Installation}
+\begin{lstlisting}[language=bash]
+sudo apt install python3-pygame          # Ubuntu, reicht fuer den Stub-Modus
+git clone <repo>                          # folgt im naechsten Schritt des Praktikums
+cd mecanum-lab
+./lab run --world maze --robot alice      # Sim + Ihr Knoten, EIN Prozess, kein ROS
+\end{lstlisting}
+Mit ROS 2 (getestet mit Kilted/Jazzy, Ubuntu 24.04):
+\begin{lstlisting}[language=bash]
+source /opt/ros/$ROS_DISTRO/setup.bash
+./lab sim --world production --robots alice     # Sim solo, veroeffentlicht ROS-Themen
+\end{lstlisting}
+\subsection{Ausprobieren}
+\begin{lstlisting}[language=bash]
+./lab teleop --robot alice               # Twist-Fernsteuerung auf cmd_vel
+./lab robots                             # wer faehrt, in welchem Modus?
+ros2 topic list
+ros2 topic echo /alice/odom --once
+ros2 topic hz   /alice/scan              # ~20 Hz
+ros2 topic echo /alice/wheel_speeds      # Ihre vier Radzahlen
+\end{lstlisting}
+\subsection{Roboter per Service anlegen}\label{sec:service}
+Ein Roboter pro Teilnehmer, Name eindeutig (\thema{[a-z][a-z0-9\_]\{1,23\}}).
+\textbf{Achtung ROS 2:} anders als in ROS 1 gibt es \emph{kein} gebautes
+\thema{std\_srvs/SetString}. Der Simulator bietet deshalb zwei Wege, die Aufrufer
+gleichermaßen funktionieren:
+\begin{enumerate}
+  \item \textbf{Eigenes Interface} (empfohlen, eine einmalige Übung in
+        \texttt{.srv}-Definitionen):
+\begin{lstlisting}
+# interfaces/mecanum_lab_interfaces/srv/SpawnRobot.srv
+string name        # eindeutig
+string variant     # "" = automatisch (stock|slow|fast|agile)
+---
+bool success
+string message
+uint8 index
+string color
+string marker
+float64 x
+float64 y
+float64 theta
+\end{lstlisting}
+\begin{lstlisting}[language=bash]
+colcon build --packages-select mecanum_lab_interfaces
+source install/setup.bash
+ros2 service call /sim/spawn_robot mecanum_lab_interfaces/srv/SpawnRobot \
+  "{name: alice, variant: ''}"
+\end{lstlisting}
+  \item \textbf{JSON-Fallback ohne Interface-Bau}: Handshake über Themen,
+        \thema{/sim/spawn\_robot/request} (\thema{std\_msgs/String}, JSON) →
+       Antwort auf \thema{/sim/spawn\_robot/result}, Timeout 2\,s.
+\end{enumerate}
+Beide Wege kapseln \kommando{./lab spawn --name alice} und
+\kommando{./lab despawn --name alice}; der Bewerter benutzt ebenfalls diesen Weg.
+\subsection{Stolperfallen}
+\begin{itemize}
+  \item \textbf{Kein DISPLAY} (SSH, CI): \kommando{SDL\_VIDEODRIVER=dummy} oder
+        \kommando{./lab sim --headless}.
+  \item \textbf{ROS nicht gerodet}: \kommando{ros2} fehlt → alles läuft automatisch
+        über den Stub-Bus; \thema{ros2 topic list} zeigt dann natürlich nichts.
+  \item \textbf{use\_sim\_\_time}: Knoten mit Wanduhrzeit statt \thema{/clock}
+        vergleichen Zeitstempel falsch → \kommando{--ros-args -p use\_sim\_time:=true}.
+  \item \textbf{Name bereits vergeben}: \thema{success=false},
+        \thema{message="name vergeben"} — erst \kommando{./lab despawn}, dann neu.
+  \item \textbf{Namensraum}: Themen hängen am Roboternamen, \thema{/alice/odom} ≠
+        \thema{/bob/odom}. Wer keinen Roboternamen übergibt, wartet ins Leere.
+  \item \textbf{Funkstille}: ohne Meldung innerhalb 0{,}35\,s rollen die Räder aus —
+        Ihr Knoten muss mit \(\ge 10\,\mathrm{Hz}\) senden.
+\end{itemize}
+
+\section{Aufgaben}\label{sec:aufgaben}
+Alle Schwellen stehen in \ordner{config/tasks.json} und sind dort änderbar; der
+Bewerter misst nur über Themen. Ausgeführt wird in der Produktionsumgebung,
+\kommando{./lab grade --robot alice --task alle} (Punkte pro Auftrag in
+\cref{tab:aufgaben}).
+
+\begin{table}[ht]\centering\small
+\caption{Aufträge, Punkte, Erfolgsbedingungen.}
+\label{tab:aufgaben}
+\begin{tabular}{@{}p{1.35cm}p{6.7cm}p{2.4cm}p{4.2cm}@{}}
+\toprule
+ID & Inhalt & Grenze & Punkte \\
+\midrule
+\thema{kinematik} & T1: \thema{cmd\_vel} \(\rightarrow\) vier Räder. Drei Phasen zu je
+  3\,s: \(v_x=0{,}3\); \(v_y=0{,}3\); \(\omega=0{,}6\).
+  & \begin{tabular}{@{}l@{}}\(\Delta x>0{,}35\,\mathrm{m}\)\\ \(\Delta y>0{,}35\,\mathrm{m}\)\\
+  \(\Delta\theta>0{,}9\,\mathrm{rad}\)\\ je \(|\text{Rest}|<0{,}12\,\mathrm{m}\)\end{tabular}
+  & 30 \\
+\thema{quadrat} & T2: Quadratfahrt, vier Seiten \(1{,}0\,\mathrm{m}\), \(90^\circ\)
+  CCW, nur mit Odometrie. & Abschluss \(<0{,}20\,\mathrm{m}\), \(\Delta\theta<15^\circ\),
+  Weg \(3{,}2\ldots9{,}0\,\mathrm{m}\), 0 Berührungen, \(<90\,\mathrm{s}\) & 30 \\
+\thema{korridor} & T3: Ziel der Welt anfahren, LIDAR verhindert jede Wandberührung.
+  & Zielfehler \(<0{,}25\,\mathrm{m}\), 0 Berührungen, seitlicher Abstand
+  \(>0{,}16\,\mathrm{m}\) bei Geradaus (\(|\omega|<0{,}25\)) & 30 \\
+\thema{gps\_anfahrt} & T4 (Bonus): mit GPS-Rückführung zur eigenen Startpose.
+  & Fehler \(<0{,}25\,\mathrm{m}\), 0 Berührungen, \(<90\,\mathrm{s}\) & 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{T1 — Inverse Kinematik (30 Punkte)}
+Sie ergänzen in \ordner{student/controller\_template.py} genau eine Funktion. Der
+Rest des Knotens (Themen, Takt, Wachdog) ist vorbereitet:
+\begin{lstlisting}
+def inverse_kinematics(vx, vy, omega):
+    """[VL, VR, HL, HR] in rad/s — Konvention aus Abschnitt 2."""
+    a = LX + LY                      # TODO: Hebelarm fuer Gier
+    return [(vx - vy - a * omega) / R,   # TODO: VL
+            (vx + vy + a * omega) / R,   # TODO: VR
+            (vx + vy - a * omega) / R,   # TODO: HL
+            (vx - vy + a * omega) / R]   # TODO: RR
+\end{lstlisting}
+\textbf{Teilschritte.} (1) Stub-Modus starten, Teleop benutzen, im HUD die
+Räder beobachten. (2) Ein Vorzeichen nach dem anderen abprüfen: nur \(v_x\), dann nur
+\(v_y\), dann nur \(\omega\). (3) \kommando{./lab grade --task kinematik} laufen
+lassen. \textbf{Lernziel:} Vorzeichen aus der Rollergeometrie verstehen, nicht raten.
+
+Der Simulator selbst rechnet (Auszug aus \ordner{mecanum\_lab/physics.py}, Ihre
+Rechnung muss auf dieselben Werte kommen):
+\begin{lstlisting}
+def inverse_kinematics(g, vx, vy, omega) -> list:
+    """Kuerpergeschwindigkeit -> vier Solldrehzahlen [VL, VR, HL, HR] in rad/s."""
+    a = g.arm
+    return [(vx - vy - a * omega) / g.r, (vx + vy + a * omega) / g.r,
+            (vx + vy - a * omega) / g.r, (vx - vy + a * omega) / g.r]
+
+def forward_kinematics(g, wheels) -> tuple:
+    """Vier Radgeschwindigkeiten -> (vx, vy, omega); exakte Umkehrung der obigen Zeilen."""
+    fl, fr, rl, rr = wheels
+    a = g.arm
+    return (g.r / 4 * (fl + fr + rl + rr),
+            g.r / 4 * (-fl + fr + rl - rr),
+            g.r / (4 * a) * (-fl + fr - rl + rr))
+\end{lstlisting}
+
+\subsection*{T2 — Quadratfahrt mit Odometrie (30 Punkte)}
+Erweitern Sie \thema{mission(rob, task)}: vier Seiten \(1{,}0\,\mathrm{m}\), jeweils
+\(90^\circ\) gegen den Uhrzeigersinn, Rückführung über \thema{rob.odom()}.
+Melden Sie \thema{done}, wenn Sie wieder an der Startpose sind. Typischer Weg:
+Geradeaus-P-Drehregelung auf den Achsenfehler, Totband für die Drehung,
+Zwischenziele in der Odometrie gespeichert. Messen Sie zusätzlich Ihren
+Abschlussfehler und kommentieren Sie, woher er kommt (Drift, Trägheit, Winkel
+darstellung).
+
+\subsection*{T3 — Ziel anfahren, der LIDAR schützt (30 Punkte)}
+Ziel: \thema{goal} der Welt (steckt als JSON in \thema{/sim/world}). Richtung und
+Strecke aus der Odometrie, Sicherheit aus \thema{rob.scan()}: seitlicher Abstand
+\(>0{,}16\,\mathrm{m}\), \emph{keine} Wandberührung (\thema{contacts}=0). Sinnvolle
+Bausteine: Vokablen aus Strahlmittelwerten (nicht einzelne Strahlen!),
+Geschwindigkeitsreduktion mit dem vorderen Mindestabstand, Not-Stopp.
+
+\subsection*{T4 — Bonus: GPS statt Odometrie (10 Punkte)}
+Rückweg zur eigenen Startpose, aber geregelt auf \thema{rob.gps()}. Beobachten und
+kommentieren Sie: Totzone eines P-Reglers, Messrauschen als Zittern, 5\,Hz gegen
+50\,Hz Odometrie.
+
+\section{Abgabe und Bewertung}
+\begin{itemize}
+  \item Abgegeben wird \ordner{student/<name>\_controller.py} in Ihrem Branch/Ordner;
+        Robotername = Dateiname = Teilnehmerkürzel.
+  \item Der Autograder ist maßgeblich:
+        \kommando{./lab grade --robot <name> --task alle --json ergebnis.json}.
+        Ein Lauf pro Abgabe, Werte aus \cref{tab:aufgaben}.
+  \item Dazu eine kurze README (\(\le 20\) Zeilen): Vorgehen, bekannte Probleme,
+        was Sie anders machen würden.
+  \item Selbsttest vor der Abgabe: \kommando{./lab run --robot test --controller
+        student/<name>\_controller.py --headless} und
+        \kommando{python3 -m pytest tests -q}.
+\end{itemize}
+\subsection*{Mussertext für die Commit-Meldung}
+\begin{lstlisting}[language=bash, frame=none, xleftmargin=0pt]
+T2: Quadratfahrt mit Odometrie (1.0 m, 90 Grad CCW)
+
+- inverse_kinematics auf Konvention Abschnitt 2 korrigiert (vy vorzeichenrichtig)
+- Drehrueckfuehrung ueber odom.theta, Totband 0.03 rad, P-Gewinn 1.6
+- bekannt: Abschlussfehler ~0.15 m durch Drift; GPS (T4) waere die naechste Stufe
+\end{lstlisting}
+\subsection*{Bewertungsraster}
+\begin{table}[ht]\centering\small
+\begin{tabular}{@{}p{7.6cm}p{2.6cm}p{4.2cm}@{}}
+\toprule
+Kriterium & Punkte & geprüft durch \\
+\midrule
+T1 Kinematik (drei Phasen je 10 P) & 30 & Autograder \\
+T2 Quadratfahrt (Abschluss 20, Fahrqualität 10) & 30 & Autograder \\
+T3 Ziel ohne Berührung (Zielfehler 20, Abstand 10) & 30 & Autograder \\
+T4 Bonus GPS & 10 & Autograder \\
+ kurzes Resümee im README & 0–5 & Betreuung \\
+\bottomrule
+\end{tabular}
+\end{table}
+\subsection*{Hilfsmittel und Selbstständigkeit}
+Abschreiben von Lösungsteilen (auch aus generierten Antworten anderer Personen oder
+Sprachmodelle) führt zum Rücktritt des Versuchs; diskutieren dürfen Sie alles.
+Hilfsmittel: Skript, diese Anleitung, \ordner{docs/}, Ihre eigenen Notizen. Die
+Musterlösung \ordner{student/solution.py} ist im Repo und wird \emph{erst nach
+Abgabeschluss} freigegeben \% TODO(integrator): Freigabezeitpunkt festlegen.
+Die vier Aufträge sind hintereinander zu bearbeiten; T1 ist Voraussetzung für alles
+andere.
+
+\section{Ausblick}
+\begin{itemize}
+  \item \textbf{Versuch 2 — Odometrie-Fusion}: Odometrie (50 Hz, Drift) mit GPS
+        (5 Hz, verrauscht) zu einem Schätzer kombinieren; Kompass fehlt bewusst.
+  \item \textbf{Versuch 3 — Pfadfolgen}: Rundkurs-Welt, Follow-the-Corridor mit
+        LIDAR, Geschwindigkeitsbegrenzung durch Kurvenradius.
+  \item \textbf{Versuch 4 — Mehrroboter}: mehrere Roboter, eigene Namensräume,
+        Kollisionen zwischen Robotern (dafür muss \ordner{sensors.py} erweitert
+        werden — genau die Art Änderung, die der kleine Simulator erlaubt).
+\end{itemize}
+
+\appendix
+\section{Themen-, Typen- und API-Übersicht}
+\subsection*{Nachrichtenaufbau (Auszug)}
+\begin{lstlisting}
+# /alice/wheel_speeds : std_msgs/msg/Float64MultiArray
+msg.data = [w_FL, w_FR, w_RL, w_RR]      # rad/s, Reihenfolge ist Vertrag
+
+# /alice/odom : nav_msgs/msg/Odometry
+odom.pose.pose.position.{x,y}            # Weltkarte, Framework odom
+odom.pose.pose.orientation.z, .w         # Quaternion um z (theta)
+odom.twist.twist.linear.{x,y}            # Koerpferam, y nach links
+odom.twist.twist.angular.z               # rad/s, CCW positiv
+
+# /alice/scan : sensor_msgs/msg/LaserScan
+scan.angle_min = 0.0                     # Strahl 0 = Fahrtrichtung
+scan.angle_increment = 2*pi/360          # wachsender Index: CCW
+scan.ranges[i]                           # m; kein Treffer = range_max (8.0)
+
+# /alice/gps : geometry_msgs/msg/PoseStamped   (Framework map)
+# /sim/world : std_msgs/msg/String, JSON: name, size, goal, spawns, walls
+\end{lstlisting}
+\subsection*{Studentische API (\texorpdfstring{\ordner{robot\_io.py}}{robot_io.py})}
+\begin{lstlisting}
+rob = RobotIO("alice")           # ./lab run --robot alice
+rob.cmd_vel()                    # Twist oder None
+rob.odom(); rob.gps(); rob.scan()
+rob.age("odom")                  # Alter der letzten Messung in s
+rob.send_wheels([w1, w2, w3, w4])
+rob.publish_cmd_vel(vx, vy, omega)
+rob.set_mission_state("done")
+rob.task(); rob.world(); rob.robots()
+serve(module)                    # Runner hinter der einen Zeile im Template
+\end{lstlisting}
+\textbf{Vertrag mit \thema{serve}:} Ist \thema{/sim/task} leer oder
+\thema{kinematik}, wird jede \thema{cmd\_vel} mit \thema{inverse\_kinematics} in
+Räder übersetzt. Bei einem anderen Auftrag wird genau einmal \thema{mission(rob,
+task)} aufgerufen und der Zustand gemeldet. \% TODO(integrator): finalen Wortlaut des
+Templates prüfen
+
+\section{Formelsammlung}
+\begin{align}
+  \text{IK: } r\begin{pmatrix}w_\text{FL}\\w_\text{FR}\\w_\text{RL}\\w_\text{RR}\end{pmatrix}
+  &= \begin{pmatrix}v_x - v_y - a\omega\\ v_x + v_y + a\omega\\
+     v_x + v_y - a\omega\\ v_x - v_y + a\omega\end{pmatrix},
+   && a = l_x + l_y \\
+  \text{FK: } v_x = \tfrac{r}{4}\textstyle\sum_i w_i,\quad
+   v_y = \tfrac{r}{4}(-w_\text{FL}+w_\text{FR}+w_\text{RL}-w_\text{RR}),\quad
+   \omega = \tfrac{r}{4a}(-w_\text{FL}+w_\text{FR}-w_\text{RL}+w_\text{RR}) \\
+  \text{Grenze: } v_{\max} = r\,w_{\max} = 0{,}6\,\mathrm{m/s},\qquad
+   \omega_{\max} = \frac{r\,w_{\max}}{a} = 2{,}22\,\mathrm{rad/s}
+   \quad(\text{jeweils für } v_y \text{ bzw. reine Drehung}) \\
+  \text{Winkel normieren: } \theta \in (-\pi,\pi],\quad
+   \Delta\theta = \mathrm{wrap}(\theta_\text{Ziel} - \theta_\text{ist})
+\end{align}
+
+\section{Lösungen der Vorfragen}\label{sec:loesungen}
+\begin{enumerate}
+  \item Alle vier gleich: \(w = v_x/r = 0{,}4/0{,}05 = 8\,\mathrm{rad/s}\).
+        \(a\) spielt keine Rolle, \(\omega=0\).
+  \item \(w_\text{FL} = -v_y/r = -5\), \(w_\text{FR} = +5\), \(w_\text{RL} = +5\),
+        \(w_\text{RR} = -5\,\mathrm{rad/s}\). Die Räder müssen \emph{gegeneinander}
+        arbeiten, weil jede Rolle nur längs \(d\) Kraft überträgt: die linke
+        Radseite wird nach hinten, die rechte nach vorn geschoben, die Freigleit-
+        richtungen lassen die Längsbewegung des Fahrzeugs zu. Kein Giermoment,
+        weil sich die Hebel aufheben (\(-,+ ,+,-\) mit Vorzeichen aus \cref{eq:fl,eq:fr,eq:rl,eq:rr}).
+  \item \(w = \mp a\omega/r = \mp 0{,}27\cdot1{,}2/0{,}05 = \mp 6{,}48\,\mathrm{rad/s}\),
+        konkret \([-6{,}48, +6{,}48, -6{,}48, +6{,}48]\). VL und HL haben dasselbe
+        Vorzeichen, weil bei reiner Drehung das Vorzeichen nur von \(x_i\) (Radpaar
+        vorne/hinten) und dem Drehsinn abhängt — nicht von links/rechts; die
+        Seitwärtsanteile sind hier Null.
+  \item \(w_\text{FL} = w_\text{RR} = (0{,}3-0{,}3)/0{,}05 = 0\),
+        \(w_\text{FR} = w_\text{RL} = 12\,\mathrm{rad/s}\). Stillstand bei VL/RR ist
+        korrekt. Bei \(w_{\max}=12\) ist die Diagonale gerade grenzwertig:
+        \((v_x - v_y) = 0\), \((v_x+v_y)=0{,}6 = r\,w_{\max}\) — diagonal ist bei
+        \(v_x = v_y = 0{,}3\,\mathrm{m/s}\) Schluss, obwohl längs \(0{,}6\) ginge.
+  \item \(v_x = \tfrac{0{,}05}{4}(8+0+0+8) = 0{,}2\,\mathrm{m/s}\),
+        \(v_y = \tfrac{0{,}05}{4}(-8+0+0-8) = -0{,}2\,\mathrm{m/s}\) (nach rechts!),
+        \(\omega = \tfrac{0{,}05}{4\cdot0{,}27}(-8+0-0+8) = 0\). Betrag
+        \(\sqrt{2}\cdot0{,}2 = 0{,}283\,\mathrm{m/s}\), Richtung \(45^\circ\)
+        vorn-rechts. Als Soll-Kommando wäre das \((v_x, v_y) = (0{,}2, -0{,}2)\).
+\end{enumerate}
+
+\end{document}

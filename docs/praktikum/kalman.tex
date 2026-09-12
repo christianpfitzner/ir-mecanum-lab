@@ -1,0 +1,716 @@
+% Praktikumsarbeitsblatt Versuch 2 — Zustandsschätzung (Kalman-Filter) im 2D-Simulator.
+% Bauen: make kalman  (latexmk -pdf). Zwei TikZ-Figuren, keine externen Grafiken nötig.
+% Stil und Präambel folgen docs/praktikum/anleitung.tex (Versuch 1) — gleiche Pakete.
+\documentclass[12pt,a4paper]{scrartcl}
+\usepackage[ngerman]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[a4paper,left=2.8cm,right=2.6cm,top=3.0cm,bottom=2.8cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,calc,arrows.meta}
+\usepackage[font=small,skip=4pt]{caption}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,
+            citecolor=blue!55!black]{hyperref}
+\usepackage{cleveref}
+
+\lstset{language=Python, basicstyle=\ttfamily\small, columns=fullflexible,
+        keepspaces=true, tabsize=4, showstringspaces=false, breaklines=true,
+        keywordstyle=\bfseries, commentstyle=\itshape\color{black!55},
+        stringstyle=\color{black!65}, frame=l, framerule=0.3pt,
+        rulecolor=\color{black!30}, xleftmargin=6pt, framexleftmargin=6pt,
+        aboveskip=8pt, belowskip=6pt, numbers=none, escapechar=|}
+
+\newcommand{\thema}[1]{\texttt{#1}}
+\newcommand{\ordner}[1]{\texttt{#1}}
+\newcommand{\kommando}[1]{\texttt{#1}}
+\newcommand{\xhat}{\hat{x}}
+\setlist[enumerate,1]{leftmargin=*,itemsep=2pt}
+\setlist[itemize,1]{leftmargin=*,itemsep=1pt,topsep=3pt}
+\hyphenation{Messwerte Zustandsschaetzung Covarianz}
+
+\title{\textbf{Zustandsschätzung im Simulator}\\[2pt]
+  \large Praktikumsversuch 2 — Kalman-Filter für GPS, Odometrie und IMU}
+\author{Betreuung: Robotik-Labor}
+\date{Version 0.1 — Wintersemester}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Sie schätzen, Sie fahren nicht. Ein Bewerter setzt Ihren Roboter an den Start, fährt
+ihn durch eine vorgegebene Kommandofahrt und zeichnet dabei die exakte Pose
+(\thema{truth}) und Ihre Schätzung \thema{kf/pose} auf. Urteilt wird über Genauigkeit:
+RMSE gegen die Wahrheit, Verbesserungsverhältnis gegenüber dem Rohsensor, Maximalfehler
+während eines GPS-Funklochs und Konsistenz der von Ihnen angegebenen Standardabweichung
+(NEES). Dazu bauen Sie einen Kalman-Filter mit Zustandsvektor aus Position und
+Geschwindigkeit, füttern ihn mit GPS (langsam, verrauscht, zeitweise weg), Odometrie
+(schnell, driftend) und IMU (kurzfristig sauber, langfristig wertlos) und melden
+\emph{mit}, wie unsicher Sie sind. Der Simulator ist derselbe aus Versuch 1 — neu sind
+ein IMU-Rauschmodell, drei Themen und die Frage, ob Ihre Zahlen stimmen.
+\end{abstract}
+
+\tableofcontents
+
+\section{Versuchsziel und Vorfragen}\label{sec:vorfragen}
+\subsection{Ziel}
+Nach dem Versuch können Sie
+\begin{itemize}
+  \item einen Zustandsvektor \((x,y,v_x,v_y)\) mit einem CV-Modell prädizieren und jede
+        Messung mit ihrer eigenen Unsicherheit einarbeiten — Prädiktion, Update und
+        Kalman-Verstärkung aus \(P\), \(Q\) und \(R\), nicht aus dem Bauch,
+  \item die eigene Unsicherheit so angeben, dass sie \emph{stimmt}, und sie mit dem
+        normierten Fehlerquadratmittel (NEES) prüfen,
+  \item Odometrie-\emph{Twist} und Gyro-Drehrate als Bewegungsmodell benutzen, um ein
+        GPS-Funkloch von zehn Sekunden unter 1,8\,m Fehler zu überbrücken,
+  \item Drift (korreliert, wachsend) von Messrauschen (weiß, mittelwertfrei) trennen und
+        begründen, warum eine IMU niemals offen integriert wird,
+  \item aus einem Messprotokoll RMSE-Zeitreihen, eine \(Q\)/\(R\)-Tabelle und eine
+        NEES-Diskussion für den Bericht erzeugen.
+\end{itemize}
+
+\begin{quote}\small
+\textbf{Rollenverteilung.}\ \newline
+Der Bewerter setzt den Roboter vor \emph{jedem} KF-Auftrag neu an der Spawn-Pose ab und
+fährt die Kommandofolge aus \ordner{config/tasks.json} selbst über \thema{cmd\_vel}.
+Ihr Knoten sendet \emph{keine} Radgeschwindigkeiten und definiert keine
+\thema{inverse\_kinematics} — sonst konkurriert er mit dem Bewerter und der Lauf ist
+wertlos. Gearbeitet wird allein pro Person: ein Robotername, ein Filterknoten.
+\end{quote}
+
+\subsection{Vorfragen (vor dem Praktikumsstermin rechnen)}
+Verwenden Sie die Simulatorwerte aus \cref{tab:parameter}
+(\ordner{mecanum\_lab/types.py}: \texttt{DEFAULT\_CONFIG}) und die Prüfprofile aus
+\ordner{config/tasks.json}: Rauschendichte \(\sigma_a=0{,}002\,\mathrm{m/s^2/\sqrt{Hz}}\),
+Accelerometer-Bias \(b_a=0{,}05\,\mathrm{m/s^2}\), IMU-Rate \(100\,\mathrm{Hz}\),
+Radrauschen \(\sigma_\text{wheel}=0{,}04\,\mathrm{rad/s}\), GPS-Streuung
+\(0{,}5\,\mathrm{m}\). Lösungen: \cref{sec:loesungen}.
+
+\begin{enumerate}
+  \item \textbf{Was dominiert die IMU?} Eine Rauschendichte von
+        \(0{,}002\,\mathrm{m/s^2/\sqrt{Hz}}\) bei \(100\,\mathrm{Hz}\): welche
+        Standardabweichung hat \emph{eine} Stichprobe, und warum steht dort
+        \(\sqrt{\text{rate}/2}\)? Rechnen Sie den Wegfehler aus, den ein fester Bias von
+        \(0{,}05\,\mathrm{m/s^2}\) nach 10\,s Doppelintegration liefert, und vergleichen
+        Sie ihn mit dem Beitrag des weißen Rauschens nach derselben Zeit. Was folgt
+        daraus für die Filterpraxis?
+  \item \textbf{Rekursion von Hand.} Eindimensionales CV-Modell mit Zustand
+        \((x,v)^{\mathsf T}\), \(F=\left(\begin{smallmatrix}1&dt\\0&1\end{smallmatrix}\right)\),
+        \(H=\begin{pmatrix}1&0\end{pmatrix}\). Gegeben: \(\hat x=2{,}0\,\mathrm{m}\),
+        \(\hat v=0\), \(P=\operatorname{diag}(0{,}04;\ 1{,}0)\) in \(\mathrm{m^2}\) bzw.
+        \(\mathrm{m^2/s^2}\), \(dt=0{,}5\,\mathrm{s}\), \(q=0{,}6\,\mathrm{m^2/s^3}\),
+        \(R=0{,}25\,\mathrm{m^2}\), Messung \(z=2{,}40\,\mathrm{m}\). Bestimmen Sie
+        \(P^{-}\), die Verstärkung \(K\) (beide Einträge), \(\hat x^{+}\), \(\hat v^{+}\)
+        und die Standardabweichung der Position vor und nach dem Update.
+  \item \textbf{Drift ist kein weißes Rauschen.} Die Odometrie entsteht aus den
+        \emph{gemessenen} Radgeschwindigkeiten, und auf jeder steckt \(\sigma_\text{wheel}\).
+        Warum darf der \emph{Pose}-Fehler der Odometrie nicht als weißes Messrauschen mit
+        konstantem \(R\) in den Filter? Was machen Kovarianz und NEES, wenn es doch
+        getan wird?
+  \item \textbf{NEES.} Die Auswertung meldet für eine Fahrt \(\overline{\text{NEES}}=0{,}1\)
+        bzw. \(1\) bzw. \(8\). Was heißt das jeweils für die angegebene
+        Standardabweichung (Faktor, welche Richtung), und welcher der drei Werte fällt
+        durch das Band für K3 (\(0{,}15\ldots3{,}5\))?
+\end{enumerate}
+
+\section{Theorie: prädizieren, messen, abwägen}\label{sec:theorie}
+\subsection{Zustand, Prädiktion, Update, Kovarianz}
+Der Filter kennt einen Zustandsvektor \(\boldsymbol\xi\) und dessen Unsicherheit, die
+Kovarianz \(P\). Hier genügt zunächst \(\boldsymbol\xi=(x,y,v_x,v_y)^{\mathsf T}\) in
+Weltmetern; K4 verlangt einen weiteren Freiheitsgrad für die Drehrate. Es läuft immer
+derselbe Zyklus: \textbf{Prädiktion} über die echte Zeitspanne \(dt\) seit dem letzten
+Zustand, \textbf{Update}, sobald eine Messung \(z\) mit ihrer Unsicherheit \(R\) eintrifft.
+\begin{align}
+  \boldsymbol\xi^{-} &= F\,\boldsymbol\xi + \text{Antriebe},
+   && P^{-} = F\,P\,F^{\mathsf T} + Q
+   \label{eq:pradiktion}\\
+  \mathbf y &= z - H\,\boldsymbol\xi^{-},
+   && S = H\,P^{-}H^{\mathsf T} + R,\quad K = P^{-}H^{\mathsf T}S^{-1}
+   \label{eq:innovation}\\
+  \boldsymbol\xi^{+} &= \boldsymbol\xi^{-} + K\,\mathbf y,
+   && P^{+} = (I-KH)P^{-}(I-KH)^{\mathsf T} + KRK^{\mathsf T}
+   \label{eq:update}
+\end{align}
+Bei einer direkt gemessenen Größe ist \(K = P^{-}/(P^{-}+R)\): ist die Prognose
+unsicherer als die Messung, zieht der Filter zur Messung; ist \(P\) klein, passiert
+wenig. Die Stellschrauben bedeuten Verschiedenes: \(Q\) sagt, was dem \emph{Modell} fehlt
+(unerklärte Beschleunigung), \(R\), was dem \emph{Sensor} fehlt. Wer nur \(Q\) erhöht,
+macht den Filter unruhig; wer nur \(R\) erhöht, macht ihn träge. Beide bestimmen die
+Kovarianz — und damit die Kennzahlen, mit denen bewertet wird:
+\begin{equation}
+  \mathrm{NEES} = \frac1N\sum_i \frac12\!
+     \left(\frac{e_{x,i}^{2}}{s_{x,i}^{2}} + \frac{e_{y,i}^{2}}{s_{y,i}^{2}}\right),\quad
+  \mathrm{RMSE} = \sqrt{\langle e_x^2+e_y^2\rangle},\quad
+  \text{Verb.} = \frac{\mathrm{RMSE}_{\text{GPS}}}{\mathrm{RMSE}_{\text{KF}}}.
+  \label{eq:nees}
+\end{equation}
+Bei zwei Freiheitsgraden ist der erwartete NEES-Wert 1; ein Einzelwert bis etwa 5,99 ist
+bei \(\chi^2\)-Verteilung noch unauffällig. Ohne \cref{eq:update} in der Joseph-Form
+bleibt \(P\) nach Rundungsfehlern gern asymmetrisch — bei einem 4×4-Filter von Hand
+vermutlich die häufigste stille Quelle für NEES weit über 1.
+
+\subsection{Das CV-Modell in Matrizen}
+Konstante Geschwindigkeit heißt das Modell, weil es die Beschleunigung nicht kennt. In
+Matrizen (Weltframe, Radreihenfolge irrelevant, Zustand \((x,y,v_x,v_y)\)):
+\begin{equation}
+  F(dt) = \begin{pmatrix}1&0&dt&0\\0&1&0&dt\\0&0&1&0\\0&0&0&1\end{pmatrix},\quad
+  H = \begin{pmatrix}1&0&0&0\\0&1&0&0\end{pmatrix},\quad
+  R = \begin{pmatrix}\sigma_{\text{gps}}^2&0\\0&\sigma_{\text{gps}}^2\end{pmatrix},
+  \label{eq:cv}
+\end{equation}
+\begin{equation}
+  Q(dt) \;=\; q\,
+  \begin{pmatrix}\frac{dt^4}{4}&0&\frac{dt^3}{2}&0\\[2pt]
+                0&\frac{dt^4}{4}&0&\frac{dt^3}{2}\\[2pt]
+                  \frac{dt^3}{2}&0&dt^2&0\\[2pt]
+                0&\frac{dt^3}{2}&0&dt^2\end{pmatrix},
+  \qquad q\ \mathrm{in\ m^2/s^3}.
+  \label{eq:q}
+\end{equation}
+\(q\) ist die angenommene Unsicherheit der \emph{Beschleunigung}, also dessen, was das
+CV-Modell nicht darstellen kann; brauchbarer Start \(0{,}3\ldots1{,}0\), empfohlen in
+\texttt{kf.q\_acc} = 0,6 (\cref{tab:parameter}). \(\sigma_{\text{gps}}\) wird nicht
+geraten, sondern aus dem Sensorprofil gelesen
+(\kommando{rob.config("gps.sigma\_xy", 0.5)} bzw. \thema{/sim/config}). Ohne numpy reicht
+handschriftliche Matrizenmultiplikation: \cref{eq:cv} ist dünn besetzt, \cref{eq:q}
+blockweise — vier Zeilen Code je Achse. Zwei Dinge entscheiden über Gut oder Schlecht:
+\(dt\) ist die \emph{echte} Differenz der Messstempel (nicht ein gemittelter Fixwert), und
+es wird bis zum \emph{Messzeitpunkt} der eintreffenden Messung prädiziert, erst dann
+aktualisiert. Bei 5\,Hz GPS und 0,85\,m/s kosten 100\,ms Rückstand 8,5\,cm — das ist
+bereits ein Drittel des K4-Ziels.
+
+\subsection{Warum die Gyro kurzfristig und die Odometrie langfristig hilft}
+Zwei Fakten bestimmen die Architektur des Filters. \textbf{Erstens:} eine IMU misst
+Specific Force, und ihr Fehler wächst mit der Integrationsordnung. Die Werte aus
+\cref{tab:parameter} sagen: Gyro-Rauschen \(10^{-4}\,\mathrm{rad/s/\sqrt{Hz}}\) sind pro
+Stichprobe \(7{,}1\cdot10^{-4}\,\mathrm{rad/s}\) — vernachlässigbar; der Gyro-Bias
+\(5\cdot10^{-3}\,\mathrm{rad/s}\) ergibt in 10\,s immerhin \(0{,}05\,\mathrm{rad}\)
+(\(2{,}9^{\circ}\)) Kursfehler, der auf 10\,m Fahrt \(0{,}25\,\mathrm{m}\) Querfehler
+kostet. Beim Accelerometer wird aus \(0{,}05\,\mathrm{m/s^2}\) Bias durch
+\emph{zwei} Integrationen in 10\,s Wegfehler von \(\tfrac12 b t^2 = 2{,}5\,\mathrm{m}\).
+Deshalb: Drehrate ja (einmal integrieren, klein), Beschleunigung nur kurzfristig und nie
+offen — die IMU ist ein Bewegungsmodell für Sekundenbruchteile, kein Ortungsgerät.
+\textbf{Zweitens:} die Odometrie liefert zwei verschiedene Dinge. Ihre \emph{Pose} ist
+Dead Reckoning und driftet (Zufalls-spaziergang aus \(\sigma_\text{wheel}\),
+kursiert durch den Drehfehler). Ihr \emph{Twist} \((v_x,v_y,\omega)\) dagegen ist eine
+unmittelbare Messung: mit \(r=0{,}05\,\mathrm{m}\) und \(\sigma_\text{wheel}=0{,}04\) bis
+\(0{,}05\,\mathrm{rad/s}\) steckt auf \(v_x=\tfrac{r}{4}\sum_i w_i\) nur
+\(\approx 1\,\mathrm{mm/s}\) Rauschen \emph{ohne} Drift. Der gangbarste Filter tut daher:
+Prädiktion mit der \emph{gemessenen} Körpergeschwindigkeit (Odometrie-Twist, in die Welt
+gedreht) und der Gyro-Drehrate, Update der Position mit GPS. Wer stattdessen die
+Odometrie-\emph{Pose} als Messung mit festem \(R\) einwirft, doppelt information, die schon
+in der Prädiktion steckt — der dritte Weg ist, die Drift als eigenen Zustandswert
+(Bias) mitzuführen und \(R\) mit der Zeit wachsen zu lassen.
+
+\subsection{GPS: Rauschen, Bias, Funkloch, Modellfehler}
+Das GPS ist der einzige absolute Sensor. Sein Rauschen ist unbekannt korreliert, also
+geradezu gemacht für \(R\): \(\sigma_{xy}=0{,}5\,\mathrm{m}\) in K1/K3,
+\(0{,}8\,\mathrm{m}\) in K2, \(0{,}6\,\mathrm{m}\) in K4 — die Roh-RMSE liegt bei
+\(\sigma\sqrt2\approx0{,}7\,\mathrm{m}\) bzw. \(1{,}1\,\mathrm{m}\), und das
+Verbesserungsverhältnis in \cref{eq:nees} wird gegen genau diese Zahl gerechnet. Ein
+\emph{fester} Bias (\texttt{gps.bias\_xy}, Multi-Path) ist aus GPS allein
+unbeobachtbar: kein Filter kann ihn entfernen, wohl aber als konstante Unsicherheit in
+\(R\) tragen; \texttt{gps.bias\_step} legt ihn für ein Zeitfenster obendrauf und ist die
+Ausreißer-Übung. Das \textbf{Funkloch} schließlich (\texttt{gps.gap = [17, 10]} in K2)
+entwässert die Messseite vollständig: Die Prädiktion läuft weiter, die Kovarianz wächst
+nur noch über \(Q\), und der Fehler wächst mit der verstrichenen Zeit — begrenzt durch den
+Modellfehler, denn ein CV-Modell kann eine Kurve mit \(0{,}26\,\mathrm{rad/s}\) nicht
+vorhersagen. Deshalb steht in K2 nicht die Mittel-RMSE im Vordergrund, sondern der
+Maximalfehler in der Lücke (\(\le 1{,}8\,\mathrm{m}\)): Wer die Drehrate aus dem Gyro in
+den Zustandsvektor nimmt, übersteht die zehn Sekunden; wer rein CV betreibt, läuft
+bogenau der Hallenecke hinterher.
+
+\begin{figure}[ht]
+  \centering
+  \begin{tikzpicture}[
+    every node/.style={font=\small},
+    blk/.style={draw=black!70,line width=0.6pt,rounded corners=2pt,fill=black!5,
+                align=center,inner sep=4pt,minimum height=9mm},
+    sim/.style={blk,fill=blue!7,draw=blue!50!black},
+    stu/.style={blk,fill=green!9,draw=green!45!black,very thick},
+    bw/.style={blk,fill=orange!16,draw=black!60},
+    fl/.style={-{Stealth[length=2mm]},line width=0.7pt,draw=black!70},
+    fld/.style={-{Stealth[length=2mm]},line width=0.6pt,draw=black!45,dashed},
+    lbl/.style={font=\scriptsize\ttfamily,inner sep=1.5pt,fill=white,fill opacity=0.85},
+  ]
+  \node[bw] (gr) at (0,0) {Bewerter \\ \scriptsize grade.Grader};
+  \node[sim,right=20mm of gr] (eng) {Simulator \\ \scriptsize engine + sensors,
+    50\,Hz Physik};
+  \node[stu,below=22mm of eng] (kf) {Ihr Filter \\ \scriptsize student/kf\_template.py,
+    mission(rob, task)};
+  \node[blk,below=22mm of gr] (gui) {GUI \scriptsize\ render.py};
+  \draw[fl] (gr) -- node[lbl,above]{$\langle$robot$\rangle$/cmd\_vel} (eng);
+  \draw[fld] (eng) -- node[lbl,above,yshift=1pt]{$\langle$robot$\rangle$/truth
+    (nur debug\_truth)} (gr);
+  \draw[fl] ([xshift=9mm]eng.south) -- node[lbl,right,align=left] {$\langle$robot$\rangle$/imu
+    100\,Hz \\ $\langle$robot$\rangle$/gps 1\,bis 5\,Hz \\ $\langle$robot$\rangle$/odom 50\,Hz
+    \\ /sim/config} ([xshift=9mm]kf.north);
+  \draw[fl] ([xshift=-9mm]kf.north) -- node[lbl,left,align=right] {$\langle$robot$\rangle$/kf/pose
+    \\ \itshape kf/info} ([xshift=-9mm]eng.south);
+  \draw[fld] (gui) -- node[lbl,below]{$k$: Spur, GPS, Sch\"atzung, $2\sigma$} (kf);
+  \draw[fld] (gui.east) -- node[lbl,above]{$\langle$robot$\rangle$/odom, kf/pose} (eng.south west);
+  \node[font=\scriptsize,align=left,anchor=north west] at ($(gui.south west)+(0,-9mm)$)
+    {\emph{nie} von Ihnen gesendet: \ttfamily wheel\_speeds, cmd\_vel};
+  \end{tikzpicture}
+  \caption{Signalfuss von Versuch 2. Der Bewerter fährt, die Simulation liefert die
+    Sensoren, Sie liefern \thema{kf/pose} \emph{inklusive} Standardabweichung —
+    an der gemessenen Stelle, nicht an der Wahrheit.}
+  \label{fig:signalfuss}
+\end{figure}
+
+\begin{figure}[ht]
+  \centering
+  \begin{tikzpicture}[x=0.40cm, every node/.style={font=\scriptsize\sffamily}]
+  \draw[-{Stealth[length=1.8mm]}] (-0.4,0) -- (39.2,0);
+  \foreach \t in {0,5,...,35} {\draw[black!60] (\t,1.4mm) -- (\t,-1.4mm)
+    node[below=0.5pt,black!70] {\t};}
+  \node[anchor=west] at (37.6,-0.6) {$t$ in s};
+  \draw[fill=blue!14,draw=blue!55!black] (0,0.45) rectangle (6,1.15)
+    node[midway,font=\scriptsize\sffamily] {$v_x=0{,}6$};
+  \draw[fill=blue!26,draw=blue!55!black] (6,0.45) rectangle (31,1.15)
+    node[midway] {$v_x=0{,}6$, $\omega=0{,}26$ + überlagerte Sinusschwingung};
+  \draw[fill=blue!14,draw=blue!55!black] (31,0.45) rectangle (37,1.15)
+    node[midway] {$v_x=-0{,}6$};
+  \node[align=right,anchor=south east] at (0,1.25) {Kommandofahrt};
+  \foreach \t in {0.5,1.5,...,16.5,27.5,28.5,...,37.5}
+    \draw[black!75] (\t,1.75) -- (\t,2.25);
+  \node[anchor=south east] at (0,2.3) {GPS-Fixe 1\,Hz};
+  \draw[fill=red!22,draw=red!60!black] (17,1.65) rectangle (27,2.35)
+    node[midway,text=black] {Funkloch \ttfamily gps.gap=[17,10]};
+  \draw[dashed,black!70] (4,-0.9) -- (4,3.1)
+    node[above,align=center] {\ttfamily einlauf: 4\\ \scriptsize hier beginnt die Messung};
+  \draw[fill=green!20,draw=green!45!black] (0,-0.75) rectangle (37,-0.3)
+    node[midway] {Ihre Meldungen auf $\langle$robot$\rangle$/kf/pose, mindestens 5\,Hz};
+  \node[anchor=north west,text=red!60!black] at (17,-0.95)
+    {hier zählt der Maximalfehler: $\le 1{,}8$\,m};
+  \end{tikzpicture}
+  \caption{Zeitstrahl des Auftrags \thema{kf\_fusion}: Kommandosegmente aus
+    \ordner{config/tasks.json}, GPS-Fixe mit Lücke von 17\,s bis 27\,s, und der
+    Messbereich des Bewerters ab \thema{einlauf}.}
+  \label{fig:zeitstrahl}
+\end{figure}
+
+\section{Der Simulator}\label{sec:simulator}
+\subsection{Neue Themen und was sie enthalten}
+Versuch 1 bleibt, wie er ist; der Filter setzt darauf. \cref{tab:themen} zeigt den Zugang
+— die Pfade hängen am Roboternamen, \kommando{topic("kf","alice")} ergibt
+\thema{/alice/kf/pose}.
+
+\begin{table}[ht]\centering\small
+\caption{Neue und geänderte Themen in Versuch 2 (\ordner{types.MSG\_SPECS}).}
+\label{tab:themen}
+\begin{tabular}{@{}p{4.1cm}p{5.4cm}p{5.5cm}@{}}
+\toprule
+Thema & Typ (ROS 2) & Inhalt und Richtung \\
+\midrule
+\thema{<robot>/imu} & \thema{sensor\_msgs/msg/Imu}
+  & 100 Hz (einstellbar), Achsen im Körperframe, \thema{linear\_acceleration.z}
+  \(\approx +g\); \thema{roll}/\thema{pitch} mitgeliefert \\
+\thema{<robot>/kf/pose} & \thema{geometry\_msgs/msg/PoseWith\_Covariance\_Stamped}
+  & Ihre Schätzung inklusive 1\(\sigma\) (Diagonale) — die Bewertungsgröße \\
+\thema{<robot>/kf/info} & \thema{std\_msgs/msg/String} (JSON)
+  & Diagnose (Laufzeit, Raten, \(Q\)/\(R\)); der Auswerter ignoriert sie \\
+\thema{<robot>/truth} & \thema{geometry\_msgs/msg/PoseStamped}
+  & exakte Pose mit einstellbarer \thema{truth.rate}, nur mit \thema{debug\_truth}
+  (= \kommando{--truth}) \\
+\thema{/sim/config} & \thema{std\_msgs/msg/String} (JSON)
+  & aktives Sensorprofil (\thema{gps}, \thema{odom}, \thema{imu}, \thema{truth},
+  \thema{rate}, \thema{seed}) — hier steht \(\sigma\), das Sie in \(R\) einsetzen \\
+\thema{<robot>/odom}, \thema{<robot>/gps} & wie Versuch 1
+  & Odometrie 50 Hz mit \thema{twist}; GPS mit Rate und Streuung des Prüfprofils \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Das IMU-Modell und seine Zahlen}
+\ordner{mecanum\_lab/types.py} (\texttt{DEFAULT\_CONFIG}) ist die Quelle aller Zahlen;
+\ordner{config/default.json} und \kommando{--set} darüber schreiben, das Prüfprofil des
+Auftrags sowieso (\cref{sec:inbetriebnahme}). Die Spalte „pro Stichprobe'' ist die für
+den Filter relevante Größe: Dichten werden mit \(\sqrt{\text{rate}/2}\) auf die Samplingrate
+umgerechnet, Bias-Random-Walk mit \(\sqrt{1/\text{rate}}\) pro Schritt.
+
+\begin{table}[ht]\centering\small
+\caption{Sensorik-Einstellungen aus \texttt{DEFAULT\_CONFIG} (Versuch-2-Auszug).}
+\label{tab:parameter}
+\begin{tabular}{@{}llp{7.6cm}@{}}
+\toprule
+Größe & Wert & Bedeutung für Ihren Filter \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{IMU (\texttt{imu}) — MEMS-Klasse, absichtlich so kaputt}}\\
+\thema{rate} & 100 Hz & K4 fährt 200 Hz; \kommando{--set imu.rate=400} ist erlaubt \\
+\thema{accel\_noise} & 2\,e-3 m/s²/\(\sqrt{\mathrm{Hz}}\) & \(\Rightarrow\) 14 mm/s² pro Stichprobe \\
+\thema{accel\_bias} & 0,05 m/s² & je Roboter und Achse neu gezogen (Seed); doppelte
+  Integration: 2,5 m in 10 s \\
+\thema{accel\_bias\_walk} & 5\,e-4 m/s²/\(\sqrt{\mathrm{s}}\) & der Bias bleibt nicht, wo er war: nach 10 s
+  streut er mit 1,6\,mm/s² \\
+\thema{accel\_scale} & 1\,e-3 (0,1\,\%) & verschwindet nicht durch Mitteln \\
+\thema{gyro\_noise} & 1\,e-4 rad/s/\(\sqrt{\mathrm{Hz}}\) & \(\Rightarrow\) 0,7\,mrad/s pro Stichprobe \\
+\thema{gyro\_bias} & 5\,e-3 rad/s & 0,05 rad Kursfehler in 10 s — mitteln hilft \\
+\thema{gyro\_bias\_walk} & 2\,e-5 rad/s/\(\sqrt{\mathrm{s}}\) & nach 10 s streut der Bias selbst
+  mit 0,06\,mrad/s — klein, aber er verschwindet nicht von allein \\
+\thema{tilt\_sigma}, \thema{tilt\_tau} & 6\,mrad, 0,4 s & Federung wackelt, Schwerkraft
+  sickert in \thema{ax}/\thema{ay}: \(g\varphi \approx 0{,}06\) m/s² \\
+\thema{vibration}, \thema{vibration\_hz} & 0,08 m/s², 16 Hz & Fahrwerksschwingung,
+  mittelbar (Tiefpass oder Mittelung) \\
+\thema{startup}, \thema{startup\_bias} & 0,4 s, 0,5 m/s² & Einschwingen des Treibers —
+  in dieser Zeit nicht kalibrieren \\
+\thema{gravity} & 9,81 m/s² & steckt voll in \thema{az} \\
+\addlinespace
+\multicolumn{3}{@{}l}{\textit{Übrige Sensorik}}\\
+\thema{gps.rate}, \thema{gps.sigma\_xy} & 5 Hz, 0,06 m & Versuch 1; die KF-Aufträge
+  setzen 1\,bis 5 Hz und 0,5\,bis 0,8 m \\
+\thema{gps.bias\_xy}, \thema{gap}, \thema{bias\_step} & \([0,0]\), null, null
+  & Versatz, Funkloch \([t_0,\text{dauer}]\), springender Bias \\
+\thema{odom.rate}, \thema{sigma\_wheel} & 50 Hz, 0,04 rad/s & auf jeder Radmessung —
+  daraus wird die Drift \\
+\thema{truth.rate} & 20 Hz & Rate der exakten Pose (Bewertung) \\
+\thema{kf.rate}, \thema{kf.q\_acc}, \thema{kf.q\_turn} & 20 Hz, 0,6 m²/s³, 0,02
+  & \emph{Empfehlung an Sie} — die Simulation benutzt diesen Block nicht \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Warum \thema{az} im Stand \(\approx +9{,}81\) anzeigt.} Ein
+MEMS-Beschleunigungsmesser misst keine Bewegung, sondern die Specific Force — die Kraft
+pro Masse, die ihn am freien Fall hindert. Auf ebener Fläche ist das die Normalkraft nach
+oben, also \(+g\). Das ist kein Messfehler und kein Vorzeichenbug, sondern die Physik des
+Chips: wer \thema{az} ohne Weiteres integriert, bekommt in 10\,s 490\,m Höhe. Für die
+Ebene zählen nur \thema{ax} und \thema{ay} — und die sind verbiasst, geneigt und
+überlagert, eben deshalb nur kurzfristig brauchbar. \thema{gx}/\thema{gy} sind durch
+dieselbe Neigung mitbedingt, \thema{gz} ist das Hauptsignal in 2D.
+
+\textbf{Nachmessen statt glauben.} Ein Standlauf über 5\,s (Seed 1, Roboter \emph{alice},
+502 Stichproben) liefert \thema{az} \(=9{,}74\pm0{,}014\,\mathrm{m/s^2}\) — die Streuung
+ist exakt die gerechnete Dichte, der Unterschied zu 9,81 ist der \thema{accel\_bias} der
+\(z\)-Achse — und ein Gyro-Mittel von \(-5{,}4\cdot10^{-3}\,\mathrm{rad/s}\). Genau
+dieses Mittel ist Ihre Kalibrierung: IMU im Stillstand mitteln (vor der Fahrt oder in
+jederr Pause), Mittel abziehen — so steht die Kalibrierung später auf dem echten Roboter.
+
+\subsection{Auswertung in der GUI}
+Die Anzeige ist dieselbe wie in Versuch 1, neu ist die Überlagerung der Schätzung.
+Die Hilfeliste im HUD: \kommando{q Ende | SPACE Pause | l Scan | t Spur | k Schätzung |
+0 alles | 1..9 Roboter | +/- Zoom}. Die Taste \emph{k} schaltet GPS-Kreuze, die
+Schätzung und die \(2\sigma\)-Ellipse drumherum — die Ellipse ist Ihr NEES mit Augen:
+sie muss die Wahrheit \emph{umfahren}, nicht umschließen-wollen. Im HUD steht
+darüber der aktuelle Abstand Ihrer Schätzung zur Wahrheit (\texttt{kf\_err}) — nur
+sichtbar, nicht im Filter benutzt. Für den Bericht gehört die Messreihe in eine Datei:
+\kommando{--log messung.csv} schreibt alle 0,05\,s Simulationszeit eine
+Semikolon-Zeile mit \thema{t}, \thema{x\_wahr}, \thema{x\_gps}, \thema{t\_alt\_gps},
+\thema{x\_kf}, \thema{sx\_kf}, \thema{ax\_imu} und mehr (Spaltenkopf aus
+\ordner{mecanum\_lab/logbook.py}); \kommando{python3 tools/kfplot.py messung.csv} malt
+Zeitreihen, RMSE und — ohne matplotlib — ein ASCII-Diagramm.
+
+\section{Inbetriebnahme}\label{sec:inbetriebnahme}
+\subsection{Installation}
+\begin{lstlisting}[language=bash]
+./install.sh            # einmalig: prueft pygame, ROS 2 und die Tests
+# alternativ:  sudo apt install python3-pygame     (reicht fuer den Stub-Modus)
+./lab docs              # Themen, Auftraege und Beispiele auf einen Blick
+\end{lstlisting}
+Getestet ist Ubuntu 24.04 mit ROS 2 Kilted/Jazzy; ohne ROS läuft alles über den
+In-Prozess-Bus (\kommando{MECANUM\_ROS=stub}) — dann zeigt \kommando{ros2 topic list}
+natürlich nichts.
+
+\subsection{Werkstatt: den eigenen Filter fahren}
+\begin{lstlisting}[language=bash]
+# 1) Werkstatt mit Fenster: die Sim faehrt, du schaetzt, truth ist an
+./lab run --world arena --task kf_gps --robot alice --robots alice \\
+    --controller student/kf_template.py --truth --log messung.csv
+
+# 2) Bewerten wie der Abgabepuefer (ein Auftrag, oder alle vier)
+./lab grade --task kf_gps --controller student/kf_template.py --log messung.csv
+./lab grade --task kf_alle --controller student/kf_template.py \\
+    --log messung.csv --json bericht.json
+python3 tools/kfplot.py messung.csv
+
+# 3) Sensorik frei verstellen, keine JSON-Datei noetig
+./lab grade --task kf_fusion --controller student/kf_template.py \\
+    --set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'
+\end{lstlisting}
+Drei Fallen beim ersten Start. \emph{Erstens:} \kommando{./lab run} spawn only Roboter aus
+\kommando{--robots} — ohne \kommando{--robots alice} läuft eine leere Halle, und das
+Protokoll bleibt leer. \emph{Zweitens:} ohne \kommando{--truth} (bzw.
+\thema{debug\_truth}) gibt es kein \thema{truth}-Thema, der Bewerter kann dann nicht
+messen. \emph{Drittens:} der eigene Knoten darf \thema{wheel\_speeds} und
+\thema{cmd\_vel} nicht anfassen (\cref{sec:vorfragen}). Unter ROS gilt außerdem:
+\begin{lstlisting}[language=bash]
+ros2 topic hz /alice/imu                 # ~100 Hz
+ros2 topic echo /alice/imu --once        # az im Stand: rund +9,81
+ros2 topic echo /sim/config --once       # sigma_xy, gap, imu-rate des laufenden Profils
+ros2 topic hz /alice/kf/pose             # Ihre Rate -- K4 verlangt mindestens 10 Hz
+\end{lstlisting}
+
+\subsection{ROS-2-Betrieb mit dem Launch-File}
+Ohne Launch-File starten Sie die Simulation mit \kommando{./lab sim}; mit ihm kommt alles
+aus einer Zeile — und \emph{jedes} Argument ist eine \kommando{--set}-Angabe an die
+Simulator-Konfiguration (\cref{tab:launch}). So verändern Sie Sensorwerte für den Bericht
+systematisch, ohne JSON-Dateien anzufassen.
+
+\begin{lstlisting}[language=bash]
+source /opt/ros/kilted/setup.bash          # falls ROS nicht automatisch gefunden wird
+ros2 launch launch/kf.launch.py --show-args               # alle Argumente erklaeren
+ros2 launch launch/kf.launch.py headless:=true aufgabe:=kf_fusion \\
+    controller:=student/kf_template.py protokoll:=messung.csv
+ros2 launch launch/kf.launch.py bewerten:=kf_alle \\
+    controller:=student/kf_solution.py "gps_luecke:=[10,14]" imu_rate:=200
+ros2 launch launch/kf.launch.py rviz:=true                # Ansicht mit Kovarianzellipse
+\end{lstlisting}
+
+\begin{table}[ht]\centering\small
+\caption{Die Argumente, die im Versuch gestellt werden (Auswahl; vollständige Liste:
+\kommando{ros2 launch launch/kf.launch.py --show-args}).}
+\label{tab:launch}
+\begin{tabular}{@{}lp{6.2cm}l@{}}
+\toprule
+Argument & Wirkung & Standard \\
+\midrule
+\kommando{aufgabe} & \kommando{kf\_gps}$\vert$\kommando{kf\_fusion}$\vert$\kommando{kf\_kovarianz}$\vert$\kommando{kf\_dynamik} & kf\_gps \\
+\kommando{controller} & Ihr Filterknoten, relativ zum Quellbaum & student/kf\_template.py \\
+\kommando{bewerten} & Auftrag oder Gruppe (z. B. kf\_alle); leer = nicht bewerten & — \\
+\kommando{protokoll} & CSV-Messprotokoll für \ordner{tools/kfplot.py} & — \\
+\kommando{gps\_rate}, \kommando{gps\_sigma} & Messungen pro Sekunde, Streuung je Achse in m & Profil \\
+\kommando{gps\_luecke} & Funkloch als \kommando{[start, dauer]} in s nach Auftragsbeginn & keins \\
+\kommando{gps\_bias\_step} & springender Bias \kommando{[start, dauer, dx, dy]} in m & keiner \\
+\kommando{imu\_rate} & IMU-Stichproben pro Sekunde & 100 (K4: 200) \\
+\kommando{imu\_accel\_bias}, \kommando{imu\_accel\_walk} & Bias \(1\sigma\) in m/s², Bias-Random-Walk in m/s²/\(\sqrt{s}\) & 0,05 · 5e-4 \\
+\kommando{imu\_neigung}, \kommando{imu\_vibration} & Neigung \(1\sigma\) in rad (Schwerkraft sickert in \(a_x\)), Schwingung in m/s² & 0,006 · 0,08 \\
+\kommando{wahrheit}, \kommando{seed}, \kommando{sekunden} & truth-Thema, Rausch-Seed, Abbruch nach s & true · 1 · 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ein Detail mit Folgen: \kommando{gps\_luecke} und \kommando{gps\_bias\_step} stehen in
+Sekunden \emph{nach Auftragsbeginn}, nicht nach Programmstart. Der Bewerter kann das
+Funkloch also jederzeit auslösen, und Ihre Messung bleibt dieselbe.
+
+\subsection{Drei Regeln, die den Lauf retten}
+\textbf{Erstens: Messstempel statt Wanduhr.} Jede Messung trägt \thema{t} — die
+Simulationszeit, in der sie entstanden ist. Benutzen Sie diese Stempel für \(dt\), für
+\(Q\) und dafür, ob eine Messung schon verarbeitet ist. Wer stattdessen
+\kommando{time.time()} aufruft, bekommt in der Bewertung einen falschen \(dt\): das
+Beschleunigungsskript \ordner{tools/fastgrade.py} rechnet 25 Simulationssekunden in einer
+Sekunde Wanduhr, und Ihr Filter hält dann eine 5-Sekunden-Lücke für 200 Millisekunden.
+\emph{Zweitens: Sie schätzen, Sie fahren nicht.} In den KF-Aufträgen setzt der Bewerter
+\thema{cmd\_vel}, die Simulation fährt die Kommandofolge aus \ordner{config/tasks.json}
+blind. Ihr Knoten liest Sensoren und antwortet auf \thema{kf/pose} —
+\kommando{send\_wheels()}, \kommando{publish\_cmd\_vel()} und \kommando{rob.truth()} sind
+in diesem Versuch tabu (der Bewerter merkt das an der fehlenden Fahrt und an der
+Kontaktzahl), sonst urteilt der Bewerter über eine Fahrt, die Sie nie gefahren sind.
+
+\emph{Drittens: ein neuer Auftrag beginnt wirklich von vorn.} Wenn sich \kommando{rob.task()}
+ändert, wird der Roboter an der Spawn-Pose abgesetzt und das Sensorprofil gewechselt. Beenden
+Sie dann Ihren Mess-Loop, lesen Sie \kommando{rob.sensor\_profil()} erneut vor und — das ist
+der Fall, der am meisten Punkte kostet — verwerfen Sie die \emph{letzte} Messung des
+vorigen Auftrags: Der Bus merkt sich die letzte Meldung, und ein GPS-Fix von vor dem Respawn
+ist für den neuen Auftrag eine Lüge. Prüfen Sie also \thema{fix.t} gegen den Beginn Ihrer
+Mission (die Musterlösung führt dafür \thema{KF.start}). Die Gyro-Bias-Kalibrierung dürfen Sie
+ruhig wiederholen — der Zustand und \(P\) gehören dagegen nicht auf null zurückgesetzt, sonst
+werfen Sie Information weg, die Sie gerade erst gesammelt haben.
+
+\section{Aufgaben K1 bis K4}\label{sec:aufgaben}
+Alle vier Aufträge fahren dieselbe Logik: Der Bewerter setzt Ihren Roboter an die
+Spawn-Pose, fährt die in \ordner{config/tasks.json} hinterlegte Kommandofolge, zeichnet
+\thema{truth} und \thema{kf/pose} auf und vergleicht. Gemessen wird erst nach der
+Einlaufzeit (4\,s), damit Ihre Bias-Kalibrierung im Stand zählt. \cref{tab:aufgaben} listet
+die Prüfgrenzen; \kommando{./lab grade --task kf\_alle --controller student/kf\_template.py}
+zeigt Ihnen vorab dieselben Zahlen, die in der Abgabe zählen.
+
+\begin{table}[ht]\centering\small
+\caption{Prüfgrenzen der vier Teilaufträge (Quelle: \ordner{config/tasks.json}).}
+\label{tab:aufgaben}
+\begin{tabular}{@{}lp{3.3cm}p{6.6cm}@{}}
+\toprule
+Auftrag (Punkte) & Sensorprofil & Prüfgrenzen \\
+\midrule
+K1 \textit{kf\_gps} (30) & GPS 5 Hz, \(\sigma=0{,}5\) m & RMSE \(\le 0{,}42\) m,
+  Verbesserung \(\ge 1{,}6\), Maxfehler \(\le 1{,}25\) m, Rate \(\ge 5\) Hz \\
+K2 \textit{kf\_fusion} (30) & GPS 1 Hz, \(\sigma=0{,}8\) m, Funkloch 15…23\,s; Odometrie, IMU
+  & RMSE \(\le 0{,}80\) m, Verbesserung \(\ge 2{,}5\), Fehler im Funkloch \(\le 1{,}8\) m \\
+K3 \textit{kf\_kovarianz} (20) & wie K1 & mittleres NEES in \([0{,}15\ldots3{,}5]\),
+  RMSE \(\le 0{,}42\) m \\
+K4 \textit{kf\_dynamik} (10, Bonus) & GPS 5 Hz, \(\sigma=0{,}6\) m, IMU 200 Hz,
+  0,85\,m/s mit Schwingung & RMSE \(\le 0{,}35\) m, Verbesserung \(\ge 1{,}8\),
+  Maxfehler \(\le 0{,}9\) m, Rate \(\ge 10\) Hz \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{description}
+  \item[K1 — Positionsschätzung aus GPS allein.] Bauen Sie das CV-Modell
+    \(\boldsymbol\xi=(x,y,v_x,v_y)^{\mathsf T}\) mit \(F(dt)\) und dem über \(dt\)
+    integrierten Beschleunigungsrauschen \(Q\) (\cref{eq:cv,eq:q}) und aktualisieren Sie mit
+    der GPS-Position \emph{zum Stempel} \thema{fix.t}. Ziel ist das Verständnis der
+    Rekursion, nicht der Trickkiste: ein einzelner, ehrlicher KF reicht.
+  \item[K2 — GPS, Odometrie und IMU verschmelzen.] Bei 1 Hz GPS mit \(0{,}8\) m Streuung ist
+    der \emph{absolute} Fehler rauschbegrenzt — bewertet wird deshalb die Verbesserung gegen
+    das Rohsensorignal. Jetzt hilft der Odometrie-\thema{twist}
+    als Eingangsgröße der Prädiktion (in die Welt gedreht) und der Gyro für die Drehrate —
+    beides mit Bias, der erst im Stand gemessen werden will. Im Funkloch bleibt nur das
+    Bewegungsmodell: Hier entscheidet sich, ob Sie \(Q\) physikalisch begründen oder raten.
+  \item[K3 — Wissen, wie gut man schätzt.] Dieselbe Fahrt wie K1, aber bewertet wird die
+    \emph{angegebene} Unsicherheit: \thema{kf/pose} trägt \(\sigma_x,\sigma_y\) aus \(P\).
+    Vergrößern Sie \(Q\), wenn das NEES über 3 läuft; verkleinern Sie es, wenn es unter 0,3
+    fällt — und schreiben Sie den Zielkonflikt in den Bericht.
+  \item[K4 — Schnelle Fahrt, treue Schätzung.] 0,85\,m/s mit einer Sinusüberlagerung in der
+    Drehrate, IMU mit 200\,Hz. Hier zahlt sich aus, dass Ihr Filter mit der
+    \emph{Messrate} läuft statt mit einer Rateschleife.
+\end{description}
+
+Typische Fehlerbilder, an denen Sie Ihre Implementierung erkennen: Die Schätzung läuft der
+Messung konstant hinterher (\(F\) ohne \(dt\), \(Q=0\)); die Kovarianz schrumpft und
+steigt nie wieder (Joseph-Form oder \(P\)-Aktualisierung vergessen); der Roboter wird über
+den Gyro gedreht, obwohl der Kurs in der Welt gebraucht wird (Vorzeichen/Drehung der
+Körpergeschwindigkeit); das Funkloch wird mit einem \(R\) von \(10^{-6}\) überbrückt (dann
+folgt die Schätzung der Odometrie blind und \cref{tab:aufgaben} K2 fällt durch).
+
+\section{Auswertung und Bericht}\label{sec:bericht}
+Der Bericht gehört Ihnen — aber die Auswertung liefert Zahlen, die Sie erklären müssen. Er
+erwartet:
+\begin{itemize}
+  \item \textbf{Bahn und Fehlerbild.} Ein Plot aus \ordner{tools/kfplot.py}: Wahrheit, rohes
+    GPS, Odometrie, Ihre Schätzung — darunter der Fehler gegen die Wahrheit über der Zeit.
+    Beschreiben Sie, \emph{wo} der Fehler wächst (Kurven? Funkloch? nach dem Aufgabenwechsel?).
+  \item \textbf{Eine \(Q\)/\(R\)-Tabelle.} Welche Werte haben Sie benutzt, wie sind Sie
+    darauf gekommen (Dichte \(\to\) \(Q\), \thema{gps.sigma\_xy} \(\to\) \(R\)), und was
+    passiert bei Faktor 3 in beide Richtungen? Vier Messpunkte genügen — aber es müssen
+    Messpunkte sein, keine Vermutungen.
+  \item \textbf{NEES-Diskussion zu K3.} Ihr Mittelwert, die Streuung innerhalb der Fahrt,
+    und was Sie geändert haben, um ins Band zu kommen.
+  \item \textbf{Gemessene IMU-Bias-Drift.} Mitteln Sie \thema{imu} im Stand über 10\,s vor
+    und nach der Fahrt, geben Sie die Differenz pro Achse an und vergleichen Sie mit
+    \cref{tab:parameter}. Daraus folgt Ihre Begründung, warum die IMU nicht offen
+    integriert wird.
+  \item \textbf{Nutzen der Odometrie im Funkloch.} RMSE im Loch mit und ohne
+    Odometrie-Prädiktion (zwei Protokolle, ein Satz Fazit). Wenn Sie behaupten, das Modell
+    reiche auch ohne — messen Sie es.
+  \item \textbf{Ein Satz zur Modellwahl.} K4 fährt schneller und schwingt: Welche
+    Zustandsgröße hätten Sie noch gebraucht (Drehrate im Zustand? Bias als Zustand?), und
+    was hätte es gekostet?
+\end{itemize}
+Rechnen Sie mit dem Protokoll, nicht mit dem Fenster: \kommando{--log messung.csv}
+schreibt truth, gps, odom, kf, imu und die Geschwindigkeiten in eine CSV-Datei, die auch
+ohne matplotlib auswertbar ist (\kommando{-\-list} zeigt die Spalten).
+
+\appendix
+\section{Formelsammlung}\label{sec:formeln}
+\textbf{CV-Modell ( geradlinig, Weltframe):}
+\[
+  F(dt)=\begin{pmatrix}1&0&dt&0\\0&1&0&dt\\0&0&1&0\\0&0&0&1\end{pmatrix}\qquad
+  Q(dt)=q\!\begin{pmatrix}\tfrac{dt^3}{3}&0&\tfrac{dt^2}{2}&0\\[2pt]
+        0&\tfrac{dt^3}{3}&0&\tfrac{dt^2}{2}\\[2pt]
+        \tfrac{dt^2}{2}&0&dt&0\\[2pt]0&\tfrac{dt^2}{2}&0&dt\end{pmatrix}
+\]
+mit der Beschleunigungs-Dichte \(q\) in m²/s³ — der Simulator startet mit
+\(q=0{,}6\) (\thema{kf.q\_acc}), die Drehrate mit \(q_{\text{gier}}=0{,}02\).
+
+\textbf{Rekursion:}
+\(\boldsymbol\xi^{-}=F\boldsymbol\xi\), \(P^{-}=FPF^{\mathsf T}+Q\),
+\(y=z-H\boldsymbol\xi^{-}\), \(S=HP^{-}H^{\mathsf T}+R\),
+\(K=P^{-}H^{\mathsf T}S^{-1}\), \(\boldsymbol\xi=\boldsymbol\xi^{-}+Ky\),
+\(P=(I-KH)P^{-}\). Für die Positions-Messung ist \(H\) die Auswahlmatrix mit den beiden
+Einsen in der \(x\)- und \(y\)-Spalte, \(R=\operatorname{diag}(\sigma_{\text{gps}}^2,
+\sigma_{\text{gps}}^2)\) mit \(\sigma_{\text{gps}}\) aus \thema{gps.sigma\_xy}.
+
+\textbf{Umrechnungen, die man nachschlagen darf:}
+Weiße Dichte \(d\) [Einheit/\(\sqrt{\text{Hz}}\)] \(\to\) Streuung pro Stichprobe
+\(d\sqrt{\text{rate}/2}\). Bias-Random-Walk \(w\) \(\to\) Streuung pro Schritt
+\(w/\sqrt{\text{rate}}\), nach \(T\) Sekunden \(w\sqrt{T}\). Fester Bias \(b\) über \(T\)
+Sekunden doppelt integriert: Wegfehler \(\tfrac{1}{2}bT^2\).
+
+\textbf{Konsistenz:}
+\(\overline{\text{NEES}}=\frac{1}{N}\sum_i\big[(e_{x,i}^2/\sigma_{x,i}^2
+  + e_{y,i}^2/\sigma_{y,i}^2)\big/2\big]\);
+erwarteter Wert 1, ein Einzelwert bis 5,99 ist bei zwei Freiheitsgraden noch unauffällig
+(\(\chi^2\), 95\,\%). Angegeben werden \(\sigma_x=\sqrt{P_{11}}\),
+\(\sigma_y=\sqrt{P_{22}}\) — nicht die Wurzel der Spur.
+
+\section{Lösungen der Vorfragen}\label{sec:loesungen}
+\begin{enumerate}
+  \item \textbf{IMU.} Eine Stichprobe: \(\sigma_a=0{,}002\cdot\sqrt{100/2}
+        = 0{,}014\,\mathrm{m/s^2}\) (14\,mm/s²). Der Faktor \(\sqrt{\text{rate}/2}\) kommt
+        daher, dass die Dichte über die äquivalente Rauschbandbreite integriert wird — bei
+        Abtastrate \(f_s\) ist das \(f_s/2\). Fester Bias \(b=0{,}05\,\mathrm{m/s^2}\):
+        nach \(T=10\)\,s ist \(\Delta v=bT=0{,}5\)\,m/s und der Wegfehler
+        \(\tfrac{1}{2}bT^2=2{,}5\)\,m. Das weiße Rauschen trägt nach derselben Zeit nur
+        \(\sigma_a T^2 N^{3/2}/\sqrt{3}\approx 0{,}03\)\,m bei (\(N=1000\) Stiche) — der
+        Bias dominiert um zwei Größenordnungen. \emph{Folge:} Die IMU taugt als
+        \emph{Bewegungsmodell} mit kurzem Gedächtnis, nicht als Positionsmesser; der Bias
+        muss geschätzt (oder zumindest durch Mittelung im Stand klein gemacht) werden.
+  \item \textbf{Rekursion.} Mit \(dt=0{,}5\) und \(q=0{,}6\):
+        \[
+          FP F^{\mathsf T}=\begin{pmatrix}0{,}04+dt^2\cdot1{,}0 & dt\cdot1{,}0\\ dt\cdot1{,}0 & 1{,}0\end{pmatrix}
+          =\begin{pmatrix}0{,}29&0{,}50\\0{,}50&1{,}00\end{pmatrix},\quad
+          Q=0{,}6\begin{pmatrix}0{,}0417&0{,}125\\0{,}125&0{,}5\end{pmatrix},
+        \]
+        also \(P^{-}=\begin{pmatrix}0{,}315&0{,}575\\0{,}575&1{,}30\end{pmatrix}\) und
+        \(S=0{,}315+0{,}25=0{,}565\). Verstärkung
+        \(K=P^{-}H^{\mathsf T}/S=(0{,}315/0{,}565,\;0{,}575/0{,}565)=(0{,}56,\;1{,}02)\).
+        Innovation \(y=2{,}40-2{,}00=0{,}40\), damit
+        \(\hat x^{+}=2{,}00+0{,}56\cdot0{,}40=2{,}22\)\,m und
+        \(\hat v^{+}=0+1{,}02\cdot0{,}40=0{,}41\)\,m/s — die Verstärkung im zweiten Eintrag
+        darf größer als 1 sein, sie wirkt auf eine Geschwindigkeit. Position:
+        \(\sigma^{-}=\sqrt{0{,}315}=0{,}56\,\mathrm{m}\) vor,
+        \(\sigma^{+}=\sqrt{0{,}315-0{,}56^2\cdot0{,}565}=0{,}37\,\mathrm{m}\) nach dem Update.
+  \item \textbf{Odometrie-Drift.} Der Posenfehler der Odometrie ist die Summe aller bisher
+        begangenen Fehler: er ist zeitlich korreliert, wächst mit der zurückgelegten Strecke
+        und hat einen Vorzeichen-zusammenhang (ein zu großer Radradius bleibt zu groß). Weißes
+        Rauschen mit festem \(R\) beschreibt aber einen Fehler, der mit jeder Messung
+        vergessen wird. Folge: Der Filter hält jede neue Odometrie-Pose für eine unabhängige
+        Messung, \(P\) schrumpft gegen null, die Kovarianz ist zu klein — das NEES steigt
+        weit über 1, und im GPS-Funkloch driftet die Schätzung unhinterfragt mit. Richtig:
+        Odometrie als \emph{Eingang} (Geschwindigkeit) in die Prädiktion benutzen und den
+        Rest als Prozessrausch \(Q\) (wachsend mit \(dt\)) oder als zusätzlichen Bias-Zustand
+        modellieren.
+  \item \textbf{NEES.} \(0{,}1\): Die angegebene Standardabweichung ist im Mittel
+        \(\sqrt{1/0{,}1}\approx3{,}2\)-mal zu groß — der Filter ist unnötig vorsichtig und
+        traut dem Messwert zu wenig. \(1\): konsistent, die Streuung der Fehler passt zur
+        Angabe. \(8\): zu klein um \(\sqrt{8}\approx2{,}8\)-mal — übermütig, und damit
+        gefährlich, weil die Anwendung (Regelung, Sicherheit) sich auf die Angabe verlässt.
+        Durch das Band \([0{,}15;\,3{,}5]\) für K3 fallen \(0{,}1\) und \(8\), nur \(1\)
+        besteht. (Der untere Rand ist absichtlich locker — \(0{,}15\) entsprechen einer
+        \(2{,}6\)-mal zu großen Angabe: lässig, aber nicht gefährlich. Über \(3{,}5\) wird es
+        eng, weil selbstsichere Falschangaben im Labor niemandem helfen.)
+\end{enumerate}
+
+\section{Themen- und API-Übersicht}\label{sec:api}
+Der Zugang zu Simulation und Themen läuft über \ordner{mecanum\_lab/robot\_io.py}; unter
+ROS 2 wie im Stub-Lauf gleich. Für Versuch 2 sind diese Methoden zuständig:
+
+\begin{table}[ht]\centering\small
+\caption{Studentische API in Versuch 2 (Auszug aus \ordner{robot\_io.py}).}
+\label{tab:api}
+\begin{tabular}{@{}lp{6.0cm}p{3.4cm}@{}}
+\toprule
+Aufruf & Inhalt & Brauchen Sie für \\
+\midrule
+\kommando{rob.gps()} & \thema{Gps(t, x, y, theta)} — langsam, verstreut, im Funkloch \kommando{None} & K1--K4 \\
+\kommando{rob.odom()} & \thema{Odom(t, x, y, theta, vx, vy, omega)} — 50 Hz, driftend & K2, K4 \\
+\kommando{rob.imu()} & \thema{Imu(t, ax, ay, az, gx, gy, gz, roll, pitch)} im Körperframe & K2, K4 \\
+\kommando{rob.scan()} & Laser-Entfernungen (Versuch 1, hier nicht bewertet) & — \\
+\kommando{rob.age("gps")} & Alter der letzten Messung in s — \kommando{1e9}: nie eine gehabt & überall \\
+\kommando{rob.sensor\_profil()} & aktives Prüfprofil als dict — hier steht \(\sigma\) für \(R\) & überall \\
+\kommando{rob.config("gps.sigma\_xy", 0.5)} & einzelner Konfigurationswert, mit Standardwert & \(R\), \(Q\) \\
+\kommando{rob.task()} & Name des laufenden Auftrags — ändert sich je Teilaufgabe & Loop-Ende \\
+\kommando{rob.running()} & läuft die Simulation noch? & Loop-Bedingung \\
+\kommando{rob.spin(dt)} & Messungen verarbeiten, ohne die Wanduhr zu befragen & Loop-Körper \\
+\kommando{rob.send\_kf(x, y, theta, sx, sy, sth)} & Ihre Schätzung samt \(1\sigma\) — die Bewertungsgröße & K1--K4 \\
+\kommando{rob.kf()} & was zuletzt auf \thema{kf/pose}stand (Kontrolle des eigenen Knotens) & Debug \\
+\kommando{rob.truth()} & exakte Pose — \emph{im Filterpfad tabu}, für Tests erlaubt & Auswertung \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dazu die Themen aus \cref{tab:themen} und, für Neugierige, der Blick von außen:
+\kommando{ros2 topic echo /alice/imu --once}, \kommando{ros2 topic hz /alice/kf/pose},
+\kommando{ros2 topic echo /sim/config --once}. Wer ohne ROS arbeitet, nutzt dieselben
+Themen über den In-Prozess-Bus — nur \kommando{ros2} gibt es dort nicht.
+
+\end{document}

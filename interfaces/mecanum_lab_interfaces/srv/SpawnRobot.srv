@@ -1,0 +1,15 @@
+# Roboter zur laufenden Simulation hinzufuegen — CONTRACT §4.
+# Name: eindeutig, ^[a-z][a-z0-9_]{1,23}$ (eine Person, ein Roboter).
+# variant: leer = Simulation waehlt (stock|slow|fast|agile).
+string name
+string variant
+---
+bool success
+string message         # "ok" oder Fehlergrund ("Name ... vergeben", "Roboterlimit ...")
+uint8 index            # laufende Teilnehmernummer, bestimmt Farbe und Marker
+string color           # Name aus types.PALETTE (red, blue, ...)
+string marker          # Form im GUI (triangle, square, ...)
+string variant         # tatsaechlich gewaehlte Motorvariante
+float64 x              # Startpose in der Welt
+float64 y
+float64 theta
