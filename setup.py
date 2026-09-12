@@ -11,47 +11,47 @@ import os
 
 from setuptools import setup
 
-PAKET = "mecanum_lab"
+PACKAGE = "mecanum_lab"
 ROOT = os.path.dirname(os.path.abspath(__file__))
-RESTE = (".aux", ".log", ".fls", ".toc", ".out", ".lof", ".lot", ".bbl", ".blg",
+LEFTOVERS = (".aux", ".log", ".fls", ".toc", ".out", ".lof", ".lot", ".bbl", ".blg",
          ".fdb_latexmk", ".synctex.gz", ".pyc", ".pyo")     # build by-products
 
 
-def _sauber(rel):
+def _clean(rel):
     """Drop cache folders (__pycache__, .pytest_cache), dot files and LaTeX leftovers."""
-    if any(teil.startswith(".") or teil == "__pycache__" for teil in rel.split(os.sep)):
+    if any(part.startswith(".") or part == "__pycache__" for part in rel.split(os.sep)):
         return False
-    return not rel.endswith(RESTE)
+    return not rel.endswith(LEFTOVERS)
 
 
-def daten(ordner):
-    """Every file under `ordner` into share/mecanum_lab/… — folder structure preserved.
+def data_files_in(folder):
+    """Every file under `folder` into share/mecanum_lab/… — folder structure preserved.
 
     colcon demands relative sources (otherwise "'data_files' must be relative") and
     setuptools does not copy folders — hence paths relative to ROOT, without caches.
     """
-    gruppen = {}
-    for basis, unter, namen in os.walk(os.path.join(ROOT, ordner)):
-        unter[:] = [u for u in unter if _sauber(u)]
-        rel = os.path.relpath(basis, ROOT)
-        dateien = sorted(os.path.join(rel, n) for n in namen if _sauber(os.path.join(rel, n)))
-        if dateien:
-            gruppen[os.path.join("share", PAKET, rel)] = dateien
-    return sorted(gruppen.items())
+    groups = {}
+    for walk_root, subdirs, names in os.walk(os.path.join(ROOT, folder)):
+        subdirs[:] = [u for u in subdirs if _clean(u)]
+        rel = os.path.relpath(walk_root, ROOT)
+        files = sorted(os.path.join(rel, n) for n in names if _clean(os.path.join(rel, n)))
+        if files:
+            groups[os.path.join("share", PACKAGE, rel)] = files
+    return sorted(groups.items())
 
 
 setup(
-    name=PAKET,
+    name=PACKAGE,
     version="0.1.0",
     description="2D Mecanum simulator (Pygame) with ROS 2 binding, experiments 1 and 2",
     author="Praktikum Intelligente Robotik",
     license="MIT",
     python_requires=">=3.10",
-    packages=[PAKET],
+    packages=[PACKAGE],
     # package_data would be redundant: data_files ships config/ and worlds/.
-    data_files=([(os.path.join("share", PAKET), ["package.xml"])]
-                + [g for ordner in ("config", "worlds", "launch", "student", "docs")
-                   for g in daten(ordner)]),
+    data_files=([(os.path.join("share", PACKAGE), ["package.xml"])]
+                + [g for folder in ("config", "worlds", "launch", "student", "docs")
+                   for g in data_files_in(folder)]),
     install_requires=["setuptools"],
     extras_require={"gui": ["pygame>=2.5"]},
     entry_points={"console_scripts": ["mecanum-lab = mecanum_lab.node:main"]},

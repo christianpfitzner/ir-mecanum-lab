@@ -32,7 +32,7 @@ class SimEngine:
         self.t = 0.0
         self.t_task = 0.0                            # start of the current task
         self.task = ""
-        self.erzwungen: dict = {}                    # --set values: beat any test profile
+        self.forced: dict = {}                    # --set values: beat any test profile
         self.robots: dict[str, Robot] = {}
         self.outbox: list = []                       # (kind, robot|None, payload)
         self._noise = sensors.Noise(seed)
@@ -57,13 +57,13 @@ class SimEngine:
         color, rgb = PALETTE[idx % len(PALETTE)]
         spec = RobotSpec(name=name, index=idx, color=color, rgb=rgb,
                          marker=MARKERS[idx % len(MARKERS)], variant=variant)
-        geom = physics.make_geometry(cfg_get(self.cfg, "robot"), variant)
-        r = Robot(spec=spec, chassis=physics.Chassis(geom, pose or self.world.spawn_pose(idx),
+        geometry = physics.make_geometry(cfg_get(self.cfg, "robot"), variant)
+        r = Robot(spec=spec, chassis=physics.Chassis(geometry, pose or self.world.spawn_pose(idx),
                                                      seed=idx + (self._index or 1)))
-        r.odometer = sensors.OdometrySensor(geom, self._noise, cfg_get(self.cfg, "odom"))
+        r.odometer = sensors.OdometrySensor(geometry, self._noise, cfg_get(self.cfg, "odom"))
         r.odometer.reset(r.chassis.pose)          # odom origin = spawn pose, not (0,0)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
-        self._zeitbezug(r)
+        self._clock_to_sim(r)
         # The truth pose is only copied into the robot by a physics step; until the first one the
         # dataclass default (0, 0) would be reported — enough to streak a trail across the hall.
         r.pose = Pose(r.chassis.pose.x, r.chassis.pose.y, r.chassis.pose.theta)
@@ -83,7 +83,7 @@ class SimEngine:
             self.publish_world()
         return found
 
-    def _zeitbezug(self, r) -> None:
+    def _clock_to_sim(self, r) -> None:
         """Attach sensor clocks to simulation time — stamps are world time, not 'since spawn'.
 
         Odometry and the IMU count from their own creation. Without a reference their stamp
@@ -111,7 +111,7 @@ class SimEngine:
         r.chassis.contacts = 0
         r.odometer.reset(r.chassis.pose)
         r.inertial.reset()
-        self._zeitbezug(r)
+        self._clock_to_sim(r)
         r.wheel_cmd = r.vel_cmd = None
         r.mode, r.t_cmd, r.t_vel = "pass-through", -1.0, -1.0
         r.imu, r.kf, r.kf_err = None, None, None
@@ -134,7 +134,7 @@ class SimEngine:
         self.t = 0.0
         self._gps.t0 = 0.0
         for r in self.robots.values():
-            self._zeitbezug(r)
+            self._clock_to_sim(r)
         self.publish_world()
 
     def set_task(self, name: str) -> None:
@@ -154,7 +154,7 @@ class SimEngine:
         self.t_task = self.t
         self._gps.t0 = self.t
 
-    def set_sensor_profil(self, profil: dict) -> None:
+    def set_sensor_profile(self, profile: dict) -> None:
         """Switch the sensors while running — the grader uses this per task.
 
         Every `sim` profile in config/tasks.json describes another arena (different GPS, IMU
@@ -165,26 +165,26 @@ class SimEngine:
         Reporting the same profile twice is ignored — otherwise every second odometry would be
         reset to the truth and the IMU bias re-rolled.
         """
-        meldung = json.dumps(profil, sort_keys=True, default=str)
-        if not profil or meldung == getattr(self, "_profil_meldung", None):
+        dump = json.dumps(profile, sort_keys=True, default=str)
+        if not profile or dump == getattr(self, "_profile_seen", None):
             return
-        self._profil_meldung = meldung
-        merge(self.cfg, dict(profil))
-        if self.erzwungen:
-            merge(self.cfg, dict(self.erzwungen))     # what was set by hand stays put
+        self._profile_seen = dump
+        merge(self.cfg, dict(profile))
+        if self.forced:
+            merge(self.cfg, dict(self.forced))     # what was set by hand stays put
         self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
         self._gps = sensors.GpsSensor(self._noise, cfg_get(self.cfg, "gps"))
         self._gps.t0 = getattr(self, "t_task", self.t)
         for r in self.robots.values():
-            r.odometer = sensors.OdometrySensor(r.chassis.geom, self._noise,
+            r.odometer = sensors.OdometrySensor(r.chassis.geometry, self._noise,
                                                cfg_get(self.cfg, "odom"))
             r.odometer.reset(r.chassis.pose)
             r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"),
                                           robot=r.spec.name)
-            self._zeitbezug(r)
-        for art in ("gps", "odom", "imu", "truth"):
+            self._clock_to_sim(r)
+        for kind in ("gps", "odom", "imu", "truth"):
             for r in self.robots.values():
-                r.ticks.pop(art, None)
+                r.ticks.pop(kind, None)
         log.info("sensor profile switched: gps σ=%.2f m %.1f Hz, imu %.0f Hz%s", float(
             cfg_get(self.cfg, "gps.sigma_xy", 0.0)), float(cfg_get(self.cfg, "gps.rate", 0.0)),
             float(cfg_get(self.cfg, "imu.rate", 0.0)),
@@ -206,7 +206,7 @@ class SimEngine:
         r.mode = "wheels"                            # from now on only this counts
         r.wheel_cmd, r.t_cmd = [float(w) for w in wheels], self.t
 
-    def set_mission(self, name: str, state: str) -> None:
+    def set_mission_state(self, name: str, state: str) -> None:
         r = self.robots.get(name)
         if r:
             r.mission_state = str(state)
@@ -272,7 +272,7 @@ class SimEngine:
         elif r.mode == "pass-through" and vel_ok:
             v = r.vel_cmd
             r.chassis.set_wheels(physics.inverse_kinematics(
-                r.chassis.geom, v.vx, v.vy, v.omega))
+                r.chassis.geometry, v.vx, v.vy, v.omega))
         else:
             r.chassis.set_wheels([0.0] * 4)          # radio silence -> let the motors coast down
 
@@ -326,7 +326,7 @@ class SimEngine:
 
     def config_json(self) -> str:
         """Sensor profile of the running simulation — the grader checks its test profile here."""
-        profil = {k: cfg_get(self.cfg, k) for k in
+        profile = {k: cfg_get(self.cfg, k) for k in
                   ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth")}
-        profil["seed"] = self.seed
-        return json.dumps(profil)
+        profile["seed"] = self.seed
+        return json.dumps(profile)

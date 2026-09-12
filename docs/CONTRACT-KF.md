@@ -70,7 +70,7 @@ imu:    {rate, gyro_noise, gyro_bias, gyro_bias_walk, gyro_scale,
          accel_noise, accel_bias, accel_bias_walk, accel_scale,
          tilt_sigma, tilt_tau, vibration, vibration_hz, gravity,
          startup, startup_bias}
-gps:    {rate, sigma_xy, sigma_theta, bias_xy, gap: [t0, dauer], bias_step: [t0, dauer, dx, dy]}
+gps:    {rate, sigma_xy, sigma_theta, bias_xy, gap: [t0, duration], bias_step: [t0, duration, dx, dy]}
 kf:     {rate, q_acc, q_turn, gps_delay}    # pure recommendation to the students,
                                             # the simulation never uses this block
 ```
@@ -80,11 +80,11 @@ kf:     {rate, q_acc, q_turn, gps_delay}    # pure recommendation to the student
 writing JSON files.
 
 **Test profile:** every KF task in `config/tasks.json` carries a `"sim"` block with the
-sensor profile it is graded against. `mach_engine()` (node.py) merges
+sensor profile it is graded against. `make_engine()` (node.py) merges
 `DEFAULT < config/default.json <- --config <- tasksim <- --set`. A grading run is therefore
 independent of what `config/default.json` happens to say.
 
-## 5. Task plan for experiment 2 (`config/tasks.json`, `"versuch": 2`)
+## 5. Task plan for experiment 2 (`config/tasks.json`, `"experiment": 2`)
 
 | ID | P | Core | Profile | Thresholds |
 |---|---|---|---|---|
@@ -93,28 +93,28 @@ independent of what `config/default.json` happens to say.
 | `kf_kovarianz` | 20 | consistent 1σ (NEES) | σ=0.5 m, 5 Hz | mean NEES in [0.05 … 3.5], RMSE ≤ 0.42 m |
 | `kf_dynamik` | 10 | fast + faithful following error | σ=0.6 m, 5 Hz, IMU 200 Hz | RMSE ≤ 0.35 m, improvement ≥ 1.8, max error ≤ 0.9 m, rate ≥ 10 Hz |
 
-`--task kf_alle` selects every task with `"versuch": 2` (`tasks.resolve` can do that, and
+`--task kf_alle` selects every task with `"experiment": 2` (`tasks.resolve` can do that, and
 so does `kf_gps,kf_fusion`). World for all of them: `arena` (open floor, perimeter walls).
 
-Grading formulas (`grade.py`), measured only after `einlauf` seconds:
+Grading formulas (`grade.py`), measured only after `warmup` seconds:
 
 ```
 rmse(estimate)    = sqrt(mean(dx²+dy²))            against truth, nearest neighbor ≤ 0.25 s
-verbesserung      = rmse(gps) / rmse(kf)
+improvement     = rmse(gps) / rmse(kf)
 nees              = mean((dx²/sx² + dy²/sy²) / 2)   # 2 degrees of freedom, expected value 1
-luecke            = max error inside the GPS outage window
+outage          = max error inside the GPS outage window
 ```
 
 Two constraints that come with experiment 2 (both in `engine.py`/`node.py`):
 
-* **The grader drives blind.** For a task with `"art": "kf"` the robot is dropped at the
+* **The grader drives blind.** For a task with `"kind": "kf"` the robot is dropped at the
   spawn pose before the start (`Engine.reset_robot`) — the command sequence in `fahrt` is
   not fed back, so it has to begin where the world parks the robot. Simulation time keeps
   running; `gps.gap` stays **task-relative** (`set_task`). `--world` may then be left out:
   KF tasks fetch their own arena (`arena`) themselves.
 * **The GPS outage and the sensor clocks run on message stamps, not on the wall clock.**
   Odometry and IMU count from the moment they are created; the engine attaches them to
-  simulation time with `_zeitbezug()`, so their stamp does not start at 0 again after a
+  simulation time with `_clock_to_sim()`, so their stamp does not start at 0 again after a
   respawn or profile switch while GPS keeps reporting simulation time.
   `tools/fastgrade.py` runs 25 simulation seconds per second — a wall-clock-timed test
   would see neither the outage nor a wrong `dt`.
@@ -122,7 +122,7 @@ Two constraints that come with experiment 2 (both in `engine.py`/`node.py`):
 **Why K2 grades relatively and K3 with a loose lower bound** (calibrated over seeds 1–4,
 reference solution): at 1 Hz GPS with σ = 0.8 m the *absolute* error is noise-limited — the
 same implementation measures 0.27…0.60 m RMSE depending on the noise realization. An
-absolute limit of 0.45 m would become a lottery, so `verbesserung_min` (stable: 3.4…6.2)
+absolute limit of 0.45 m would become a lottery, so `improvement_min` (stable: 3.4…6.2)
 and the outage limit do the checking. On NEES the same solution scatters between 0.27 and
 1.04; the lower bound (0.05 since the paced runs below) only punishes wildly inflated
 covariance, the upper one
@@ -137,7 +137,7 @@ mecanum_lab/engine.py       IMU tick, truth rate, set_kf, /sim/config     [Integ
 mecanum_lab/ros_bridge.py   Imu and PoseWithCovarianceStamped conversion  [Integrator]
 mecanum_lab/robot_io.py     imu() truth() kf() send_kf()                  [Integrator]
 mecanum_lab/tasks.py        experiment selection, sim-profil()            [Integrator]
-mecanum_lab/grade.py        KF kind "kf_fahrt" + measurement              [Integrator]
+mecanum_lab/grade.py        KF kind "kf_drive" + measurement              [Integrator]
 mecanum_lab/node.py         --set, --truth, --log, profile merge, tap     [Integrator]
 mecanum_lab/render.py       truth/gps/kf overlay + covariance ellipse     [Integrator]
 config/tasks.json           four KF tasks                                 [Integrator]
@@ -204,7 +204,7 @@ run" — it is the case that costs the most points during the tutoring sessions.
 Two consequences of that rule, both in the reference solution and in the template:
 
 * **The start itself must be fresh.** At the moment `mission()` begins, note the newest stamp
-  the bus already knows (`stempel(rob.odom(), rob.imu(), rob.gps())`) and do not build the
+  the bus already knows (`stamp(rob.odom(), rob.imu(), rob.gps())`) and do not build the
   filter until a stamp lies above it. Comparing stamps with stamps is enough — comparing with
   the wall clock is not, and is exactly what made a KF task fail at random (`integrator.md`
   no. 19).
@@ -219,7 +219,7 @@ Two consequences of that rule, both in the reference solution and in the templat
 |---|---|
 | `rob.gps()`, `rob.odom()`, `rob.imu()`, `rob.scan()` | last measurement or None (dataclass from `types.py`) |
 | `rob.age("gps")` | age of the last measurement in s (1e9 = never) |
-| `rob.sensor_profil()` | dict of the active sensor setup (`gps`, `imu`, `odom`, `truth`, `rate`, `debug_truth`, `seed`) |
+| `rob.sensor_profile()` | dict of the active sensor setup (`gps`, `imu`, `odom`, `truth`, `rate`, `debug_truth`, `seed`) |
 | `rob.config("gps.sigma_xy", 0.5)` | a single sensor value, no dict wrangling |
 | `rob.task()` | active task title, e.g. `kf_fusion` |
 | `rob.send_kf(x, y, theta, sx, sy, sth, info=None)` | estimate incl. 1σ on `/<robot>/kf/pose` |
@@ -231,9 +231,9 @@ Two consequences of that rule, both in the reference solution and in the templat
 
 ### 8.3 Grading (grade.py, per task in `config/tasks.json`)
 
-After `einlauf` seconds every tick measures the last truth, the last estimate and the last
-raw sensor; reported are `rmse`, `rmse_<sensor>`, `verbesserung`, `max_fehler`, `rate_hz`,
-`nees`, `luecke_max`/`luecke_dauer`. Passed = all thresholds met. The thresholds live in the
+After `warmup` seconds every tick measures the last truth, the last estimate and the last
+raw sensor; reported are `rmse`, `rmse_<sensor>`, `improvement`, `max_error`, `rate_hz`,
+`nees`, `outage_max`/`outage_duration`. Passed = all thresholds met. The thresholds live in the
 JSON — do **not** retune them in code, make the reference solution better instead.
 
 Valid for the reference solution: `python3 tools/fastgrade.py --task kf_alle

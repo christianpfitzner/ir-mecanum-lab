@@ -1,13 +1,15 @@
 """Regression tests for three findings of the read-the-code audit.
 
-1. `tasks.welt_fuer` picked the arena with `max(set(...))`. Set order follows the string hash,
+1. `tasks.world_for` picked the arena with `max(set(...))`. Set order follows the string hash,
    which CPython randomises per process, so `--task beide` (four tasks in production, four in
    arena) graded a different arena in another run — same seed, different hall.
 2. `types.Scan` promised "clockwise from front-left" while the lidar, the contract and the
    grading helper all use beam 0 forward and counter-clockwise — the central sign convention.
-3. The GPS cross was drawn inside `_schaetzung`, which the frame loop only calls when the
+3. The GPS cross was drawn inside `_estimate`, which the frame loop only calls when the
    estimate layer is on: the "gps fix" layer silently did nothing whenever `k` was off.
 """
+import json
+import logging
 import os
 import subprocess
 import sys
@@ -17,7 +19,7 @@ import pytest
 
 from mecanum_lab import tasks
 from mecanum_lab.engine import SimEngine
-from mecanum_lab.render import GPS_FARBE, Renderer
+from mecanum_lab.render import GPS_COLOR, Renderer
 from mecanum_lab.types import Gps, Pose, cfg_get, load_config
 from mecanum_lab.worlds import load_world
 
@@ -25,39 +27,39 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = tasks.load_tasks()
 
 
-def sim_welt(seed: str, abfrage="beide") -> str:
-    umgebung = dict(os.environ, PYTHONHASHSEED=seed)
-    ausgang = subprocess.run(
+def sim_world(seed: str, query="beide") -> str:
+    env = dict(os.environ, PYTHONHASHSEED=seed)
+    done = subprocess.run(
         [sys.executable, "-c", "from mecanum_lab import tasks; "
-         "print(tasks.welt_fuer(tasks.load_tasks(), %r))" % abfrage],
-        capture_output=True, text=True, cwd=ROOT, env=umgebung, timeout=60)
-    assert ausgang.returncode == 0, ausgang.stderr[-300:]
-    return ausgang.stdout.strip()
+         "print(tasks.world_for(tasks.load_tasks(), %r))" % query],
+        capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
+    assert done.returncode == 0, done.stderr[-300:]
+    return done.stdout.strip()
 
 
 @pytest.mark.parametrize("seed", ["0", "1", "2", "3"])
-def test_wahl_der_welt_haengt_nicht_vom_hash_seed_ab(seed):
-    assert sim_welt(seed) == sim_welt("0")
+def test_world_choice_does_not_depend_on_the_hash_seed(seed):
+    assert sim_world(seed) == sim_world("0")
 
 
-def test_beide_nimmt_die_Welt_der_ersten_Aufgabe():
+def test_both_takes_the_world_of_the_first_task():
     """Four tasks name production, four name arena: the tie goes to the first task, not to fate."""
-    welt = {t["id"]: t.get("welt") for t in CFG["tasks"]}
-    assert welt_fuer_id("beide") == welt["kinematik"]
-    assert [welt[i] for i in ("kinematik", "quadrat", "korridor", "gps_anfahrt")].count(
-        welt["kinematik"]) == 4
+    world = {t["id"]: t.get("world") for t in CFG["tasks"]}
+    assert world_for_id("beide") == world["kinematik"]
+    assert [world[i] for i in ("kinematik", "quadrat", "korridor", "gps_anfahrt")].count(
+        world["kinematik"]) == 4
 
 
-def welt_fuer_id(ids: str) -> str:
-    return tasks.welt_fuer(CFG, ids)
+def world_for_id(ids: str) -> str:
+    return tasks.world_for(CFG, ids)
 
 
-def test_mehrheit_gewinnt_weiterhin():
-    assert tasks.welt_fuer(CFG, "alle") == "production"                 # experiment 1 only
-    assert tasks.welt_fuer(CFG, "kf_alle") == "arena"                   # experiment 2 only
+def test_majority_still_wins():
+    assert tasks.world_for(CFG, "alle") == "production"                 # experiment 1 only
+    assert tasks.world_for(CFG, "kf_alle") == "arena"                   # experiment 2 only
 
 
-def test_scan_docstring_und_sensor_drehen_gleich():
+def test_scan_docstring_and_sensor_rotation_agree():
     """One convention, written down once: beam 0 forward, then counter-clockwise (CONTRACT §5)."""
     from mecanum_lab.types import Scan
     tekst = " ".join((Scan.__doc__ or "").split()).lower()
@@ -83,17 +85,40 @@ def renderer():
 def gps_pixel(rend, show_gps: bool, show_kf: bool) -> int:
     rend.show_gps, rend.show_kf = show_gps, show_kf
     rend.show_hud = rend.show_scan = rend.show_trails = rend.show_ghost = False
-    rend.skid_spur = []
+    rend.skid_trail = []
     rend.draw()
-    punkte = pygame.surfarray.array3d(rend.screen).reshape(-1, 3)
-    target = sum(1 for p in punkte if all(abs(int(p[i]) - GPS_FARBE[i]) <= 2 for i in range(3)))
+    points = pygame.surfarray.array3d(rend.screen).reshape(-1, 3)
+    target = sum(1 for p in points if all(abs(int(p[i]) - GPS_COLOR[i]) <= 2 for i in range(3)))
     return target
 
 
-def test_gps_layer_unabhaengig_vom_kf_layer(renderer):
+def test_gps_layer_is_independent_of_the_kf_layer(renderer):
     rend, _ = renderer
-    mit_kf = gps_pixel(rend, show_gps=True, show_kf=True)
-    ohne_kf = gps_pixel(rend, show_gps=True, show_kf=False)
-    assert mit_kf > 0 and ohne_kf > 0, "the GPS cross must be drawn with k on *and* off"
-    assert abs(mit_kf - ohne_kf) < max(4, 0.2 * mit_kf)                  # same cross, same size
+    with_kf = gps_pixel(rend, show_gps=True, show_kf=True)
+    without_kf = gps_pixel(rend, show_gps=True, show_kf=False)
+    assert with_kf > 0 and without_kf > 0, "the GPS cross must be drawn with k on *and* off"
+    assert abs(with_kf - without_kf) < max(4, 0.2 * with_kf)                  # same cross, same size
     assert gps_pixel(rend, show_gps=False, show_kf=False) == 0           # `g` off really hides it
+
+
+def test_a_task_file_with_the_old_german_keys_still_loads(tmp_path, caplog):
+    """A tasks.json from before the English migration gives the same thresholds — see _LEGACY_KEYS.
+
+    germanids: legacy keys — this test *is* that interface, so it spells the old keys on purpose.
+    """
+    legacy = {"tasks": [{"id": "old_task", "titel": "Quadrat", "punkte": 30, "welt": "maze",
+                         "phasen": [{"ziel": [1.0, 2.0], "dauer": 3.0,
+                                     "erwarte": {"winkel_max_deg": 5.0, "abschluss_max": 9.0}}]}],
+              "reihenfolge": ["old_task"]}
+    file_name = tmp_path / "alt.json"
+    file_name.write_text(json.dumps(legacy), encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        cfg = tasks.load_tasks(str(file_name))
+    task = cfg["tasks"][0]
+    assert (task["title"], task["points"], task["world"]) == ("Quadrat", 30, "maze")
+    phase = task["phases"][0]
+    assert phase["target"] == [1.0, 2.0] and phase["duration"] == 3.0
+    assert phase["expect"]["yaw_max_deg"] == 5.0                  # nested keys too
+    assert "dauer" not in phase and "ziel" not in phase           # only today's spelling survives
+    assert "deprecated key 'titel'" in caplog.text
+    assert "deprecated key 'erwarte'" in caplog.text

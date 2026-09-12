@@ -36,7 +36,7 @@ def frames(name: str, cfg: dict | None = None) -> dict:
             "laser": pr + "laser", "imu": pr + "imu_link"}
 
 
-def frame_fuer(kind: str, name: str = "", cfg: dict | None = None) -> str:
+def frame_for(kind: str, name: str = "", cfg: dict | None = None) -> str:
     """Header frame of a message kind — the one place where headers get their names."""
     return frames(name, cfg)[KIND_FRAME[kind]]
 
@@ -44,13 +44,13 @@ def frame_fuer(kind: str, name: str = "", cfg: dict | None = None) -> str:
 def header_frames(kind: str, name: str = "", cfg: dict | None = None) -> tuple:
     """(header frame, child frame id) as ros_bridge needs it for Odometry."""
     f = frames(name, cfg)
-    return (f["odom"], f["base"]) if kind == "odom" else (frame_fuer(kind, name, cfg), None)
+    return (f["odom"], f["base"]) if kind == "odom" else (frame_for(kind, name, cfg), None)
 
 
-# --------------------------------------------------------------------- Baum aus Posen bauen
+# --------------------------------------------------------------------- build the tree from poses
 
 
-def _kopf(M, t: float, frame: str):
+def _mk_header(M, t: float, frame: str):
     kopf = M["Header"](frame_id=frame)
     kopf.stamp = M["Time"](sec=int(t), nanosec=int((t % 1.0) * 1e9))
     return kopf
@@ -60,7 +60,7 @@ def _trans(M, t: float, parent: str, child: str, x: float, y: float, yaw: float,
     """One TransformStamped; rotation is yaw only, the sim is a 2D world."""
     from .ros_bridge import yaw_to_quat                     # late: ros_bridge imports this here
     tf = M["TransformStamped"]()
-    tf.header = _kopf(M, t, parent)
+    tf.header = _mk_header(M, t, parent)
     tf.child_frame_id = child
     tf.transform.translation.x, tf.transform.translation.y, tf.transform.translation.z = \
         float(x), float(y), float(z)
@@ -72,30 +72,30 @@ def _trans(M, t: float, parent: str, child: str, x: float, y: float, yaw: float,
 
 def static_tree(M, engine, cfg: dict, t: float) -> list:
     """base_link -> laser and base_link -> imu_link, mounted as tf.mount says."""
-    haltungen = cfg_get(cfg, "tf.mount") or {}
+    mounts = cfg_get(cfg, "tf.mount") or {}
     sending = []
     for robot in engine.robots.values():
         f = frames(robot.spec.name, cfg)
-        for kind, achse in (("laser", "laser"), ("imu", "imu")):
-            x, y, z = (list(haltungen.get(achse) or [0.0, 0.0, 0.0]) + [0.0, 0.0, 0.0])[:3]
+        for kind, mount_key in (("laser", "laser"), ("imu", "imu")):
+            x, y, z = (list(mounts.get(mount_key) or [0.0, 0.0, 0.0]) + [0.0, 0.0, 0.0])[:3]
             sending.append(_trans(M, t, f["base"], f[kind], x, y, 0.0, z))
     return sending
 
 
 def dynamic_tree(M, engine, cfg: dict, t: float) -> list:
     """map -> odom (see module docstring) and odom -> base_link from the odometry."""
-    wahrheit = str(cfg_get(cfg, "tf.map_to_odom", "odom")).lower() == "truth"
+    truth_mode = str(cfg_get(cfg, "tf.map_to_odom", "odom")).lower() == "truth"
     sending = []
     for robot in engine.robots.values():
         f = frames(robot.spec.name, cfg)
         odo = robot.odom or robot.pose                        # at spawn both are identical
         sending.append(_trans(M, t, f["odom"], f["base"], odo.x, odo.y, odo.theta))
         x, y, yaw = 0.0, 0.0, 0.0
-        if wahrheit:                                          # map->odom closes the drift
-            wahr, theta = robot.pose, wrap_angle(robot.pose.theta - odo.theta)
+        if truth_mode:                                          # map->odom closes the drift
+            truth_pose, theta = robot.pose, wrap_angle(robot.pose.theta - odo.theta)
             cos, sin = math.cos(theta), math.sin(theta)
-            x = wahr.x - (cos * odo.x - sin * odo.y)
-            y = wahr.y - (sin * odo.x + cos * odo.y)
+            x = truth_pose.x - (cos * odo.x - sin * odo.y)
+            y = truth_pose.y - (sin * odo.x + cos * odo.y)
             yaw = theta
         sending.append(_trans(M, t, "map", f["odom"], x, y, yaw))
     return sending
@@ -106,20 +106,20 @@ def attach(node, engine, cfg: dict, M) -> None:
     if not cfg_get(cfg, "tf.enabled", True) or M.get("TFMessage") is None:
         return
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-    dynamik = node.create_publisher(M["TFMessage"], "tf", 10)
-    statik = node.create_publisher(
+    dyn_pub = node.create_publisher(M["TFMessage"], "tf", 10)
+    static_pub = node.create_publisher(
         M["TFMessage"], "tf_static",
         QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
                    durability=DurabilityPolicy.TRANSIENT_LOCAL))
-    gesehen, meldung = set(), M["TFMessage"]
+    seen, msg = set(), M["TFMessage"]
 
     def tick():
         zeit = float(engine.t)
-        if set(engine.robots) != gesehen:                     # new robot -> new static branches
-            gesehen.clear()
-            gesehen.update(engine.robots)
-            statik.publish(meldung(transforms=static_tree(M, engine, cfg, zeit)))
-        dynamik.publish(meldung(transforms=dynamic_tree(M, engine, cfg, zeit)))
+        if set(engine.robots) != seen:                     # new robot -> new static branches
+            seen.clear()
+            seen.update(engine.robots)
+            static_pub.publish(msg(transforms=static_tree(M, engine, cfg, zeit)))
+        dyn_pub.publish(msg(transforms=dynamic_tree(M, engine, cfg, zeit)))
 
     tick()                                                    # static transforms without delay
     node.create_timer(1.0 / float(cfg_get(cfg, "tf.rate", 20.0) or 20.0), tick)

@@ -93,24 +93,24 @@ def test_draw_without_robots_and_without_task():
 
 
 def test_draw_eight_robots_two_hud_columns():
-    bots = {f"bot{i}": make_robot(f"bot{i}", i) for i in range(8)}
+    bots = {f"robot{i}": make_robot(f"robot{i}", i) for i in range(8)}
     with gui(make_engine(bots)) as rend:
         for _ in range(3):
             rend.draw(cap=False)
 
 
 def test_draw_handles_missing_sensors_and_empty_wheels():
-    bot = make_robot("nackt", 3, with_scan=False, with_odom=False, wheels=[])
-    bot.twist = Twist()
-    with gui(make_engine({"nackt": bot})) as rend:
+    robot = make_robot("nackt", 3, with_scan=False, with_odom=False, wheels=[])
+    robot.twist = Twist()
+    with gui(make_engine({"nackt": robot})) as rend:
         rend.draw(cap=False)
 
 
 @pytest.mark.parametrize("marker", MARKERS + ["unbekannt"])
 def test_every_marker_shape_draws(marker):
-    bot = make_robot("m", 0)
-    bot.spec.marker = marker
-    with gui(make_engine({"m": bot})) as rend:
+    robot = make_robot("m", 0)
+    robot.spec.marker = marker
+    with gui(make_engine({"m": robot})) as rend:
         rend.draw(cap=False)
 
 
@@ -134,10 +134,10 @@ def test_wheel_phase_follows_sim_time():
 
 def test_trail_is_capped_at_configured_length():
     engine = make_engine()
-    bot = engine.robots["alice"]
+    robot = engine.robots["alice"]
     with gui(engine) as rend:
         for i in range(80):
-            bot.pose.x = 1.0 + 0.05 * i                 # far more points than trail_len
+            robot.pose.x = 1.0 + 0.05 * i                 # far more points than trail_len
             engine.t += 0.1
             rend.draw(cap=False)
         assert len(rend.trails["alice"]) <= rend.trail_len
@@ -154,14 +154,14 @@ def test_trail_of_removed_robot_is_dropped():
 
 
 def test_frame_time_for_eight_robots_with_lidar():
-    bots = {f"bot{i}": make_robot(f"bot{i}", i) for i in range(8)}
+    bots = {f"robot{i}": make_robot(f"robot{i}", i) for i in range(8)}
     engine = make_engine(bots)
     with gui(engine) as rend:
         rend.draw(cap=False)                            # first frame warms up fonts and paths
         times = []
         for i in range(60):
-            for bot in bots.values():
-                bot.pose.x += 0.01
+            for robot in bots.values():
+                robot.pose.x += 0.01
             engine.t += 0.033
             start = time.perf_counter()
             rend.draw(cap=False)
@@ -197,7 +197,7 @@ def test_toggles_and_zoom_and_grid():
 
 
 def test_camera_keys_focus_and_reset():
-    bots = {f"bot{i}": make_robot(f"bot{i}", i) for i in range(3)}
+    bots = {f"robot{i}": make_robot(f"robot{i}", i) for i in range(3)}
     engine = make_engine(bots)
     with gui(engine) as rend:
         press("3")

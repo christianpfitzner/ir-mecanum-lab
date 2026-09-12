@@ -159,12 +159,12 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
     if kind in ("gps", "truth"):
         m = M["PoseStamped"]()
         m.header = _header(M, payload.t if hasattr(payload, "t") else 0.0,
-                           tf_bcast.frame_fuer(kind, robot, cfg))
+                           tf_bcast.frame_for(kind, robot, cfg))
         _set_pose(M, m.pose, payload.x, payload.y, payload.theta)
         return m
     if kind == "kf":
         m = M["PoseWithCovarianceStamped"]()
-        m.header = _header(M, payload.t, tf_bcast.frame_fuer("kf", robot, cfg))
+        m.header = _header(M, payload.t, tf_bcast.frame_for("kf", robot, cfg))
         _set_pose(M, m.pose.pose, payload.x, payload.y, payload.theta)
         # ROS stores the pose covariance as [x, y, z, roll, pitch, yaw] — on the diagonal
         m.pose.covariance = cov36((payload.sx ** 2, payload.sy ** 2, 1e-12, 1e-12, 1e-12,
@@ -172,7 +172,7 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         return m
     if kind == "imu":
         m = M["Imu"]()
-        m.header = _header(M, payload.t, tf_bcast.frame_fuer("imu", robot, cfg))
+        m.header = _header(M, payload.t, tf_bcast.frame_for("imu", robot, cfg))
         qx, qy, qz, qw = yaw_to_quat(0.0)
         m.orientation.x, m.orientation.y = qx, qy
         m.orientation.z, m.orientation.w = qz, qw
@@ -186,7 +186,7 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         return m
     if kind == "scan":
         m = M["LaserScan"]()
-        m.header = _header(M, payload.t, tf_bcast.frame_fuer("scan", robot, cfg))
+        m.header = _header(M, payload.t, tf_bcast.frame_for("scan", robot, cfg))
         n = max(len(payload.ranges) - 1, 1)
         m.angle_min, m.angle_max = payload.angle_min, payload.angle_min + payload.angle_increment * n
         m.angle_increment, m.scan_time = payload.angle_increment, 0.02
@@ -210,26 +210,26 @@ def from_ros(kind: str, msg):
         return msg.data
     if kind == "odom":
         p, v = msg.pose.pose, msg.twist.twist
-        return Odom(_zeit(msg.header), p.position.x, p.position.y,
+        return Odom(_stamp(msg.header), p.position.x, p.position.y,
                     quat_to_yaw(p.orientation), v.linear.x, v.linear.y, v.angular.z)
     if kind in ("gps", "truth"):
         p = msg.pose.position
-        return Gps(_zeit(msg.header), p.x, p.y, quat_to_yaw(msg.pose.orientation))
+        return Gps(_stamp(msg.header), p.x, p.y, quat_to_yaw(msg.pose.orientation))
     if kind == "kf":
         p, cov = msg.pose.pose, cov_diag(msg.pose.covariance)
-        return Kf(_zeit(msg.header), p.position.x, p.position.y, quat_to_yaw(p.orientation),
+        return Kf(_stamp(msg.header), p.position.x, p.position.y, quat_to_yaw(p.orientation),
                   math.sqrt(max(cov[0], 0.0)), math.sqrt(max(cov[1], 0.0)),
                   math.sqrt(max(cov[5], 0.0)))
     if kind == "imu":
         g, a = msg.angular_velocity, msg.linear_acceleration
-        return Imu(_zeit(msg.header), a.x, a.y, a.z, g.x, g.y, g.z)
+        return Imu(_stamp(msg.header), a.x, a.y, a.z, g.x, g.y, g.z)
     if kind == "scan":
-        return Scan(_zeit(msg.header), msg.angle_min, msg.angle_increment, msg.range_min,
+        return Scan(_stamp(msg.header), msg.angle_min, msg.angle_increment, msg.range_min,
                     msg.range_max, list(msg.ranges))
     raise ValueError(f"unknown subscription type {kind}")
 
 
-def _zeit(header) -> float:
+def _stamp(header) -> float:
     """Message stamp in seconds (simulation time when use_sim_time is set)."""
     return header.stamp.sec + header.stamp.nanosec * 1e-9
 
@@ -273,7 +273,7 @@ class RclpyBus:
         self.node = Node(node_name)
         self.cfg = cfg or {}
         self.name, self._pubs, self._last, self._srv, self._cli = node_name, {}, {}, {}, {}
-        self._abos, self._iface = set(), _spawn_iface(self.M)
+        self._subscribed, self._iface = set(), _spawn_iface(self.M)
         log.info("ROS node '%s' (%s)", node_name, "SpawnRobot interface" if self._iface
                  else "spawn fallback: JSON handshake")
 
@@ -315,7 +315,7 @@ class RclpyBus:
         self._subscribe("String", name, lambda msg, n=name, c=cb: self._recv(n, c, msg.data))
 
     def _subscribe(self, cls_key: str, name: str, wrap) -> None:
-        self._abos.add(name)
+        self._subscribed.add(name)
         self.node.create_subscription(self.M[cls_key], name, wrap, 10)
 
     def _recv(self, name, cb, value) -> None:
@@ -329,7 +329,7 @@ class RclpyBus:
         """Last value + age in s. The first look subscribes to the topic on the side —
         otherwise `last()` would stay empty forever in ROS, since the reader never subscribed."""
         name = topic(kind, robot)
-        if name not in self._abos:
+        if name not in self._subscribed:
             self._subscribe(KIND_MSG[kind], name,
                             lambda msg, n=name, k=kind: self._recv(n, lambda p: None, from_ros(k, msg)))
         got = self._last.get(name)
@@ -412,13 +412,13 @@ class RclpyBus:
             self.spin(0.02)
         return got or {"success": False, "message": f"no answer from {name}"}
 
-    def _await(self, future, deutung, timeout):
+    def _await(self, future, decode, timeout):
         ende = time.monotonic() + timeout
         while not future.done() and time.monotonic() < ende and self.rclpy.ok():
             self.spin(0.02)
         if not future.done():
             return {"success": False, "message": "timed out"}
-        return deutung(future.result())
+        return decode(future.result())
 
     # ------------------------------------------------------------------ lifecycle
 

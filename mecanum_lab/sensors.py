@@ -153,9 +153,9 @@ class GpsSensor:
         self.sigma_xy = cfg.get("sigma_xy", 0.0)
         self.sigma_theta = cfg.get("sigma_theta", 0.0)
         self.bias = cfg.get("bias_xy") or (0.0, 0.0)
-        self.gap = _fenster(cfg.get("gap"), 2)
-        self.step = _fenster(cfg.get("bias_step"), 4)
-        self.zones = _zonen(cfg.get("zones"))          # place-based degradation, [] = off
+        self.gap = _window(cfg.get("gap"), 2)
+        self.step = _window(cfg.get("bias_step"), 4)
+        self.zones = _zones(cfg.get("zones"))          # place-based degradation, [] = off
         self.t0 = 0.0                                # time reference of the windows (see set_task)
 
     def fix(self, pose, t: float = 0.0) -> Gps | None:
@@ -164,15 +164,15 @@ class GpsSensor:
         `gap` and `bias_step` are read **relative to task start** — the engine sets `t0` in
         `set_task`. Otherwise the start button decides when the GPS outage hits.
         """
-        auf_t = t - self.t0                      # time since task start
-        if self.gap and self.gap[0] <= auf_t < self.gap[0] + self.gap[1]:
+        since_task = t - self.t0                      # time since task start
+        if self.gap and self.gap[0] <= since_task < self.gap[0] + self.gap[1]:
             return None
         zone = self._zone(pose)
         if zone and zone["block"]:
             return None                                # no satellite visible from here
         sigma = self.sigma_xy * (zone["sigma_scale"] if zone else 1.0)
         dx = dy = 0.0
-        if self.step and self.step[0] <= auf_t < self.step[0] + self.step[1]:
+        if self.step and self.step[0] <= since_task < self.step[0] + self.step[1]:
             dx, dy = self.step[2], self.step[3]
         if zone:
             dx += zone["bias"][0]
@@ -190,14 +190,14 @@ class GpsSensor:
         return None
 
 
-def _zonen(wert) -> list:
+def _zones(value) -> list:
     """Check `gps.zones`: [{name, rect:[x0,y0,x1,y1], sigma_scale, bias_xy, block}, …].
 
     Rectangles are world metres, the first zone containing the robot wins, and one broken
     entry is dropped instead of killing the run — a typo in a demo file must not stop a lab.
     """
     out = []
-    for z in wert or []:
+    for z in value or []:
         try:
             x0, y0, x1, y1 = [float(v) for v in z["rect"]]
             bias = [float(v) for v in (z.get("bias_xy") or (0.0, 0.0))][:2]
@@ -210,11 +210,11 @@ def _zonen(wert) -> list:
     return out
 
 
-def _fenster(wert, n: int) -> list | None:
+def _window(value, n: int) -> list | None:
     """Check a `[start, duration, …]` config; disable nonsense instead of crashing."""
-    if not isinstance(wert, (list, tuple)) or len(wert) != n or float(wert[1]) <= 0:
+    if not isinstance(value, (list, tuple)) or len(value) != n or float(value[1]) <= 0:
         return None
-    return [float(v) for v in wert]
+    return [float(v) for v in value]
 
 
 class ImuSensor:
@@ -267,7 +267,7 @@ class ImuSensor:
         `t_offset` stays as it is — the engine sets it again anyway when hooking it to
         simulation time.
         """
-        self.t, self.buf, self.phase = 0.0, 0.0, self.noise.uniform(math.tau)
+        self.t, self.carry, self.phase = 0.0, 0.0, self.noise.uniform(math.tau)
         self.tilt = [0.0, 0.0]                       # (roll, pitch)
         self.tilt_rate = [0.0, 0.0]
         self.vel = (0.0, 0.0)                        # world velocity of the previous sample
@@ -283,37 +283,37 @@ class ImuSensor:
         vel = (twist.vx * c - twist.vy * s, twist.vx * s + twist.vy * c)
         if self.t <= 0.0:
             self.vel = vel                           # first sample: no step derivative
-        a_welt = ((vel[0] - self.vel[0]) / max(dt, 1e-6), (vel[1] - self.vel[1]) / max(dt, 1e-6))
+        a_world = ((vel[0] - self.vel[0]) / max(dt, 1e-6), (vel[1] - self.vel[1]) / max(dt, 1e-6))
         self.vel = vel
-        a_body = (a_welt[0] * c + a_welt[1] * s, -a_welt[0] * s + a_welt[1] * c)
-        self.buf += dt
-        raus = []
-        periode = 1.0 / self.rate
-        while self.buf >= periode:
-            self.buf -= periode
-            self.t += periode
-            raus.append(self._stichprobe(a_body, twist, periode))
-        return raus
+        a_body = (a_world[0] * c + a_world[1] * s, -a_world[0] * s + a_world[1] * c)
+        self.carry += dt
+        out = []
+        period = 1.0 / self.rate
+        while self.carry >= period:
+            self.carry -= period
+            self.t += period
+            out.append(self._one_sample(a_body, twist, period))
+        return out
 
-    def _stichprobe(self, a_body, twist, dt: float) -> Imu:
+    def _one_sample(self, a_body, twist, dt: float) -> Imu:
         """One sample: move the tilt, let the bias walk, put noise on top."""
         for i in range(3):            # bias random walk: the bias does not stay where it was
             self.b_a[i] += self.noise.gauss(self.w_a)
             self.b_g[i] += self.noise.gauss(self.w_g)
-        rauschung = math.sqrt(2.0 * dt / self.tilt_tau) * self.tilt_sigma
+        tilt_noise = math.sqrt(2.0 * dt / self.tilt_tau) * self.tilt_sigma
         for i in range(2):
             alt = self.tilt[i]
-            self.tilt[i] += -alt * dt / self.tilt_tau + self.noise.gauss(rauschung)
+            self.tilt[i] += -alt * dt / self.tilt_tau + self.noise.gauss(tilt_noise)
             self.tilt_rate[i] = (self.tilt[i] - alt) / dt
-        schwing = self.vib * math.sin(math.tau * self.vib_hz * self.t + self.phase)
-        warm = self.startup_bias * math.exp(-3.0 * self.t / self.startup)
+        vibration = self.vib * math.sin(math.tau * self.vib_hz * self.t + self.phase)
+        settling = self.startup_bias * math.exp(-3.0 * self.t / self.startup)
         roll, pitch = self.tilt
         return Imu(
             t=self.t_offset + self.t,
-            ax=self.k_a * a_body[0] - self.g * pitch + self.b_a[0] + warm
-               + schwing + self.noise.gauss(self.s_a),
-            ay=self.k_a * a_body[1] + self.g * roll + self.b_a[1] + 0.7 * warm
-               - 0.6 * schwing + self.noise.gauss(self.s_a),
+            ax=self.k_a * a_body[0] - self.g * pitch + self.b_a[0] + settling
+               + vibration + self.noise.gauss(self.s_a),
+            ay=self.k_a * a_body[1] + self.g * roll + self.b_a[1] + 0.7 * settling
+               - 0.6 * vibration + self.noise.gauss(self.s_a),
             # Specific force: positive upward, +g at rest — no flaw, that is how the chip ticks
             az=self.g + self.b_a[2] + self.noise.gauss(self.s_a),
             gx=self.k_g * self.tilt_rate[0] + self.b_g[0] + self.noise.gauss(self.s_g),

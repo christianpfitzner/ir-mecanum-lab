@@ -94,7 +94,7 @@ def _rects(cells: set, nrows: int, ncols: int, cell: float) -> list:
     return rects
 
 
-def zell(cfg: dict | None, name: str, default: float = CELL) -> float:
+def cell_size(cfg: dict | None, name: str, default: float = CELL) -> float:
     """Edge length of one grid cell for this world.
 
     `worlds.cell_by_world.<name>` wins over `worlds.cell` over the built-in CELL. That is how
@@ -102,9 +102,9 @@ def zell(cfg: dict | None, name: str, default: float = CELL) -> float:
     the same size everywhere, the world decides how much room it has.
     """
     cfg = cfg or {}
-    pro_welt = cfg_get(cfg, "worlds.cell_by_world") or {}
-    wert = pro_welt.get(name, cfg_get(cfg, "worlds.cell", default))
-    return float(wert)
+    per_world = cfg_get(cfg, "worlds.cell_by_world") or {}
+    value = per_world.get(name, cfg_get(cfg, "worlds.cell", default))
+    return float(value)
 
 
 def load_world(name: str, path: str | None = None, cfg: dict | None = None) -> World:
@@ -112,13 +112,13 @@ def load_world(name: str, path: str | None = None, cfg: dict | None = None) -> W
 
     Cached per cell size: the same file can be read as a 0.5 m and as a 0.6 m world.
     """
-    zellen = zell(cfg, name)
-    schluessel = (name, zellen)
-    if schluessel not in _cache or path:
+    zellen = cell_size(cfg, name)
+    key = (name, zellen)
+    if key not in _cache or path:
         p = path or os.path.join(ROOT, "worlds", f"{name}.txt")
         with open(p, encoding="utf-8") as fh:
-            _cache[schluessel] = parse_grid(fh.read(), zellen, name)
-    return _cache[schluessel]
+            _cache[key] = parse_grid(fh.read(), zellen, name)
+    return _cache[key]
 
 
 def list_worlds() -> list:

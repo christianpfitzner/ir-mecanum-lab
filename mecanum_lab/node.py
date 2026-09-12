@@ -1,6 +1,6 @@
 """Simulator command line — `./lab <command>` (CONTRACT §6.9, CONTRACT-KF §4).
 
-A single simulation run core (`simlauf`) sits behind every variant: with and without a
+A single simulation run core (`run_loop`) sits behind every variant: with and without a
 window, with and without ROS, with a student node and with a grader. The only difference
 is the bus: `run` uses the in-process bus (no ROS needed), `sim` takes real ROS whenever
 rclpy is available.
@@ -27,31 +27,31 @@ import time
 from . import render as R
 from . import ros_bridge, robot_io, stub, tasks as T
 from .engine import SpawnError, SimEngine
-from .logbook import Logbuch
+from .logbook import Logbook
 from .robot_io import RobotIO
 from .types import MSG_SPECS, Twist, load_config, topic
 from .worlds import list_worlds, load_world
 
 log = logging.getLogger("mecanum.node")
-WELTEN = ", ".join(list_worlds())
+WORLD_LIST = ", ".join(list_worlds())
 
 
 # --------------------------------------------------------------------- Run core
 
 
-def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None):
+def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None):
     """One tick: step the simulation, put measurements on the bus, draw, grade, log."""
-    pubs, letzte, t_clock, t_json, sim_zeit = {}, time.monotonic(), 0.0, 0.0, eng.t
-    letzte_schaetzung = {}                      # so the log counts each kf/pose message only once
-    letzte_robots, t_robots = None, 0.0
-    send_task = bus.pub("task")
+    pubs, prev_t, t_clock, t_json, sim_t = {}, time.monotonic(), 0.0, 0.0, eng.t
+    last_estimate = {}                      # so the log counts each kf/pose message only once
+    last_robots, t_robots = None, 0.0
+    pub_task = bus.pub("task")
     while bus.ok() and (rend is None or rend.ok) and (not seconds or eng.t < seconds):
-        jetzt = time.monotonic()
-        dt = min(jetzt - letzte, 0.25)
-        letzte = jetzt
+        now = time.monotonic()
+        dt = min(now - prev_t, 0.25)
+        prev_t = now
         if rend is None or not rend.paused:
             eng.step(dt)
-        verstrichen, sim_zeit = eng.t - sim_zeit, eng.t   # what the simulator really advanced
+        elapsed, sim_t = eng.t - sim_t, eng.t   # what the simulator really advanced
         for kind, robot, payload in eng.drain():          # measurements -> topics
             if tap:
                 tap.tap(kind, robot, payload)
@@ -62,27 +62,27 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
         # grader waits a second for the mission to end), but at least once per second:
         # `ros2 topic echo /sim/robots --once` would otherwise hang on nothing.
         robots = json.dumps(eng.robots_info())
-        if robots != letzte_robots or jetzt - t_robots > 1.0:
+        if robots != last_robots or now - t_robots > 1.0:
             pubs.setdefault(("robots", None), bus.pub("robots"))(robots)
-            letzte_robots, t_robots = robots, jetzt
+            last_robots, t_robots = robots, now
         if tap:                                   # kf/pose comes from the students, not from the sim
             for name in eng.robots:
                 schatzung, _ = bus.last("kf", name)
-                if schatzung is not None and schatzung is not letzte_schaetzung.get(name):
-                    letzte_schaetzung[name] = schatzung
+                if schatzung is not None and schatzung is not last_estimate.get(name):
+                    last_estimate[name] = schatzung
                     tap.tap("kf", name, schatzung)
             tap.tick()
-        if jetzt - t_clock > 0.05:                        # /clock for use_sim_time
+        if now - t_clock > 0.05:                        # /clock for use_sim_time
             bus.pub("clock")(eng.t)
-            t_clock = jetzt
-        if jetzt - t_json > 1.0:                          # world info, robot list, task, profile
+            t_clock = now
+        if now - t_json > 1.0:                          # world info, robot list, task, profile
             bus.pub("world")(eng.world_json())
             bus.pub("config")(eng.config_json())
-            send_task(eng.task)
-            t_json = jetzt
+            pub_task(eng.task)
+            t_json = now
         if teleop and rend is not None:
             rend.teleop = True                             # HUD shows the driving keys
-            tw = tasten()
+            tw = teleop_keys()
             if tw and tw != (0, 0, 0):
                 for name in eng.robots:
                     pubs.setdefault(("twist", name), bus.pub("twist", name))(Twist(*tw))
@@ -91,14 +91,14 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
                 break
             rend.draw()
         for g in graders:
-            g.tick(verstrichen)                 # its clock is simulation time, not the wall clock
-        if graders and all(getattr(g, "fertig", False) for g in graders):
+            g.tick(elapsed)                 # its clock is simulation time, not the wall clock
+        if graders and all(getattr(g, "done", False) for g in graders):
             break                                       # grader is done -> end the run
         bus.spin(1.0 / hz if rend is None else 0.002)
     return eng
 
 
-def tasten() -> tuple:
+def teleop_keys() -> tuple:
     """Keys to body speed: up/down drive, left/right strafe (mecanum), q/, right, e/. left."""
     import pygame
     k = pygame.key.get_pressed()
@@ -114,58 +114,58 @@ def parse_set(text: str) -> tuple:
     `gps.bias_xy=[0.4,-0.2]`), everything else stays a string. Two dots in the path allow
     settings as deep as you like — the launch file can carry the whole wish list.
     """
-    pfad, gleich, wert = str(text).partition("=")
-    if not gleich or not pfad.strip():
+    path, equals, value = str(text).partition("=")
+    if not equals or not path.strip():
         raise ValueError(f"--set wants 'path.sub.path=value', got: '{text}'")
     try:
-        wert = json.loads(wert.strip())
+        value = json.loads(value.strip())
     except ValueError:
         pass
-    stufen = pfad.strip().split(".")
-    baum = {stufen[-1]: wert}
-    for stufe in reversed(stufen[:-1]):
-        baum = {stufe: baum}
-    return stufen[0], baum
+    parts = path.strip().split(".")
+    tree = {parts[-1]: value}
+    for part in reversed(parts[:-1]):
+        tree = {part: tree}
+    return parts[0], tree
 
 
-def sets_zusammenfassen(roh: list) -> dict:
+def merge_sets(raw: list) -> dict:
     """Merge all `--set` values into one override tree; the one named last wins."""
-    baum = {}
-    for angabe in roh or []:
-        schluessel, zweig = parse_set(angabe)
-        _vertiefe(baum, schluessel, zweig[schluessel])
-    return baum
+    tree = {}
+    for given in raw or []:
+        key, zweig = parse_set(given)
+        _nest(tree, key, zweig[key])
+    return tree
 
 
-def _vertiefe(baum: dict, schluessel: str, wert) -> None:
-    ziel = baum.setdefault(schluessel, {})
-    if not isinstance(wert, dict):
-        baum[schluessel] = wert
+def _nest(tree: dict, key: str, value) -> None:
+    ziel = tree.setdefault(key, {})
+    if not isinstance(value, dict):
+        tree[key] = value
         return
     if not isinstance(ziel, dict):
-        baum[schluessel] = ziel = {}
-    for teil, unter in wert.items():
-        _vertiefe(ziel, teil, unter)
+        tree[key] = ziel = {}
+    for teil, unter in value.items():
+        _nest(ziel, teil, unter)
 
 
-def mach_engine(args):
+def make_engine(args):
     """Config layers: DEFAULT <- config/default.json <- --config <- test profile <- --set."""
-    uberschreiben = {"world": args.world, "gui": not args.headless}
+    overrides = {"world": args.world, "gui": not args.headless}
     if getattr(args, "truth", False):
-        uberschreiben["debug_truth"] = True
+        overrides["debug_truth"] = True
     if args.task:
         try:
-            uberschreiben.update(T.sim_profil(T.load_tasks(), args.task))
+            overrides.update(T.sim_profile(T.load_tasks(), args.task))
         except (ValueError, FileNotFoundError) as exc:
             log.warning("test profile not readable (%s) — grading runs with the "
                         "simulator's own settings", exc)
-    uberschreiben.update(sets_zusammenfassen(getattr(args, "set", None)))
-    cfg = load_config(getattr(args, "config", None), uberschreiben)
-    welt = cfg_get_welt(cfg, args, uberschreiben)
-    eng = SimEngine(load_world(welt, cfg=cfg), cfg, seed=args.seed)
+    overrides.update(merge_sets(getattr(args, "set", None)))
+    cfg = load_config(getattr(args, "config", None), overrides)
+    world_info = cfg_get_world(cfg, args, overrides)
+    eng = SimEngine(load_world(world_info, cfg=cfg), cfg, seed=args.seed)
     # What was given via --set must never be outbid by a task profile: the engine carries
     # those values as a permanent override.
-    eng.erzwungen = {k: v for k, v in sets_zusammenfassen(getattr(args, "set", None)).items()
+    eng.forced = {k: v for k, v in merge_sets(getattr(args, "set", None)).items()
                      if k != "world"}
     for name in [r for r in (args.robots or "").split(",") if r.strip()]:
         try:
@@ -173,11 +173,11 @@ def mach_engine(args):
         except (SpawnError, ValueError) as exc:
             log.error("robot '%s': %s", name, exc)
     if args.task:
-        eng.set_task(erster_auftrag(args.task))
+        eng.set_task(first_task(args.task))
     return eng
 
 
-def erster_auftrag(kette: str) -> str:
+def first_task(kette: str) -> str:
     """Reduce the --task value to its first real task: "alle" -> "kinematik".
 
     The task travels on /sim/task, and the students' runner switches when it arrives. A
@@ -185,16 +185,16 @@ def erster_auftrag(kette: str) -> str:
     "unknown task" and an error message nobody caused.
     """
     try:
-        auftrge = T.resolve(T.load_tasks(), kette)
+        picked = T.resolve(T.load_tasks(), kette)
     except (ValueError, FileNotFoundError):
         return kette
-    return auftrge[0]["id"] if auftrge else kette
+    return picked[0]["id"] if picked else kette
 
 
-def cfg_get_welt(cfg: dict, args, profil: dict) -> str:
+def cfg_get_world(cfg: dict, args, profile: dict) -> str:
     """Pick the world: what was named first, then the tasks' recommendation, then the default.
 
-    Tasks name their arena through `"welt"` in config/tasks.json — lab 1 wants
+    Tasks name their arena through `"world"` in config/tasks.json — lab 1 wants
     `production`, lab 2 `arena`. That recommendation counts without `--world auto` too,
     otherwise you grade a square drive in the wrong arena and wonder about walls.
     `--world auto` is the same thing, only explicit; a named world always wins.
@@ -205,17 +205,17 @@ def cfg_get_welt(cfg: dict, args, profil: dict) -> str:
     if not args.task:                                     # no task announced -> no recommendation
         return standard
     try:
-        auftrge = T.resolve(T.load_tasks(), args.task)
+        picked = T.resolve(T.load_tasks(), args.task)
     except (ValueError, FileNotFoundError):
         return standard
-    if not auftrge:
+    if not picked:
         return standard
-    kf = all(a.get("art") == "kf" for a in auftrge)      # blind drive with no world given: arena
-    return T.welt_fuer({"tasks": auftrge}, [a["id"] for a in auftrge],
+    kf = all(a.get("kind") == "kf" for a in picked)      # blind drive with no world given: arena
+    return T.world_for({"tasks": picked}, [a["id"] for a in picked],
                        default="arena" if kf else standard)
 
 
-def bus_fuer(args, node_name, cfg: dict | None = None):
+def bus_for(args, node_name, cfg: dict | None = None):
     """Stub when --stub is set or there is no ROS; otherwise the real ROS bus."""
     bus = ros_bridge.make_bus("stub" if args.stub else "auto", node_name=node_name, cfg=cfg)
     if bus is None:
@@ -224,15 +224,15 @@ def bus_fuer(args, node_name, cfg: dict | None = None):
     return bus
 
 
-def abo(bus, eng, name: str) -> None:
+def subscribe(bus, eng, name: str) -> None:
     """Wire a robot's command and estimate topics into the simulation."""
     bus.sub("twist", name, lambda t, n=name: eng.set_cmd_vel(n, t))
     bus.sub("wheels", name, lambda w, n=name: eng.set_wheel_speeds(n, w))
-    bus.sub("mission", name, lambda s, n=name: eng.set_mission(n, s))
+    bus.sub("mission", name, lambda s, n=name: eng.set_mission_state(n, s))
     bus.sub("kf", name, lambda k, n=name: eng.set_kf(n, k))
 
 
-def auftrag_profile() -> dict:
+def task_profiles() -> dict:
     """{task id: task} — test profile and drive mode per task, not global."""
     try:
         return {a["id"]: a for a in T.load_tasks()["tasks"]}
@@ -241,7 +241,7 @@ def auftrag_profile() -> dict:
         return {}
 
 
-def verbinde_auftrag(bus, eng, profile: dict | None = None, robot: str | None = None) -> None:
+def wire_task(bus, eng, profile: dict | None = None, robot: str | None = None) -> None:
     """Put /sim/task into the simulation: task, sensor profile, start pose.
 
     `robot` is the robot a grader is driving through a blind command run: for a KF task it
@@ -249,46 +249,46 @@ def verbinde_auftrag(bus, eng, profile: dict | None = None, robot: str | None = 
     it has to begin where the world parked the robot — otherwise the second task drives
     into a wall, because the first one ended somewhere.
     """
-    profile = auftrag_profile() if profile is None else profile
+    profile = task_profiles() if profile is None else profile
 
-    def neu(text) -> None:
+    def on_task(text) -> None:
         name = str(text or "")
-        auftrag = profile.get(name) or {}
-        if robot and auftrag.get("art") == "kf" and name != eng.task:
+        task = profile.get(name) or {}
+        if robot and task.get("kind") == "kf" and name != eng.task:
             eng.reset_robot(robot)
         eng.set_task(name)
-        if auftrag.get("sim"):
-            eng.set_sensor_profil(auftrag["sim"])
-    bus.sub_topic(topic("task"), neu)
+        if task.get("sim"):
+            eng.set_sensor_profile(task["sim"])
+    bus.sub_topic(topic("task"), on_task)
 
 
-def fuege_knoten(datei, name, bus):
+def add_node(path, name, bus):
     """Student node as a thread: import the module, then let robot_io.serve() run."""
-    spec = importlib.util.spec_from_file_location("student_knoten", datei)
+    spec = importlib.util.spec_from_file_location("student_node", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    def lauf():
+    def loop():
         try:
             robot_io.serve(mod, name=name, bus=bus)
         except Exception:
-            log.exception("node %s aborted", datei)
+            log.exception("node %s aborted", path)
 
-    t = threading.Thread(target=lauf, daemon=True, name=f"knoten-{name}")
+    t = threading.Thread(target=loop, daemon=True, name=f"node-{name}")
     t.start()
-    log.info("node %s started for robot '%s'", os.path.basename(datei), name)
+    log.info("node %s started for robot '%s'", os.path.basename(path), name)
     return t
 
 
 # --------------------------------------------------------------------- Commands
 
 
-def protokoll(args, eng):
+def open_logbook(args, eng):
     """Open the CSV log when `--log` was given — otherwise None (nothing is written)."""
     if not getattr(args, "log", None):
         return None
     try:
-        return Logbuch(eng, args.log, getattr(args, "log_intervall", 0.05) or 0.05)
+        return Logbook(eng, args.log, getattr(args, "log_interval", 0.05) or 0.05)
     except OSError as exc:
         log.error("cannot create log '%s': %s", args.log, exc)
         return None
@@ -297,8 +297,8 @@ def protokoll(args, eng):
 def cmd_run(args):
     """Simulator + student node in one process, without ROS — the quick start."""
     args.stub = True
-    eng, bus = mach_engine(args), stub.get_bus()
-    tap = protokoll(args, eng)
+    eng, bus = make_engine(args), stub.get_bus()
+    tap = open_logbook(args, eng)
     if args.robot and args.robot not in eng.robots:
         # `--robot` is the name of your own robot — without spawning it explicitly the arena
         # would stay empty, and the student would see a blank map with a running node.
@@ -307,59 +307,59 @@ def cmd_run(args):
         except (SpawnError, ValueError) as exc:
             log.error("robot '%s': %s", args.robot, exc)
     graders = [_grader(args.robot, args.task, bus, eng)] if args.grade else []
-    verbinde_auftrag(bus, eng, robot=args.robot if graders else None)
-    knoten = [fuege_knoten(c, args.robot, bus) for c in (args.controller or [])]
+    wire_task(bus, eng, robot=args.robot if graders else None)
+    node_threads = [add_node(c, args.robot, bus) for c in (args.controller or [])]
     rend = None if args.headless else R.Renderer(eng, eng.cfg)
-    simlauf(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
+    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
     if rend:
         rend.close()
-    for k in knoten:
+    for k in node_threads:
         k.join(timeout=0.5)
     if tap:
         tap.close()
-    return _berichte(graders)
+    return _print_reports(graders)
 
 
-def _berichte(graders, json_pfad: str | None = None) -> int:
+def _print_reports(graders, json_path: str | None = None) -> int:
     """Print the grading reports; 2 means at least one task was not met."""
     from .grade import format_report
-    ohne_bestehen = False
+    any_failed = False
     for g in graders:
         rep = g.report()
         print(format_report(rep))
-        ohne_bestehen = ohne_bestehen or not rep.get("bestanden")
-        if json_pfad:
-            with open(json_pfad, "w", encoding="utf-8") as fh:
+        any_failed = any_failed or not rep.get("passed")
+        if json_path:
+            with open(json_path, "w", encoding="utf-8") as fh:
                 json.dump(rep, fh, indent=1, ensure_ascii=False)
-    return 2 if (graders and ohne_bestehen) else 0
+    return 2 if (graders and any_failed) else 0
 
 
 def _grader(robot, task, bus, eng):
     from .grade import Grader
-    welt = json.loads(eng.world_json()) if eng else {}
-    g = Grader(robot, task or "alle", bus, T.load_tasks(), welt)
+    world_info = json.loads(eng.world_json()) if eng else {}
+    g = Grader(robot, task or "alle", bus, T.load_tasks(), world_info)
     return g.start()
 
 
 def cmd_sim(args):
     """Simulator alone — with real ROS when available (the normal case in the lab room)."""
-    eng = mach_engine(args)
-    bus = bus_fuer(args, "mecanum_sim", eng.cfg)
+    eng = make_engine(args)
+    bus = bus_for(args, "mecanum_sim", eng.cfg)
     if hasattr(bus, "enable_tf"):
         bus.enable_tf(eng, eng.cfg)               # /tf and /tf_static, so RViz can show the map
-    tap = protokoll(args, eng)
+    tap = open_logbook(args, eng)
     for name in list(eng.robots):
-        abo(bus, eng, name)
+        subscribe(bus, eng, name)
 
     def spawn(req):
         out = ros_bridge.spawn_handler(eng)(req)
         if out.get("success"):
-            abo(bus, eng, str(req.get("name", "")))       #the new robot is audible too
+            subscribe(bus, eng, str(req.get("name", "")))       #the new robot is audible too
         return out
 
     bus.service(topic("spawn"), spawn)
     bus.service(topic("despawn"), ros_bridge.despawn_handler(eng))
-    verbinde_auftrag(bus, eng, robot=args.robot if args.grade else None)
+    wire_task(bus, eng, robot=args.robot if args.grade else None)
     bus.service(topic("reset"), lambda req: (eng.reset(), {"success": True,
                                                            "message": "world reset"})[1])
     graders = [_grader(args.robot, args.grade, bus, eng)] if args.grade else []
@@ -368,13 +368,13 @@ def cmd_sim(args):
         log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,kf/pose>  "
                  "/sim/<robots,world,task,config>  "
                  "/sim/<spawn_robot,despawn_robot,reset>  /clock  /tf /tf_static", "/<robot>")
-    simlauf(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
+    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
     if rend:
         rend.close()
     bus.shutdown()
     if tap:
         tap.close()
-    return _berichte(graders)
+    return _print_reports(graders)
 
 
 def cmd_controller(args):
@@ -382,22 +382,22 @@ def cmd_controller(args):
     if not args.controller:
         log.error("--controller file.py missing")
         return 2
-    fuege_knoten(args.controller[0] if isinstance(args.controller, list) else args.controller,
-                 args.robot, bus_fuer(args, f"knoten_{args.robot}")).join()
+    add_node(args.controller[0] if isinstance(args.controller, list) else args.controller,
+                 args.robot, bus_for(args, f"node_{args.robot}")).join()
     return 0
 
 
-def cmd_client(args, befehl):
+def cmd_client(args, command):
     """spawn/despawn/reset/robots/task: one short ROS request, nothing more."""
-    bus = ros_bridge.make_bus("auto", node_name=f"client_{befehl}")
+    bus = ros_bridge.make_bus("auto", node_name=f"client_{command}")
     if bus is None:
         log.error("No ROS 2 active. In a stub run these commands belong in the same process: "
                   "./lab run --robots %s ...", args.name or "alice")
         return 2
-    if befehl == "robots":
+    if command == "robots":
         for _ in range(60):
             bus.spin(0.02)
-            payload, alter = bus.last("robots")
+            payload, age = bus.last("robots")
             if payload:
                 for r in json.loads(payload):
                     print(f"{r['name']:14} {r['color']:8} {r['variant']:6} {r['mode']:12} "
@@ -406,43 +406,43 @@ def cmd_client(args, befehl):
                 return 0
         log.error("no answer from /sim/robots — is the simulator running?")
         return 2
-    if befehl == "task":
+    if command == "task":
         bus.pub("task")(args.task or args.name or "")
         print(f"task '{args.task or args.name}' sent.")
         bus.spin(0.1)
         return 0
-    antwort = bus.call(topic(befehl), {"name": args.name or "", "variant": args.variant or ""})
-    print(("ok   — " if antwort.get("success") else "error  — ") + str(antwort.get("message", "")))
-    if befehl == "spawn" and antwort.get("success"):
-        print(f"     {antwort.get('color')} / {antwort.get('marker')} / {antwort.get('variant')}"
-              f" at ({antwort.get('x', 0):.2f}, {antwort.get('y', 0):.2f})")
+    reply = bus.call(topic(command), {"name": args.name or "", "variant": args.variant or ""})
+    print(("ok   — " if reply.get("success") else "error  — ") + str(reply.get("message", "")))
+    if command == "spawn" and reply.get("success"):
+        print(f"     {reply.get('color')} / {reply.get('marker')} / {reply.get('variant')}"
+              f" at ({reply.get('x', 0):.2f}, {reply.get('y', 0):.2f})")
     bus.shutdown()
-    return 0 if antwort.get("success") else 1
+    return 0 if reply.get("success") else 1
 
 
 def cmd_grade(args):
     """Grade. The tick comes from the simulator — here in a stub run, one process."""
     args.stub = True
-    eng, bus = mach_engine(args), stub.get_bus()
-    tap = protokoll(args, eng)
+    eng, bus = make_engine(args), stub.get_bus()
+    tap = open_logbook(args, eng)
     if args.robot not in eng.robots:
         eng.spawn(args.robot)
-    abo(bus, eng, args.robot)                      # kf/pose must get back into the sim
-    verbinde_auftrag(bus, eng, robot=args.robot)   # each task its own test profile, KF: spawn pose
-    knoten = [fuege_knoten(c, args.robot, bus)
-              for c in (args.controller or []) if not c.endswith(".json")]
+    subscribe(bus, eng, args.robot)                      # kf/pose must get back into the sim
+    wire_task(bus, eng, robot=args.robot)   # each task its own test profile, KF: spawn pose
+    node_threads = [add_node(c, args.robot, bus)
+                    for c in (args.controller or []) if not c.endswith(".json")]
     g = _grader(args.robot, args.task or "alle", bus, eng)
     rend = None if args.headless else R.Renderer(eng, eng.cfg)
-    simlauf(eng, bus, rend, [g], args.seconds, teleop=False, tap=tap)
+    run_loop(eng, bus, rend, [g], args.seconds, teleop=False, tap=tap)
     if rend:
         rend.close()
     if tap:
         tap.close()
-    return _berichte([g], args.json)
+    return _print_reports([g], args.json)
 
 
 def cmd_docs(args):
-    print(f"worlds: {WELTEN}\n")
+    print(f"worlds: {WORLD_LIST}\n")
     print("Topics per robot:")
     for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "kf", "kfinfo", "mission"):
         print(f"  {topic(kind, 'alice'):24} {MSG_SPECS[kind][0]}")
@@ -468,7 +468,7 @@ def cmd_docs(args):
 def parser():
     p = argparse.ArgumentParser(prog="lab", description="Small mecanum simulator (CONTRACT §6.9)")
     p.add_argument("--world", default=None,
-                   help=f"World: {WELTEN}, 'auto' = the tasks' recommendation "
+                   help=f"World: {WORLD_LIST}, 'auto' = the tasks' recommendation "
                         "(KF tasks pick their arena automatically)")
     p.add_argument("--robots", default="", help="Comma-separated robot names to start")
     p.add_argument("--robot", default="alice", help="Your robot name (node, grader)")
@@ -489,8 +489,8 @@ def parser():
                    help="Publish the exact pose on /<robot>/truth (lab 2)")
     p.add_argument("--log", default=None, metavar="FILE.csv",
                    help="Write the measurement log (truth/gps/odom/kf/imu) as CSV")
-    p.add_argument("--log-intervall", type=float, default=0.05,
-                   help="Spacing of log lines in s of sim time (default 0.05)")
+    p.add_argument("--interval", "--log-intervall", dest="log_interval", type=float,
+                   default=0.05, help="Spacing of log lines in s of sim time (default 0.05)")
     p.add_argument("--grade", nargs="?", const="alle", default=None,
                    help="Run the grader too: tasks or group for --robot (default: alle)")
     p.add_argument("--json", default=None, help="Write the grading report as JSON")
@@ -512,29 +512,36 @@ def cmd_teleop(args):
     return cmd_sim(args)
 
 
-BEFEHLE = {"run": cmd_run, "sim": cmd_sim, "teleop": cmd_teleop,
-           "controller": cmd_controller, "grade": cmd_grade,
-           "spawn": lambda a: cmd_client(a, "spawn"),
-           "despawn": lambda a: cmd_client(a, "despawn"),
-           "reset": lambda a: cmd_client(a, "reset"),
-           "robots": lambda a: cmd_client(a, "robots"),
-           "task": lambda a: cmd_client(a, "task"), "docs": cmd_docs}
+COMMANDS = {"run": cmd_run, "sim": cmd_sim, "teleop": cmd_teleop,
+            "controller": cmd_controller, "grade": cmd_grade,
+            "spawn": lambda a: cmd_client(a, "spawn"),
+            "despawn": lambda a: cmd_client(a, "despawn"),
+            "reset": lambda a: cmd_client(a, "reset"),
+            "robots": lambda a: cmd_client(a, "robots"),
+            "task": lambda a: cmd_client(a, "task"), "docs": cmd_docs}
+
+
+# old German option names still work, but print which one to use now
+DEPRECATED_OPTIONS = (("--log-intervall", "--interval"),)
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    befehl = argv[0] if argv and not argv[0].startswith("-") else "sim"
-    if befehl in ("-h", "--help", "help"):
+    for old, new in DEPRECATED_OPTIONS:
+        if any(a == old or a.startswith(old + "=") for a in argv):
+            print(f"deprecated option '{old}', use '{new}'")
+    command = argv[0] if argv and not argv[0].startswith("-") else "sim"
+    if command in ("-h", "--help", "help"):
         parser().print_help()
-        print("\nCommands: " + ", ".join(sorted(BEFEHLE)))
+        print("\nCommands: " + ", ".join(sorted(COMMANDS)))
         return 0
-    args = parser().parse_args(argv[1:] if argv and argv[0] in BEFEHLE else argv)
+    args = parser().parse_args(argv[1:] if argv and argv[0] in COMMANDS else argv)
     from . import setup_logging
     setup_logging()
-    if befehl not in BEFEHLE:
-        log.error("unknown command '%s' — ./lab -h", befehl)
+    if command not in COMMANDS:
+        log.error("unknown command '%s' — ./lab -h", command)
         return 2
-    return BEFEHLE[befehl](args)
+    return COMMANDS[command](args)
 
 
 if __name__ == "__main__":

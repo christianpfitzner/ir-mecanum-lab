@@ -38,7 +38,7 @@ class Panel:
         self.open = not self.open
         return self.open
 
-    def zeile(self, index: int) -> pygame.Rect:
+    def row_rect(self, index: int) -> pygame.Rect:
         """Hit area of one row, in screen coordinates."""
         return pygame.Rect(self.rect.x, self.rect.y + 24 + index * ROW, WIDTH - 2, ROW)
 
@@ -47,13 +47,13 @@ class Panel:
         if not self.open:
             return ""
         if ev.type == pygame.MOUSEMOTION:
-            self.hot = next((i for i in range(len(LAYERS)) if self.zeile(i).collidepoint(ev.pos)),
+            self.hot = next((i for i in range(len(LAYERS)) if self.row_rect(i).collidepoint(ev.pos)),
                             -1)
             return ""
         if ev.type != pygame.MOUSEBUTTONDOWN or ev.button != 1:
             return ""
         for i, (attribut, _text, _taste) in enumerate(LAYERS):
-            if self.zeile(i).collidepoint(ev.pos):
+            if self.row_rect(i).collidepoint(ev.pos):
                 return attribut
         return ""
 
@@ -65,19 +65,19 @@ class Panel:
         if not self.open:
             return
         self.rect.x, self.rect.y = int(xy[0] - WIDTH - 8), int(xy[1])
-        blatt = pygame.Surface((WIDTH, self.rect.height), pygame.SRCALPHA)
-        blatt.fill((14, 16, 22, 205))
-        blatt.blit(self.big.render(HEAD, True, (235, 235, 240)), (8, 5))
+        sheet = pygame.Surface((WIDTH, self.rect.height), pygame.SRCALPHA)
+        sheet.fill((14, 16, 22, 205))
+        sheet.blit(self.big.render(HEAD, True, (235, 235, 240)), (8, 5))
         for i, (attribut, text, taste) in enumerate(LAYERS):
-            an, oben = getattr(state, attribut, False), 24 + i * ROW
+            an, top = getattr(state, attribut, False), 24 + i * ROW
             if i == self.hot:
-                pygame.draw.rect(blatt, (58, 64, 82, 235),
-                                 pygame.Rect(1, oben - 1, WIDTH - 3, ROW))
-            kaestchen = pygame.Rect(7, oben + 3, 13, 13)
-            pygame.draw.rect(blatt, (90, 200, 140, 255) if an else (70, 74, 88, 200), kaestchen)
-            farbe = (226, 228, 236) if an else (150, 154, 166)
-            blatt.blit(self.font.render(text, True, farbe), (kaestchen.right + 7, oben + 2))
-            blatt.blit(self.font.render(taste, True, (126, 130, 144)), (WIDTH - 20, oben + 2))
-        blatt.blit(self.font.render(FUSS, True, (150, 154, 168)), (8, self.rect.height - 19))
-        pygame.draw.rect(blatt, (96, 102, 120, 255), blatt.get_rect(), 1)
-        screen.blit(blatt, self.rect)
+                pygame.draw.rect(sheet, (58, 64, 82, 235),
+                                 pygame.Rect(1, top - 1, WIDTH - 3, ROW))
+            checkbox = pygame.Rect(7, top + 3, 13, 13)
+            pygame.draw.rect(sheet, (90, 200, 140, 255) if an else (70, 74, 88, 200), checkbox)
+            color = (226, 228, 236) if an else (150, 154, 166)
+            sheet.blit(self.font.render(text, True, color), (checkbox.right + 7, top + 2))
+            sheet.blit(self.font.render(taste, True, (126, 130, 144)), (WIDTH - 20, top + 2))
+        sheet.blit(self.font.render(FUSS, True, (150, 154, 168)), (8, self.rect.height - 19))
+        pygame.draw.rect(sheet, (96, 102, 120, 255), sheet.get_rect(), 1)
+        screen.blit(sheet, self.rect)

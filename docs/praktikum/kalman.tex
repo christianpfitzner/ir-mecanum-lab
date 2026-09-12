@@ -285,7 +285,7 @@ anyone who runs pure CV drives straight into the arena corner.
   \draw[fill=red!22,draw=red!60!black] (15,1.65) rectangle (23,2.35)
     node[midway,text=black] {GPS outage \ttfamily gps.gap=[15,8]};
   \draw[dashed,black!70] (4,-0.9) -- (4,3.1)
-    node[above,align=center] {\ttfamily einlauf: 4\\ \scriptsize the measurement starts here};
+    node[above,align=center] {\ttfamily warmup: 4\\ \scriptsize the measurement starts here};
   \draw[fill=green!20,draw=green!45!black] (0,-0.75) rectangle (37,-0.3)
     node[midway] {Your messages on $\langle$robot$\rangle$/kf/pose, at least 5\,Hz};
   \node[anchor=north west,text=red!60!black] at (15,-0.95)
@@ -293,7 +293,7 @@ anyone who runs pure CV drives straight into the arena corner.
   \end{tikzpicture}
   \caption{Timeline of task \thema{kf\_fusion}: command segments from
     \ordner{config/tasks.json}, GPS fixes with a gap from 15\,s to 23\,s, and the grader's
-    measurement window starting at \thema{einlauf}.}
+    measurement window starting at \thema{warmup}.}
   \label{fig:zeitstrahl}
 \end{figure}
 
@@ -401,7 +401,7 @@ The help line in the HUD: \kommando{q quit | SPACE pause | l scan | t trail | k 
 distance from your estimate to the truth (\texttt{kf\_err}) — visible only, never used
 inside the filter. For the lab report the measurement series belongs in a file:
 \kommando{--log messung.csv} writes a semicolon line every 0.05\,s of simulation time:
-\thema{t}, \thema{x\_wahr}, \thema{x\_gps}, \thema{t\_alt\_gps}, \thema{x\_kf},
+\thema{t}, \thema{x\_truth}, \thema{x\_gps}, \thema{t\_age\_gps}, \thema{x\_kf},
 \thema{sx\_kf}, \thema{ax\_imu} and more (column header from \ordner{mecanum\_lab/logbook.py});
 \kommando{python3 tools/kfplot.py messung.csv} draws time series, RMSE and —
 without matplotlib — an ASCII plot.
@@ -455,10 +455,10 @@ systematically for the lab report without touching JSON files.
 \begin{lstlisting}[language=bash]
 source /opt/ros/kilted/setup.bash          # if ROS is not found automatically
 ros2 launch launch/kf.launch.py --show-args               # list every argument
-ros2 launch launch/kf.launch.py headless:=true aufgabe:=kf_fusion \\
-    controller:=student/kf_template.py protokoll:=messung.csv
-ros2 launch launch/kf.launch.py bewerten:=kf_alle \\
-    controller:=student/kf_solution.py "gps_luecke:=[10,14]" imu_rate:=200
+ros2 launch launch/kf.launch.py headless:=true task:=kf_fusion \\
+    controller:=student/kf_template.py log:=messung.csv
+ros2 launch launch/kf.launch.py grade:=kf_alle \\
+    controller:=student/kf_solution.py "gps_gap:=[10,14]" imu_rate:=200
 ros2 launch launch/kf.launch.py rviz:=true                # view with covariance ellipse
 \end{lstlisting}
 
@@ -470,22 +470,22 @@ ros2 launch launch/kf.launch.py rviz:=true                # view with covariance
 \toprule
 Argument & Effect & Default \\
 \midrule
-\kommando{aufgabe} & \kommando{kf\_gps}$\vert$\kommando{kf\_fusion}$\vert$\kommando{kf\_kovarianz}$\vert$\kommando{kf\_dynamik} & kf\_gps \\
+\kommando{task} & \kommando{kf\_gps}$\vert$\kommando{kf\_fusion}$\vert$\kommando{kf\_kovarianz}$\vert$\kommando{kf\_dynamik} & kf\_gps \\
 \kommando{controller} & your filter node, relative to the source tree & student/kf\_template.py \\
-\kommando{bewerten} & task or group (e.g. kf\_alle); empty = do not grade & — \\
-\kommando{protokoll} & CSV measurement log for \ordner{tools/kfplot.py} & — \\
+\kommando{grade} & task or group (e.g. kf\_alle); empty = do not grade & — \\
+\kommando{log} & CSV measurement log for \ordner{tools/kfplot.py} & — \\
 \kommando{gps\_rate}, \kommando{gps\_sigma} & measurements per second, spread per axis in m & profile \\
-\kommando{gps\_luecke} & GPS outage as \kommando{[start, duration]} in s after task start & none \\
+\kommando{gps\_gap} & GPS outage as \kommando{[start, duration]} in s after task start & none \\
 \kommando{gps\_bias\_step} & step bias \kommando{[start, duration, dx, dy]} in m & none \\
 \kommando{imu\_rate} & IMU samples per second & 100 (K4: 200) \\
 \kommando{imu\_accel\_bias}, \kommando{imu\_accel\_walk} & bias \(1\sigma\) in m/s², bias random walk in m/s²/\(\sqrt{s}\) & 0.05 · 5e-4 \\
-\kommando{imu\_neigung}, \kommando{imu\_vibration} & tilt \(1\sigma\) in rad (gravity leaks into \(a_x\)), vibration in m/s² & 0.006 · 0.08 \\
-\kommando{wahrheit}, \kommando{seed}, \kommando{sekunden} & truth topic, noise seed, stop after s & true · 1 · 0 \\
+\kommando{imu\_tilt}, \kommando{imu\_vibration} & tilt \(1\sigma\) in rad (gravity leaks into \(a_x\)), vibration in m/s² & 0.006 · 0.08 \\
+\kommando{truth}, \kommando{seed}, \kommando{seconds} & truth topic, noise seed, stop after s & true · 1 · 0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-One detail with consequences: \kommando{gps\_luecke} and \kommando{gps\_bias\_step} are given
+One detail with consequences: \kommando{gps\_gap} and \kommando{gps\_bias\_step} are given
 in seconds \emph{after the task starts}, not after the program starts. The grader can
 trigger the GPS outage at any time, and your measurement stays the same.
 

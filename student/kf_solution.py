@@ -54,14 +54,14 @@ Q_GAP = 3.0          # factor while no GPS is correcting (outage longer than 2 s
 SIGMA_V = 0.08        # m/s    scatter of the measured wheel speed (update 2)
 SIGMA_TH = 0.03       # rad/√s gyro heading uncertainty — only used for the reported sth
 BIAS_PROBEN = 80      # IMU samples at standstill, after that the gyro bias is averaged
-STILLSTAND = 0.02     # m/s: below this the robot counts as standing (calibration window)
+STANDSTILL = 0.02     # m/s: below this the robot counts as standing (calibration window)
 P0_POS = 0.50         # m      initial 1σ position — deliberately large, the GPS leads first
 P0_VEL = 0.50         # m/s    initial 1σ velocity
 P0_TH = 0.05          # rad    initial 1σ heading
-MELDE_DT = 0.02       # s = 50 Hz: kf/pose report rate (threshold: at least 10 Hz)
-PUFFER = 120          # steps that can be rewound for late fixes
+REPORT_DT = 0.02       # s = 50 Hz: kf/pose report rate (threshold: at least 10 Hz)
+BUFFER = 120          # steps that can be rewound for late fixes
 VERJAEHT = 2.0        # s: older fixes no longer belong to this task
-SCHLAF = 2.0          # s: a longer step means the node slept — not a prediction
+SLEEP = 2.0          # s: a longer step means the node slept — not a prediction
 
 
 # ------------------------------------------------------- matrix helpers by hand
@@ -135,9 +135,9 @@ class KF:
         self.t, self.theta, self.var_th = float(t), theta, P0_TH ** 2
         self.start = float(t)          # mission starts here: earlier measurements are not it
         self.omega, self.n, self.innov = 0.0, 0, 0.0
-        self.letzter_fix = float(t)              # when a GPS fix last corrected
-        self.q_faktor, self.yy, self.ss, self.zaehler = 1.0, 0.0, 0.0, 0   # consistency rule (K3)
-        self.schritte = []                     # (t_end, dt, ω, vx, vy, R_v, state before)
+        self.last_fix = float(t)              # when a GPS fix last corrected
+        self.q_faktor, self.yy, self.ss, self.count = 1.0, 0.0, 0.0, 0   # consistency rule (K3)
+        self.steps = []                     # (t_end, dt, ω, vx, vy, R_v, state before)
 
     # ------------------------------------------------------------------ prediction
     def prediction(self, dt, omega):
@@ -151,32 +151,32 @@ class KF:
         #  — and its drift is precisely *not* white noise (prelab question 3). The residual
         #  noise may grow faster than the CV model claims; otherwise P becomes too small and
         #  the own claim dishonest (the NEES climbs above 3).
-        Q = q_matrix(Q_ACC * self.q_faktor * (Q_GAP if self.t - self.letzter_fix > 2.0 else 1.0), dt)
+        Q = q_matrix(Q_ACC * self.q_faktor * (Q_GAP if self.t - self.last_fix > 2.0 else 1.0), dt)
         F = cv_matrix(dt)
         self.x = mv(F, self.x)
         self.P = madd(mul(mul(F, self.P), transpose(F)), Q)
         self.t += dt
 
-    def update(self, stellen, messwert, R, regel=False):
-        """One update on the states in `stellen` (diagonal measurement, R is their variance).
+    def update(self, slots, measurement, R, gain=False):
+        """One update on the states in `slots` (diagonal measurement, R is their variance).
 
         H has ones exactly on those slots, so S = P[subset] + R and K = P·Hᵀ·S⁻¹. Then as in
         the textbook: x += K·y and P -= K·S·Kᵀ (Joseph form, kept symmetric). Used twice:
         (0, 1) for the GPS, (2, 3) for the odometry.
         """
-        S = [[self.P[i][j] + (R if i == j else 0.0) for j in stellen] for i in stellen]
+        S = [[self.P[i][j] + (R if i == j else 0.0) for j in slots] for i in slots]
         Si = inv2(S)                                  # the only inverse we need
-        K = [[sum(self.P[i][stellen[k]] * Si[k][j] for k in range(2)) for j in range(2)]
+        K = [[sum(self.P[i][slots[k]] * Si[k][j] for k in range(2)) for j in range(2)]
              for i in range(4)]
-        y = [messwert[m] - self.x[stellen[m]] for m in range(2)]
-        if regel:
-            self.konsistenz(y, S[0][0] + S[1][1])
+        y = [measurement[m] - self.x[slots[m]] for m in range(2)]
+        if gain:
+            self.consistency(y, S[0][0] + S[1][1])
         self.x = [self.x[i] + K[i][0] * y[0] + K[i][1] * y[1] for i in range(4)]
         self.P = msub(self.P, mul(mul(K, S), transpose(K)))
         self.n += 1
         return y
 
-    def konsistenz(self, y, s):
+    def consistency(self, y, s):
         """K3 in three lines: does the innovation scatter match what the filter announced?
 
         If the innovation is larger than `S`, the model is wrong — Q was too small. If it is
@@ -185,36 +185,36 @@ class KF:
         every outlier.
         """
         self.yy += y[0] ** 2 + y[1] ** 2
-        self.ss, self.zaehler = self.ss + s, self.zaehler + 1
-        if self.zaehler < 20:
+        self.ss, self.count = self.ss + s, self.count + 1
+        if self.count < 20:
             return
-        verhaeltnis = self.yy / max(self.ss, 1e-9)
-        if verhaeltnis > 1.4:
+        ratio = self.yy / max(self.ss, 1e-9)
+        if ratio > 1.4:
             self.q_faktor = min(self.q_faktor * 1.4, 12.0)
-        elif verhaeltnis < 0.7:
+        elif ratio < 0.7:
             self.q_faktor = max(self.q_faktor * 0.75, 0.05)
         self.yy = self.ss = 0.0
-        self.zaehler = 0
+        self.count = 0
 
-    def schritt(self, dt, omega, vx_welt, vy_welt, R_v):
+    def step(self, dt, omega, vx_world, vy_world, R_v):
         """Prediction + motion update as one unit — it is replayed when a fix arrives late."""
         vor = (list(self.x), [z[:] for z in self.P], self.theta, self.var_th)
         self.prediction(dt, omega)
-        self.update((2, 3), [vx_welt, vy_welt], R_v)
-        self.schritte.append((self.t, dt, omega, vx_welt, vy_welt, R_v, vor))
-        del self.schritte[:-PUFFER]
+        self.update((2, 3), [vx_world, vy_world], R_v)
+        self.steps.append((self.t, dt, omega, vx_world, vy_world, R_v, vor))
+        del self.steps[:-BUFFER]
 
-    def spule(self, t):
+    def smoothing(self, t):
         """Reset the state to the last step before `t`; returns the steps after it."""
-        zurueck = []
-        while self.schritte and self.schritte[-1][0] > t:
-            ende, dt, omega, vx_welt, vy_welt, R_v, vor = self.schritte.pop()
+        back = []
+        while self.steps and self.steps[-1][0] > t:
+            ende, dt, omega, vx_world, vy_world, R_v, vor = self.steps.pop()
             self.x, self.P, self.theta, self.var_th = vor[0], vor[1], vor[2], vor[3]
             self.t, self.omega = ende - dt, omega
-            zurueck.append((dt, omega, vx_welt, vy_welt, R_v))
-        return zurueck
+            back.append((dt, omega, vx_world, vy_world, R_v))
+        return back
 
-    def richtung_update(self, th_gps, R_th):
+    def turn_update(self, th_gps, R_th):
         """Scalar update of the heading from the GPS angle: holds θ long-term without forcing it."""
         k = self.var_th / (self.var_th + R_th)
         self.theta = wrap_angle(self.theta + k * wrap_angle(th_gps - self.theta))
@@ -228,9 +228,9 @@ class KF:
 
 # --------------------------------------------------------------------- glue code
 
-def stempel(*messen) -> float:
+def stamp(*measure) -> float:
     """Newest stamp among the measurements given — 0.0 for those that are not there yet."""
-    return max([m.t for m in messen if m is not None] + [0.0])
+    return max([m.t for m in measure if m is not None] + [0.0])
 
 
 def mission(rob, task):
@@ -241,24 +241,24 @@ def mission(rob, task):
     it — the runner then reports "done" for the grader.
     """
     f, sigma_xy, sigma_th = None, 0.5, 0.2
-    bias_summe, bias_n, bias = 0.0, 0, 0.0
-    letzter_fix, letzter_meldung = 0.0, -1e9
+    bias_sum, bias_n, bias = 0.0, 0, 0.0
+    last_fix, letzter_meldung = 0.0, -1e9
     R_v = SIGMA_V ** 2
-    grundlinie = stempel(rob.odom(), rob.imu(), rob.gps())       # what the bus already knew
+    baseline = stamp(rob.odom(), rob.imu(), rob.gps())       # what the bus already knew
     while rob.running() and rob.task() == task:
         rob.spin(0.005)
         o, i, gps = rob.odom(), rob.imu(), rob.gps()
         if o is None:
             continue
-        if f is None and stempel(o, i, gps) <= grundlinie:
+        if f is None and stamp(o, i, gps) <= baseline:
             continue        # still the last messages of the previous task, not this drive
 
         # 1) Average the gyro bias at standstill — a short calibration, then it is frozen.
         #    The rest of the bias story (random walk) sits in Q; retuning it would be cheating.
         if bias_n < BIAS_PROBEN and i is not None:
-            if math.hypot(o.vx, o.vy) < STILLSTAND and abs(i.gz) < 0.2:
-                bias_summe, bias_n = bias_summe + i.gz, bias_n + 1
-                bias = bias_summe / bias_n
+            if math.hypot(o.vx, o.vy) < STANDSTILL and abs(i.gz) < 0.2:
+                bias_sum, bias_n = bias_sum + i.gz, bias_n + 1
+                bias = bias_sum / bias_n
 
         if f is None:                                  # start from the odometry: pose is good
             f = KF(o.x, o.y, o.vx, o.vy, o.theta, o.t)
@@ -268,27 +268,27 @@ def mission(rob, task):
         # 2) Predict up to the newest message stamp, with yaw rate and world velocity
         gierrate = (i.gz - bias) if i is not None else o.omega
         t_mess = max(o.t, i.t if i is not None else 0.0)
-        if t_mess - f.t > SCHLAF:                # five seconds of CV model are not a prediction,
+        if t_mess - f.t > SLEEP:                # five seconds of CV model are not a prediction,
             f = KF(o.x, o.y, o.vx, o.vy, o.theta, o.t)      # they are a new start
         if t_mess > f.t:
             c, s = math.cos(f.theta), math.sin(f.theta)
-            f.schritt(t_mess - f.t, gierrate, c * o.vx - s * o.vy, s * o.vx + c * o.vy, R_v)
+            f.step(t_mess - f.t, gierrate, c * o.vx - s * o.vy, s * o.vx + c * o.vy, R_v)
 
         # 3) Position update at the fix's measurement time — not at "now"
         #    a fix from the previous task (the bus remembers the last message!) would be a lie.
-        if gps is not None and gps.t >= f.start and gps.t > letzter_fix and gps.t >= f.t - VERJAEHT:
-            letzter_fix = f.letzter_fix = gps.t
-            nachfahren = f.spule(gps.t)                # back to fix.t ...
+        if gps is not None and gps.t >= f.start and gps.t > last_fix and gps.t >= f.t - VERJAEHT:
+            last_fix = f.last_fix = gps.t
+            nachfahren = f.smoothing(gps.t)                # back to fix.t ...
             if gps.t > f.t:
                 f.prediction(gps.t - f.t, f.omega)     # ... close the gap if there is one
-            y = f.update((0, 1), [gps.x, gps.y], sigma_xy ** 2, regel=True)
+            y = f.update((0, 1), [gps.x, gps.y], sigma_xy ** 2, gain=True)
             f.innov = math.hypot(*y)
-            f.richtung_update(gps.theta, sigma_th ** 2)
+            f.turn_update(gps.theta, sigma_th ** 2)
             for dt, omega, vx_w, vy_w, rv in reversed(nachfahren):
-                f.schritt(dt, omega, vx_w, vy_w, rv)    # ... and replay the time up to now
+                f.step(dt, omega, vx_w, vy_w, rv)    # ... and replay the time up to now
 
         # 4) Report: estimate plus 1σ from P, on the report rate over simulation time
-        if f.t - letzter_meldung >= MELDE_DT:
+        if f.t - letzter_meldung >= REPORT_DT:
             letzter_meldung = f.t
             sx, sy, sth = f.sigmas()
             rob.send_kf(f.x[0], f.x[1], f.theta, sx, sy, sth,

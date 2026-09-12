@@ -26,10 +26,10 @@ for a in "$@"; do
   esac
 done
 
-fehler=0; hinweise=()
+problems=0; hinweise=()
 ok()   { printf '  \033[32mok\033[0m     %s\n' "$1"; }
 wann () { printf '  \033[33mWARNING\033[0m %s\n' "$1"; }
-fehlt(){ printf '  \033[31mMISSING\033[0m %s\n' "$1"; fehler=1; }
+fehlt(){ printf '  \033[31mMISSING\033[0m %s\n' "$1"; problems=1; }
 
 echo "Mecanum simulator lab course — environment"
 echo "------------------------------------------------------------------"
@@ -55,7 +55,7 @@ else
     else
       hinweise+=("install pygame once:  sudo apt install python3-pygame   (or: ./install.sh --user)")
     fi
-    python3 -c 'import pygame' >/dev/null 2>&1 && fehler=0 && ok "pygame present now"
+    python3 -c 'import pygame' >/dev/null 2>&1 && problems=0 && ok "pygame present now"
   fi
 fi
 
@@ -122,7 +122,7 @@ if [[ $mit_tests == 1 ]]; then
     && ok "unit tests green" || fehlt "unit tests not green"
 fi
 
-if [[ $fehler == 1 ]]; then
+if [[ $problems == 1 ]]; then
   echo "result: environment incomplete — see the MISSING lines above."
   exit 1
 fi

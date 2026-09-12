@@ -6,8 +6,9 @@ Runs headless and without ROS. Two detectors, because German creeps back in two 
   * umlauts and sharp s — no identifier, topic, unit or file name in this project uses
     them, so any hit is leftover German text;
   * German function words in *prose* — comments, docstrings, Markdown and LaTeX body.
-    Only prose is scanned for words: German-derived identifiers (sim_profil, `wenn` as a
-    local, the launch arguments `sekunden` and `aufgabe`) are API and stay as they are.
+    Only prose is scanned for words: identifiers, keys and the deprecated launch aliases
+    (`sekunden`, `aufgabe`, the `_LEGACY_KEYS` map) are data in this repository and would
+    only produce noise — `tools/germanids.py` is the one that checks those.
 
 Excluded paths are listed in EXCLUDE. Exit code 1 means "German left behind", with file
 and line.
@@ -23,7 +24,10 @@ EXCLUDE = {"__pycache__", ".git", "build", "install", ".pytest_cache"}
 CODE = (".py", ".sh")
 MARKUP = (".md", ".tex", ".txt", ".rst", ".makefile", ".json", ".xml")
 NAMES = {"lab", "Makefile", "makefile"}
-SELF = os.path.abspath(__file__)
+# The two guard tools carry the German vocabulary they search for; reading them would report the
+# word list itself. Everything else in the repository is checked.
+GUARDS = {os.path.abspath(__file__),
+          os.path.abspath(os.path.join(os.path.dirname(__file__), "germanids.py"))}
 
 UMLAUT = re.compile(r"[äöüÄÖÜß]")
 DE_WORD = re.compile(
@@ -36,65 +40,68 @@ DE_WORD = re.compile(
     r"letzte|versuch|anleitung|arbeitsblatt|musterlösung)\b", re.I)
 
 
-def dateien():
-    for pfad, ordner, dateien in os.walk("."):
-        ordner[:] = [o for o in ordner if o not in EXCLUDE]
-        for name in dateien:
-            weg = os.path.abspath(os.path.join(pfad, name))
-            if weg == SELF:
+def files():
+    for path, dirs, files in os.walk("."):
+        dirs[:] = [o for o in dirs if o not in EXCLUDE]
+        for name in files:
+            full = os.path.abspath(os.path.join(path, name))
+            if full in GUARDS:
                 continue
             if name in NAMES or name.endswith(CODE + MARKUP):
-                yield os.path.join(pfad, name)
+                yield os.path.join(path, name)
 
 
 SENTENCE = re.compile(r"""["'][^"']{12,}["']""")
+INLINE_CODE = re.compile(r"`[^`]+`")      # a name in `backticks` is a name, not prose
 
 
-def ist_prosa(zeile: str, endung: str, in_doc: bool) -> bool:
+def is_prose(line: str, suffix: str, in_docstring: bool) -> bool:
     """Where German words mean text rather than code.
 
     Markup and data files are prose throughout. In Python and shell that is comments,
     docstrings and longer string literals — the latter because the user-visible report
-    text lives there. Bare identifiers (`welt = auftrag.get(...)`) stay unscanned: a
-    few German-derived names are API in this repository and would only produce noise.
+    text lives there. Bare identifiers (`world = auftrag.get(...)`) stay unscanned: a
+    few German-derived names are API in this repository and would only produce noise. For the
+    same reason `text in backticks` is dropped everywhere — in the contracts that is how a
+    name is quoted, and the alias tables of §6.11 list the deprecated spellings as names.
     """
-    if endung in MARKUP:
+    if suffix in MARKUP:
         return True
-    stripped = zeile.strip()
-    return stripped.startswith("#") or in_doc or bool(SENTENCE.search(zeile))
+    stripped = line.strip()
+    return stripped.startswith("#") or in_docstring or bool(SENTENCE.search(line))
 
 
 def main(argv):
-    leise = "--quiet" in argv
-    treffer = []
-    for pfad in sorted(dateien()):
-        endung = os.path.splitext(pfad)[1].lower()
+    quiet = "--quiet" in argv
+    hits = []
+    for path in sorted(files()):
+        suffix = os.path.splitext(path)[1].lower()
         try:
-            text = open(pfad, encoding="utf-8").read()
+            text = open(path, encoding="utf-8").read()
         except (OSError, UnicodeDecodeError):
             continue
-        in_doc = False
-        for nr, zeile in enumerate(text.splitlines(), 1):
-            if endung in CODE:
-                in_doc = doc_status(zeile, in_doc)
-            if UMLAUT.search(zeile):
-                treffer.append((pfad, nr, "umlaut", zeile.strip()[:76]))
-            elif ist_prosa(zeile, endung, in_doc):
-                woerter = {w.lower() for w in DE_WORD.findall(zeile)}
-                if len(woerter) >= 2:
-                    treffer.append((pfad, nr, "german words", zeile.strip()[:76]))
-    if not leise:
-        for pfad, nr, grund, text in treffer:
-            print(f"{pfad}:{nr}: {grund}: {text}")
-    print(f"langcheck: {len(treffer)} leftover German spots in "
-          f"{len({t[0] for t in treffer})} files")
-    return 1 if treffer else 0
+        in_docstring = False
+        for nr, line in enumerate(text.splitlines(), 1):
+            if suffix in CODE:
+                in_docstring = doc_status(line, in_docstring)
+            if UMLAUT.search(line):
+                hits.append((path, nr, "umlaut", line.strip()[:76]))
+            elif is_prose(line, suffix, in_docstring):
+                words = {w.lower() for w in DE_WORD.findall(INLINE_CODE.sub("", line))}
+                if len(words) >= 2:
+                    hits.append((path, nr, "german words", line.strip()[:76]))
+    if not quiet:
+        for path, nr, reason, text in hits:
+            print(f"{path}:{nr}: {reason}: {text}")
+    print(f"langcheck: {len(hits)} leftover German spots in "
+          f"{len({t[0] for t in hits})} files")
+    return 1 if hits else 0
 
 
-def doc_status(zeile: str, in_doc: bool) -> bool:
+def doc_status(line: str, in_docstring: bool) -> bool:
     """Track whether we are inside a triple-quoted string; docstrings count as prose."""
-    anzahl = zeile.strip().count('"""') + zeile.strip().count("'''")
-    return in_doc if anzahl % 2 == 0 else not in_doc
+    quotes = line.strip().count('"""') + line.strip().count("'''")
+    return in_docstring if quotes % 2 == 0 else not in_docstring
 
 
 if __name__ == "__main__":

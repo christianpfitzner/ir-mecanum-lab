@@ -16,7 +16,7 @@ dependencies**, **runs immediately**, readable and editable by students.
 |---|-------|
 | 1 | **Dependencies:** Python stdlib + `pygame`. `rclpy` is *optional* (it runs without ROS too). No numpy, no yaml, no scipy, no ROS message generation as a must. |
 | 2 | **Python:** 3.10+, stdlib types only (`dataclasses`, `math`, `json`, `random`, `argparse`, `threading`). No type ceremony without value — where an annotation costs readability, a comment wins. |
-| 3 | **All written prose and all UI text in English**: comments, docstrings, log and report text, `config/tasks.json`, handouts, contracts. `tools/langcheck.py` checks it and runs as a step in `tools/check.sh`. Identifiers are English for everything new; a few German-derived names are API and stay (the launch arguments `sekunden`, `aufgabe`, `bewerten`, `wahrheit`, `protokoll`, `aufzeichnung`, ROS topic names, JSON keys, wheel names `VL/VR/HL/HR`, helper names like `simlauf()` or `welt_fuer()`) — renaming those breaks handouts and student code and is a separate, deliberate step. |
+| 3 | **Everything written and everything named is English**: comments, docstrings, log and report text, identifiers, launch arguments, the keys of `config/tasks.json`, handouts, contracts. Two tools enforce it as steps of `tools/check.sh`: `tools/langcheck.py` reads the prose (umlauts, German function words), `tools/germanids.py` reads the names. What `germanids.py` allows is the exception list: ROS topic, service and message field names, the wheel labels `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`, `kf_alle`, `v1`, `v2`) and the German *values* of the two compatibility maps — `tasks._LEGACY_KEYS` and the `DEPRECATED` tables in `launch/`. Those maps exist so that files and shell histories from before the migration keep working; see §6.11. |
 | 4 | **No class that only forwards.** If a function is under 4 lines and used once, inline it. |
 | 5 | **Keep the LOC budgets** (see §7). At the end of every file: no blank-line junk, no banner comments. |
 | 6 | **Determinism:** world physics depends only on `dt` and the seeds, never on wall clock time or thread order. |
@@ -219,7 +219,7 @@ no hit = `inf` → reported in `LaserScan.ranges` as `range_max` (`inf` only
 internally). Hits against other robots: no (Experiment 1).
 `gps.zones` (default `[]`) degrades the fix **by place** instead of by time: the first rectangle
 that contains the robot multiplies `sigma_xy` by `sigma_scale`, adds `bias_xy` to the existing
-bias, or returns no fix at all when `block` is set. `_zonen()` drops malformed entries rather
+bias, or returns no fix at all when `block` is set. `_zones()` drops malformed entries rather
 than crashing, and with the default `[]` the noise calls are exactly the ones of the old sensor —
 so graded results are unchanged. `config/demo_gps_shadow.json` is the demo that turns it on.
 
@@ -228,7 +228,7 @@ so graded results are unchanged. `config/demo_gps_shadow.json` is the demo that 
 SimEngine(world, cfg=None, seed=None)
   .spawn(name, variant="", pose=None) -> Robot        # raises SpawnError
   .despawn(name) -> bool ; .reset() ; .set_task(name) ; .task
-  .set_cmd_vel(name, Twist) ; .set_wheel_speeds(name, list4) ; .set_mission(name, str)
+  .set_cmd_vel(name, Twist) ; .set_wheel_speeds(name, list4) ; .set_mission_state(name, str)
   .step(dt) -> None      # splits into fixed physics steps, sensor rates internal
   .drain() -> list[(kind, robot|None, payload)]        # for the bridge to process
   .robots: dict[str, Robot] ; .world ; .t ; .robots_info() ; .world_json()
@@ -263,7 +263,7 @@ Two helpers belong to the view, not to the simulation: `cam.py` keeps scale and 
 zoom **at the cursor**, drag pan, resizable window, `f` shows the whole world) and `menu.py`
 draws the layer panel. The panel switches drawing only — `show_scan`, `show_trails`, `show_gps`,
 `show_kf`, `show_wheels`, `show_velocity`, `show_markers`, `show_goal`, `show_hud`. Hiding a
-layer must never change what `node.simlauf()` publishes; the lidar dots and the scan on
+layer must never change what `node.run_loop()` publishes; the lidar dots and the scan on
 `/<robot>/scan` are deliberately independent, and the scan dots use the robot's own colour so a
 crowded hall is still readable.
 
@@ -331,6 +331,67 @@ globals, so two windows in one process stay apart. `render.py` calls the three f
 the two layers (`s` shadow, `o` ghost). `import render` happens inside the functions because
 `render` imports this module — no import cycle at load time.
 
+### 6.11 English names, deprecated aliases (`tools/germanids.py`) [MINE]
+
+Identifiers, launch arguments and JSON keys are English. The migration renamed them in one go;
+where a name was printed in a handout or typed daily by a student, the old spelling still works as
+a **deprecated alias** that prints one line on stdout and is otherwise inert. `tools/germanids.py`
+fails when a German name appears outside these tables, so the rule cannot rot again.
+
+| launch argument (today) | deprecated alias | | launch argument (today) | deprecated alias |
+|---|---|---|---|---|
+| `task` | `aufgabe` | | `log_interval` | `protokoll_intervall` |
+| `grade` | `bewerten` | | `recording` | `aufzeichnung` |
+| `seconds` | `sekunden` | | `log_level` | `log_stufe` |
+| `world` | `welt` | | `gps_gap` | `gps_luecke` |
+| `truth` | `wahrheit` | | `imu_scale` | `imu_skala` |
+| `imu_tilt` | `imu_neigung` | | `imu_tilt_tau` | `imu_neigung_tau` |
+| `imu_startup` | `imu_einschwingen` | | `imu_startup_bias` | `imubias_start` |
+| `sim_rate` | `physik_rate` | | `kf_q_turn` | `kf_q_gier` |
+| `tf_map_to_odom` | `tf_karten_odom` | | `log` | `protokoll` |
+
+`launch/sim.launch.py` and `launch/lab.launch.py` carry only `sekunden`; `launch/kf.launch.py`
+carries the whole table (`DEPRECATED` at the top of the file). The English name always wins when
+both are given. `ros2 launch launch/kf.launch.py --show-args` lists the English names.
+
+| key in `config/tasks.json` (today) | deprecated key | | key (today) | deprecated key |
+|---|---|---|---|---|
+| `title` | `titel` | | `points` | `punkte` |
+| `world` | `welt` | | `order` | `reihenfolge` |
+| `deliverable` | `abgabe` | | `checks` | `prueft` |
+| `hints` | `hilfen` | | `phases` | `phasen` |
+| `expect` | `erwarte` | | `target` | `ziel` |
+| `target_index` | `ziel_index` | | `target_max` | `ziel_max` |
+| `source` | `messung` | | `experiment` | `versuch` |
+| `kind` | `art` | | `warmup` | `einlauf` |
+| `estimate` | `schaetzung` | | `repeat` | `wiederhole` |
+| `drive` | `fahrt` | | `duration` | `dauer` |
+| `sine` | `sinus` | | `frequency` | `frequenz` |
+| `outage` | `luecke` | | `duration_min` | `dauer_min` |
+| `error_max` | `fehler_max` | | `improvement_min` | `verbesserung_min` |
+| `max_error_max` | `max_fehler_max` | | `dx_abs_max` | `dx_betrag_max` |
+| `dy_abs_max` | `dy_betrag_max` | | `yaw_abs_max` | `winkel_betrag_max` |
+| `yaw_min` | `winkel_min` | | `yaw_max_deg` | `winkel_max_deg` |
+| `lateral_min` | `abstand_min` | | `straight_omega_max` | `geradeaus_omega_max` |
+| `time_max` | `zeit_max` | | `path_min` / `path_max` | `weg_min` / `weg_max` |
+| `closure_max` | `abschluss_max` | | `contacts_max` | `kontakte_max` |
+| `hold_time` | `haltezeit` | | `side` | `seite` |
+| `pass_from` | `bestanden_ab` | | | |
+
+`tasks._LEGACY_KEYS` reads them (one `log.warning` per key, today's spelling wins if both are
+present) — a threshold never changes value with its name, only its spelling. The grading report
+(`--json`) and the measurement log use the English field names of §8 without aliases, because
+both are read by scripts the students wrote themselves and a renamed column shows up immediately.
+
+Two further renames keep their old option as an alias, each with its own notice:
+`./lab --interval` (was `--log-intervall`), `tools/worldcheck.py --open-max` (was `--open-max`),
+`tools/fastgrade.py --wallclock-max` (was `--wanduhr-max`).
+
+The wheel labels stay `VL/VR/HL/HR` — they are hardware labels printed on the robot and in the
+handout. `physics.WHEELS_EN` gives the English reading of the same four indices
+(`FL, FR, RL, RR`) and the handout prints both spellings side by side.
+
+
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 
 Authoritative list is `BUDGET` in `tools/loc.py` (`python3 tools/loc.py` prints the tally).
@@ -342,16 +403,18 @@ Current frame after the view and TF work:
 | stub.py | 115 | | tf_bcast.py | 135 |
 | engine.py | 340 | | node.py | 550 |
 | worlds.py | 135 | | robot_io.py | 255 |
-| physics.py | 140 | | tasks.py | 170 |
+| physics.py | 140 | | tasks.py | 210 |
 | sensors.py | 330 | | grade.py | 620 |
 | render.py | 470 | | logbook.py | 100 |
 | cam.py | 115 | | menu.py | 90 |
-| overlays.py | 140 | | | |
-| **simulator core (mecanum_lab/)** | **≤ 4450** | | | |
+| overlays.py | 150 | | | |
+| **simulator core (mecanum_lab/)** | **≤ 4500** | | | |
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
-layer menu, and because `tf_bcast.py` is new. Physics, bus and grading did not grow. The rule
-behind the numbers still stands: nothing that a student must read gets longer without a reason.
+layer menu, and because `tf_bcast.py` is new. `tasks.py` grew with `_LEGACY_KEYS` (§6.11), the
+table that keeps an old `config/tasks.json` readable; physics, bus and grading did not grow — the
+English sweep renamed identifiers and added no lines. The rule behind the numbers still stands:
+nothing that a student must read gets longer without a reason.
 
 ## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
 

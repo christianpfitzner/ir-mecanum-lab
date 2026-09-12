@@ -3,7 +3,7 @@
     ros2 launch launch/lab.launch.py robot:=alice controller:=student/solution.py \
         world:=production headless:=true seconds:=60
 
-The grader runs inside the sim process (/--grade); its report comes at the end.
+The grader runs inside the sim process (--grade); its report comes at the end.
 """
 import os
 import sys
@@ -12,34 +12,32 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 
-WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WAHR = ("true", "1", "yes", "on")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TRUE = ("true", "1", "yes", "on")
 
 
 def start(context, *args, **kwargs):
-    hol = lambda name: LaunchConfiguration(name).perform(context)          # noqa: E731
-    kopflos = hol("headless").lower() in WAHR
-    pfad = {"PYTHONPATH": os.pathsep.join([WURZEL, os.environ.get("PYTHONPATH", "")]),
-            "MECANUM_USE_SIM_TIME": "1" if hol("use_sim_time").lower() in WAHR else "0"}
-    if kopflos:
-        pfad["SDL_VIDEODRIVER"] = "dummy"
-    node = lambda befehl: [sys.executable, "-m", "mecanum_lab.node", befehl]   # noqa: E731
-    roboten = hol("robots") or hol("robot")        # if omitted: exactly your robot
-    sim = node("sim") + ["--world", hol("world"), "--robots", roboten,
-                         "--seconds", hol("seconds")]
-    if kopflos:
-        sim.append("--headless")
-    if hol("task"):
-        sim += ["--task", hol("task")]
-    if hol("grade"):
-        sim += ["--grade", hol("grade"), "--robot", hol("robot")]
-    knoten = node("controller") + ["--robot", hol("robot"), "--controller",
-                                   hol("controller") if os.path.isabs(hol("controller"))
-                                   else os.path.join(WURZEL, hol("controller"))]
-    return [ExecuteProcess(cmd=sim, additional_env=pfad, output="screen", name="mecanum_sim",
-                           emulate_tty=True),
-            ExecuteProcess(cmd=knoten, additional_env=pfad, output="screen",
-                           name=f"knoten_{hol('robot')}", emulate_tty=True)]
+    read_arg = lambda name: LaunchConfiguration(name).perform(context)          # noqa: E731
+    headless = read_arg("headless").lower() in TRUE
+    env = {"PYTHONPATH": os.pathsep.join([REPO, os.environ.get("PYTHONPATH", "")]),
+           "MECANUM_USE_SIM_TIME": "1" if read_arg("use_sim_time").lower() in TRUE else "0"}
+    child = lambda command: [sys.executable, "-m", "mecanum_lab.node", command]  # noqa: E731
+    robot = read_arg("robot")
+    controller = os.path.join(REPO, read_arg("controller"))   # absolute paths win the join
+    sim_cmd = child("sim") + ["--world", read_arg("world"),
+                              "--robots", read_arg("robots") or robot,   # else: only your robot
+                              "--seconds", read_arg("seconds")]
+    if read_arg("task"):
+        sim_cmd += ["--task", read_arg("task")]
+    if read_arg("grade"):
+        sim_cmd += ["--grade", read_arg("grade"), "--robot", robot]
+    controller_cmd = child("controller") + ["--robot", robot, "--controller", controller]
+    if headless:
+        env["SDL_VIDEODRIVER"] = "dummy"                 # no X on the CI machines
+        sim_cmd.append("--headless")
+    run = {"additional_env": env, "output": "screen", "emulate_tty": True}
+    return [ExecuteProcess(cmd=sim_cmd, name="mecanum_sim", **run),
+            ExecuteProcess(cmd=controller_cmd, name=f"node_{robot}", **run)]
 
 
 def generate_launch_description():

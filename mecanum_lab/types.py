@@ -99,7 +99,7 @@ class Scan:
     angle_increment: float = 0.0
     range_min: float = 0.05
     range_max: float = 8.0
-    ranges: list = field(default_factory=list)       # len == beams, inf wenn nichts getroffen
+    ranges: list = field(default_factory=list)       # len == beams, inf where nothing was hit
 
 
 @dataclass
@@ -128,8 +128,8 @@ class Imu:
     gx: float = 0.0                 # rad/s about x
     gy: float = 0.0                 # rad/s about y
     gz: float = 0.0                 # rad/s about z (yaw rate — the main signal in 2D)
-    roll: float = 0.0               # rad
-    pitch: float = 0.0              # rad
+    roll: float = 0.0               # radius
+    pitch: float = 0.0              # radius
 
 
 @dataclass
@@ -267,7 +267,7 @@ DEFAULT_CONFIG = {
     "gps": {"rate": 5.0, "sigma_xy": 0.06, "sigma_theta": 0.03, "bias_xy": [0, 0],
             "gap": None,              # [start, duration] in s: no fix in this window
             "bias_step": None,        # [start, duration, dx, dy]: jumping bias (outlier)
-            "zones": []},             # place-based degradation, see sensors.GpsSensor._zonen
+            "zones": []},             # place-based degradation, see sensors.GpsSensor._zones
 
     # Realistic MEMS IMU (MPU-6050/ICM-20948 class). Densities in unit/√Hz,
     # bias random walk in unit/√s — so the arithmetic stays checkable.

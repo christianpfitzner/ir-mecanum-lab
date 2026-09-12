@@ -26,33 +26,33 @@ def _data_files():
     return gefangen["data_files"]
 
 
-def test_quellen_sind_relativ():
-    for ziel, quellen in _data_files():
-        assert not os.path.isabs(ziel), f"target is absolute: {ziel}"
+def test_sources_are_relative():
+    for target, quellen in _data_files():
+        assert not os.path.isabs(target), f"target is absolute: {target}"
         for quelle in quellen:
             assert not os.path.isabs(quelle), f"source is absolute: {quelle}"
 
 
-def test_quellen_sind_dateien():
-    for ziel, quellen in _data_files():
+def test_sources_are_files():
+    for target, quellen in _data_files():
         for quelle in quellen:
             assert os.path.isfile(os.path.join(WURZEL, quelle)), f"not a file: {quelle}"
 
 
-def test_laufzeitdaten_landen_im_share_baum():
+def test_runtime_data_lands_in_the_share_tree():
     """node/launch need config, worlds and launch under share/mecanum_lab/."""
-    anteile = {ziel: quellen for ziel, quellen in _data_files()}
-    for ordner, datei in (("config", "default.json"), ("worlds", "arena.txt"),
+    shares = {target: quellen for target, quellen in _data_files()}
+    for dirs, file_name in (("config", "default.json"), ("worlds", "arena.txt"),
                           ("launch", "lab.launch.py"), ("student", "solution.py")):
-        quellen = anteile.get(os.path.join("share", "mecanum_lab", ordner), [])
-        assert any(os.path.basename(q) == datei for q in quellen), f"{ordner}/{datei} missing"
-    assert any(q == "package.xml" for q in anteile["share/mecanum_lab"])
+        quellen = shares.get(os.path.join("share", "mecanum_lab", dirs), [])
+        assert any(os.path.basename(q) == file_name for q in quellen), f"{dirs}/{file_name} missing"
+    assert any(q == "package.xml" for q in shares["share/mecanum_lab"])
 
 
-def test_kein_cache_oder_latex_muell():
+def test_no_cache_or_latex_rubbish():
     for _, quellen in _data_files():
         for quelle in quellen:
-            teile = quelle.split(os.sep)
-            assert "__pycache__" not in teile, quelle
-            assert not any(t.startswith(".") for t in teile), quelle
+            parts = quelle.split(os.sep)
+            assert "__pycache__" not in parts, quelle
+            assert not any(t.startswith(".") for t in parts), quelle
             assert not quelle.endswith((".aux", ".log", ".fls", ".toc", ".out")), quelle

@@ -24,14 +24,14 @@ CFG = {"width": 900, "height": 600, "gui_rate": 30,
 
 
 def make_engine(roboten=None, w=8.0, h=6.0, t=1.0):
-    welt = World(name="fake", cell=0.5,
+    world = World(name="fake", cell=0.5,
                  walls=[Rect(0, 0, w, .2), Rect(0, h - .2, w, h), Rect(0, 0, .2, h),
                         Rect(w - .2, 0, w, h), Rect(3.0, 2.0, 5.0, 3.0)],
                  spawns=[Pose(1.0, 1.0, 0.0), Pose(2.0, 1.0, 0.0)], goal=Pose(4.0, 3.0, 0.0),
                  markings=[(1, 3.5, 5, 3.5)], size=(w, h))
-    farbe, rgb_wert = PALETTE[0]
+    color, rgb_value = PALETTE[0]
     robots = roboten or {"alice": Robot(
-        spec=RobotSpec(name="alice", index=0, color=farbe, rgb=rgb_wert, marker=MARKERS[0],
+        spec=RobotSpec(name="alice", index=0, color=color, rgb=rgb_value, marker=MARKERS[0],
                        variant="stock"),
         chassis=None, pose=Pose(1.0, 1.0, 0.0), twist=Twist(0.4, 0.0, 0.1),
         wheels=[2.0, -2.0, 2.0, -2.0], mode="pass-through",
@@ -39,7 +39,7 @@ def make_engine(roboten=None, w=8.0, h=6.0, t=1.0):
         scan=Scan(t=1.0, angle_min=0.0, angle_increment=math.tau / 8, range_min=.05,
                   range_max=8.0, ranges=[1.5] * 8),
         contacts=0, distance=1.0, mission_state="running")}
-    return SimpleNamespace(world=welt, robots=robots, t=t, task="quadrat", drain=lambda: [])
+    return SimpleNamespace(world=world, robots=robots, t=t, task="quadrat", drain=lambda: [])
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def rend():
         renderer.close()
 
 
-def klick(pos, button=1):
+def click(pos, button=1):
     """Press and release one mouse button at `pos` (the panel reacts to the press)."""
     pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=pos, button=button,
                                          rel=(0, 0)))
@@ -59,15 +59,15 @@ def klick(pos, button=1):
                                          rel=(0, 0)))
 
 
-def ziehe(von, nach):
-    """Drag with the left button from `von` to `nach`."""
-    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=von, button=1, rel=(0, 0)))
-    pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION, pos=nach, rel=(0, 0),
+def drag(start, target):
+    """Drag with the left button from `start` to `target`."""
+    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=start, button=1, rel=(0, 0)))
+    pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION, pos=target, rel=(0, 0),
                                          buttons=(1, 0, 0)))
-    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONUP, pos=nach, button=1, rel=(0, 0)))
+    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONUP, pos=target, button=1, rel=(0, 0)))
 
 
-def druecke(name):
+def press_key(name):
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(name),
                                          mod=0, unicode=name))
 
@@ -84,9 +84,9 @@ def test_camera_shows_the_whole_world_and_never_less_than_the_minimum_scale():
 def test_zoom_at_the_cursor_keeps_exactly_that_spot_on_screen():
     k = cam.Camera((800, 600), (12.0, 9.0), px_per_meter_min=50)
     zeiger = (620, 180)
-    welt_punkt = k.wx(*zeiger)
+    world_point = k.wx(*zeiger)
     k.zoom_to_at(zeiger, 1.6)
-    nach_dem_zoom = k.px(*welt_punkt)
+    nach_dem_zoom = k.px(*world_point)
     assert abs(nach_dem_zoom[0] - zeiger[0]) < 1.0
     assert abs(nach_dem_zoom[1] - zeiger[1]) < 1.0
 
@@ -106,11 +106,11 @@ def test_zoom_stays_inside_its_limits_and_f_resets_to_the_whole_world():
 def test_dragging_moves_the_world_with_the_mouse():
     k = cam.Camera((800, 600), (12.0, 9.0))
     k.zoom_to_at((400, 300), 4.0)
-    merk_punkt = k.wx(250, 200)
+    marker_point = k.wx(250, 200)
     k.pan(250, -100)                                   # mouse goes right and up
-    verschoben = k.px(*merk_punkt)
-    assert abs(verschoben[0] - 500) < 1.0
-    assert abs(verschoben[1] - 100) < 1.0            # up on screen means smaller y
+    moved = k.px(*marker_point)
+    assert abs(moved[0] - 500) < 1.0
+    assert abs(moved[1] - 100) < 1.0            # up on screen means smaller y
 
 
 def test_resize_grows_the_view_and_keeps_the_world_visible():
@@ -139,7 +139,7 @@ def test_mouse_wheel_zooms_and_drag_pans_in_the_renderer(rend):
     assert rend.zoom > 1.0
     nachher = rend.cam.wx(300, 200)
     assert abs(nachher[0] - vorher[0]) < 0.01 and abs(nachher[1] - vorher[1]) < 0.01
-    ziehe((420, 300), (200, 380))
+    drag((420, 300), (200, 380))
     rend.poll()
     assert rend.cam.s > 0                                # still a usable scale after the drag
 
@@ -149,10 +149,10 @@ def test_void_outside_the_world_is_darker_than_the_floor_inside(rend):
     rend.draw(cap=False)
     innen = rend.px(1.5, 5.0)                                 # free floor, far from menu and HUD
     assert rend.screen.get_at((int(innen[0]), int(innen[1])))[:3] == rend.col_floor[:3]
-    rand = rend.px(0.0, 0.0)                                  # left edge of the world box
-    aussen = (max(1, int(rand[0]) - 8), int(rend.size[1] * .6))
+    border = rend.px(0.0, 0.0)                                  # left edge of the world box
+    aussen = (max(1, int(border[0]) - 8), int(rend.size[1] * .6))
     assert rend.screen.get_at(aussen)[:3] == rend.col_void[:3], \
-        f"expected void at {aussen}, world starts at x={rand[0]:.0f}"
+        f"expected void at {aussen}, world starts at x={border[0]:.0f}"
     assert sum(rend.col_void) < sum(rend.col_floor)
 
 
@@ -165,8 +165,8 @@ def test_walls_are_filled_without_an_outline_of_another_colour(rend):
     proben = [rend.px((wand.x0 + wand.x1) / 2, (wand.y0 + wand.y1) / 2),
               rend.px(wand.x0 + 0.05, (wand.y0 + wand.y1) / 2),
               rend.px(wand.x1 - 0.05, wand.y0 + 0.05)]
-    for punkt in proben:
-        assert rend.screen.get_at((int(punkt[0]), int(punkt[1])))[:3] == rend.col_wall[:3]
+    for point in proben:
+        assert rend.screen.get_at((int(point[0]), int(point[1])))[:3] == rend.col_wall[:3]
 
 
 # ---------------------------------------------------------------------------------- menu
@@ -180,8 +180,8 @@ def test_every_row_of_the_panel_switches_a_real_attribute(rend):
 def test_click_on_a_row_switches_only_that_layer(rend):
     rend.menu.open = True                                 # as after pressing m
     rend.draw(cap=False)                                  # lays out the panel rectangle
-    zeile = rend.menu.zeile(0)                            # first row is the lidar scan
-    klick((zeile.x + 20, zeile.y + 8))
+    row_rect = rend.menu.row_rect(0)                            # first row is the lidar scan
+    click((row_rect.x + 20, row_rect.y + 8))
     flags = rend.poll()
     assert flags["menu"] == "show_scan"
     assert rend.show_scan is False
@@ -191,7 +191,7 @@ def test_click_on_a_row_switches_only_that_layer(rend):
 def test_click_next_to_the_panel_does_not_switch_anything(rend):
     rend.menu.open = True
     rend.draw(cap=False)
-    klick((10, rend.size[1] - 10))
+    click((10, rend.size[1] - 10))
     assert rend.poll()["menu"] == ""
     assert rend.show_scan
 
@@ -206,11 +206,11 @@ def test_the_panel_starts_closed_and_covers_nothing_of_the_map(rend):
 
 def test_m_shows_the_panel_and_hides_it_again(rend):
     assert not rend.menu.open
-    druecke("m")
+    press_key("m")
     assert rend.poll()["menu"] == "menu"
     assert rend.menu.open is True
     rend.draw(cap=False)
-    druecke("m")
+    press_key("m")
     rend.poll()
     assert rend.menu.open is False
     rend.draw(cap=False)
@@ -225,7 +225,7 @@ def test_hiding_every_layer_never_touches_the_engine_or_the_bus():
     bus = get_bus()
     rend = R.Renderer(eng, cfg)
     try:
-        arten = {art for art, _robot in _schritte(eng, bus, 40)}
+        arten = {art for art, _robot in _steps(eng, bus, 40)}
         sensoren = {"odom", "scan", "gps", "imu"}
         assert sensoren <= arten
         pose_vorher = (eng.robots["alice"].pose.x, eng.robots["alice"].pose.y, eng.t)
@@ -233,7 +233,7 @@ def test_hiding_every_layer_never_touches_the_engine_or_the_bus():
             setattr(rend, attribut, False)
         rend.menu.open = False
         rend.draw(cap=False)
-        erneut = {art for art, _robot in _schritte(eng, bus, 40)}
+        erneut = {art for art, _robot in _steps(eng, bus, 40)}
         assert erneut & sensoren == arten & sensoren, \
             "hiding layers must not stop any sensor from publishing"
         assert bus.last("scan", "alice")[0] is not None
@@ -243,7 +243,7 @@ def test_hiding_every_layer_never_touches_the_engine_or_the_bus():
         rend.close()
 
 
-def _schritte(eng, bus, n):
+def _steps(eng, bus, n):
     """n simulation steps, every measurement onto the bus, one frame per 4th step."""
     gesendet = []
     for i in range(n):
@@ -260,8 +260,8 @@ def test_q_turns_instead_of_quitting_while_keyboard_driving(rend):
     for teleop, quits in ((False, True), (True, False)):
         rend.teleop = teleop
         flagen = {"quit": False, "key": "", "camera": None, "menu": ""}
-        rend._ev_key(SimpleNamespace(key=pygame.K_q), flagen)
+        rend._event_key(SimpleNamespace(key=pygame.K_q), flagen)
         assert flagen["quit"] is quits, f"teleop={teleop}"
         flagen["quit"] = False
-        rend._ev_key(SimpleNamespace(key=pygame.K_ESCAPE), flagen)
+        rend._event_key(SimpleNamespace(key=pygame.K_ESCAPE), flagen)
         assert flagen["quit"] is True

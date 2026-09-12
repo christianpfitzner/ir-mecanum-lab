@@ -60,7 +60,7 @@ def inverse_kinematics(vx, vy, omega):
 
 # ------------------------------------------------------------------- Subtasks 2 to 4
 
-def fahre_quadrat(rob):
+def drive_square(rob):
     """T2: 1 m per side, 90° corners, odometry as feedback, closed loop.
 
     Success (./lab grade --task quadrat): after four sides be back within 0.20 m
@@ -75,7 +75,7 @@ def fahre_quadrat(rob):
     raise RuntimeError("T2 not implemented yet")
 
 
-def fahre_korridor(rob):
+def drive_corridor(rob):
     """T3: out of the maze to the goal with LIDAR, without brushing a wall.
 
     Success (./lab grade --task korridor): goal reached (distance < 0.30 m),
@@ -87,7 +87,7 @@ def fahre_korridor(rob):
     raise RuntimeError("T3 not implemented yet")
 
 
-def fahre_zu_gps(rob):
+def drive_to_gps(rob):
     """T4 (bonus): drive to the goal with the global position instead of odometry.
 
     Success (./lab grade --task gps_anfahrt): goal from rob.world()["goal"] reached
@@ -110,10 +110,10 @@ def mission(rob, task):
     exception: the runner reports "failed:<reason>", which is more honest for the
     grade than a "done" without reaching the goal.
     """
-    for name, funktion in (("quadrat", fahre_quadrat), ("korridor", fahre_korridor),
-                           ("gps_anfahrt", fahre_zu_gps)):
+    for name, action in (("quadrat", drive_square), ("korridor", drive_corridor),
+                           ("gps_anfahrt", drive_to_gps)):
         if task.startswith(name):
-            return funktion(rob)
+            return action(rob)
     raise RuntimeError(f"unknown task '{task}'")
 
 

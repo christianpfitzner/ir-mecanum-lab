@@ -15,11 +15,11 @@ BILD = os.path.join(ROOT, "docs", "img", "worlds.png")
 
 
 def test_worldpic_draws_every_world(tmp_path):
-    zielpfad = tmp_path / "welten.png"
-    result = subprocess.run([sys.executable, WERKZEUG, "--out", str(zielpfad)],
+    target_path = tmp_path / "worlds.png"
+    result = subprocess.run([sys.executable, WERKZEUG, "--out", str(target_path)],
                              capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert result.returncode == 0, result.stderr[-400:]
-    inhalt = zielpfad.read_bytes()
+    inhalt = target_path.read_bytes()
     assert inhalt[:8] == b"\x89PNG\r\n\x1a\n", "no PNG written"
     assert len(inhalt) > 5000, "picture too small to contain four arenas"
     for name in ("arena", "maze", "production", "track"):

@@ -45,7 +45,7 @@ source /opt/ros/kilted/setup.bash
 ./lab sim --robots alice,bob                      # simulator as a real ROS node
 ./lab spawn --name carlo                          # add a robot to a running sim
 ros2 launch launch/kf.launch.py                   # Experiment 2, everything configurable
-ros2 launch launch/kf.launch.py bewerten:=kf_alle controller:=student/kf_solution.py
+ros2 launch launch/kf.launch.py grade:=kf_alle controller:=student/kf_solution.py
 ros2 launch launch/sim.launch.py robots:=alice,bob  # Experiment 1
 ros2 topic echo /alice/imu --once                 # az at rest ≈ +9.81 — that is correct
 ros2 topic echo /tf --once                        # map → alice/odom → alice/base_link → laser
@@ -125,7 +125,7 @@ other columns (`python3 tools/kfplot.py messung.csv --list` shows all of them).
 
 `--task` takes task ids, groups or a comma list: `v1` and `alle` (Experiment 1),
 `kf_alle`/`v2` (Experiment 2), `beide` (really all). Every task names its arena in
-`config/tasks.json` (`"welt"`); `./lab` and `tools/fastgrade.py` follow that setting,
+`config/tasks.json` (`"world"`); `./lab` and `tools/fastgrade.py` follow that setting,
 `--world` overrides it. Grading in the wrong arena gets you wall contacts
 instead of points.
 
@@ -153,10 +153,10 @@ regenerate it — `tools/check.sh` draws it as a check, so a stale image cannot 
 | Site | `config/default.json` | overrides the defaults |
 | Task profile | `config/tasks.json` → `sim` | measured sensing per task (GPS rate, σ, outage, IMU) |
 | Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
-| Launch file | `ros2 launch launch/kf.launch.py --show-args` | 46 arguments, all mapped onto `--set` |
+| Launch file | `ros2 launch launch/kf.launch.py --show-args` | 47 arguments, all mapped onto `--set` |
 
 Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track` — or your own
-`worlds/name.txt` (`python3 tools/worldcheck.py --welt name` checks it, including that the
+`worlds/name.txt` (`python3 tools/worldcheck.py --world name` checks it, including that the
 world is closed). One grid cell is 0.5 m; `"worlds": {"cell_by_world": {"maze": 1.0}}` in
 `config/default.json` makes a single world coarser without touching the robot — that is why the
 maze has room to drive in while the graded arenas stay as they are.
@@ -187,11 +187,13 @@ python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --
 
 ## Rules of this codebase
 
-Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), **all written
-prose and all UI text in English** — comments, docstrings, report text, handouts,
-`config/tasks.json`. That is checked: `python3 tools/langcheck.py` (also a step in
-`tools/check.sh`). Identifiers are English too, except the ones that are API and would break
-handouts and student code: the launch arguments (`sekunden`, `aufgabe`, `bewerten`, `wahrheit`,
-`protokoll`, `aufzeichnung`), ROS topic names, JSON keys and the wheel names `VL/VR/HL/HR`.
-Deterministic from `--seed`, headless-capable.
+Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), **everything
+written and everything named in English** — comments, docstrings, report text, handouts,
+identifiers, launch arguments, the keys of `config/tasks.json`. Two tools check it, both a step in
+`tools/check.sh`: `python3 tools/langcheck.py` reads the prose, `python3 tools/germanids.py` reads
+the names. What stays German is the exception list of `germanids.py`: ROS topic and message field
+names, the wheel names `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`,
+`kf_alle`), and the German side of the two compatibility maps that keep old files and old shell
+histories working (`tasks._LEGACY_KEYS`, the `DEPRECATED` tables in `launch/`) — the tables are in
+`docs/CONTRACT.md` §6.11. Deterministic from `--seed`, headless-capable.
 Details: `docs/CONTRACT.md` (Experiment 1), `docs/CONTRACT-KF.md` (Experiment 2).

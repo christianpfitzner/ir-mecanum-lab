@@ -7,7 +7,7 @@ __version__ = "0.1"
 
 
 def setup_logging(level: str | None = None) -> None:
-    """Einmaliger Logging-Aufbau; MECANUM_LOG=debug kann ueberschreiben."""
+    """Logging set up once; the MECANUM_LOG=debug environment variable wins."""
     lvl = os.environ.get("MECANUM_LOG", level or "info").upper()
     logging.basicConfig(level=getattr(logging, lvl, logging.INFO),
                         format="%(levelname).1s %(name)-14s %(message)s",

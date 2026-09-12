@@ -7,7 +7,7 @@ Columns and their meaning are listed in `mecanum_lab/logbook.py` (semicolons, de
 
     python3 tools/kfplot.py messung.csv                       # numbers + ASCII plot
     python3 tools/kfplot.py messung.csv --sensor odom         # compare a raw sensor
-    python3 tools/kfplot.py messung.csv --intervall 1         # 1 s averages in the plot
+    python3 tools/kfplot.py messung.csv --interval 1         # 1 s averages in the plot
     python3 tools/kfplot.py messung.csv --list                # show the columns
     python3 tools/kfplot.py messung.csv -o bild.png           # PNG, if matplotlib exists
 """
@@ -19,119 +19,119 @@ import sys
 ROHSENSOR = {"gps": ("x_gps", "y_gps"), "odom": ("x_odom", "y_odom")}
 
 
-def zahl(wert):
+def num(value):
     """Read one CSV cell as a number — empty cells and 'nan' give None, never a crash."""
     try:
-        f = float(wert)
+        f = float(value)
     except (TypeError, ValueError):
         return None
     return None if math.isnan(f) else f
 
 
-def lese(pfad):
+def lese(path):
     try:
-        with open(pfad, newline="", encoding="utf-8", errors="replace") as fh:
-            reihen = list(csv.DictReader(fh, delimiter=";"))
+        with open(path, newline="", encoding="utf-8", errors="replace") as fh:
+            rows = list(csv.DictReader(fh, delimiter=";"))
     except OSError as exc:
-        sys.exit(f"file '{pfad}' not readable: {exc}")
-    if not reihen or "t" not in (reihen[0] or {}):
-        sys.exit(f"'{pfad}' is not a measurement log — expected a semicolon CSV with "
-                 f"header 't;robot;x_wahr;...' (see ./lab --log FILE.csv).")
-    return reihen
+        sys.exit(f"file '{path}' not readable: {exc}")
+    if not rows or "t" not in (rows[0] or {}):
+        sys.exit(f"'{path}' is not a measurement log — expected a semicolon CSV with "
+                 f"header 't;robot;x_truth;...' (see ./lab --log FILE.csv).")
+    return rows
 
 
-def nach_roboter(reihen):
+def by_robot(rows):
     gruppen = {}
-    for r in reihen:
+    for r in rows:
         gruppen.setdefault(r.get("robot") or "?", []).append(r)
-    for liste in gruppen.values():
-        liste.sort(key=lambda r: zahl(r.get("t")) or 0.0)
+    for lines in gruppen.values():
+        lines.sort(key=lambda r: num(r.get("t")) or 0.0)
     return gruppen
 
 
-def messtreue(reihen, sensor):
+def accuracy(rows, sensor):
     """Error over time: (t, error) per row, NEES samples, and the GPS fix stamps."""
     px, py = ROHSENSOR[sensor]
-    kf, roh, nees, fixes = [], [], [], []
-    for r in reihen:
-        t, xw, yw = zahl(r.get("t")), zahl(r.get("x_wahr")), zahl(r.get("y_wahr"))
+    kf, raw, nees, fixes = [], [], [], []
+    for r in rows:
+        t, xw, yw = num(r.get("t")), num(r.get("x_truth")), num(r.get("y_truth"))
         if t is None or xw is None or yw is None:
             continue                                        # without truth there is nothing to measure
-        xa, ya = zahl(r.get(px)), zahl(r.get(py))
+        xa, ya = num(r.get(px)), num(r.get(py))
         if xa is not None:
-            roh.append((t, math.hypot(xa - xw, ya - yw)))
-        xk, yk = zahl(r.get("x_kf")), zahl(r.get("y_kf"))
+            raw.append((t, math.hypot(xa - xw, ya - yw)))
+        xk, yk = num(r.get("x_kf")), num(r.get("y_kf"))
         if xk is not None:
             kf.append((t, math.hypot(xk - xw, yk - yw)))
-            s2 = [zahl(r.get(s)) for s in ("sx_kf", "sy_kf")]
+            s2 = [num(r.get(s)) for s in ("sx_kf", "sy_kf")]
             if all(s and s > 1e-9 for s in s2):
                 nees.append((((xk - xw) ** 2) / s2[0] ** 2 + ((yk - yw) ** 2) / s2[1] ** 2) / 2)
-        alt = zahl(r.get("t_alt_gps"))
+        alt = num(r.get("t_age_gps"))
         if alt is not None:
             fixes.append(round(t - alt, 2))                 # fix stamp recomputed from its age
-    return kf, roh, nees, fixes
+    return kf, raw, nees, fixes
 
 
-def fix_abstaende(fixes):
+def fix_gaps(fixes):
     """Gap between two different GPS fixes in s — from the stamps, not the message rate.
 
-    The file holds no fix stamp, only its age in `t_alt_gps`; converting it back leaves
+    The file holds no fix stamp, only its age in `t_age_gps`; converting it back leaves
     rounding wrinkles in the decimals that look like new fixes. So smooth over 2 cm of
     time and drop everything below 20 ms as jitter.
     """
-    folgen, abstaende = None, []
+    folgen, gaps = None, []
     for t in sorted(set(fixes)):
         if folgen is not None and t - folgen > 0.02:
-            abstaende.append(t - folgen)
+            gaps.append(t - folgen)
         folgen = t
-    return abstaende
+    return gaps
 
 
-def mittle(punkte, intervall):
+def center(points, interval):
     """Mean per interval — averaging away the noise makes a time series far easier to read."""
-    if not punkte or not intervall or intervall <= 0:
-        return punkte
+    if not points or not interval or interval <= 0:
+        return points
     karten = {}
-    for t, e in punkte:
-        karten.setdefault(int(t / intervall), []).append((t, e))
+    for t, e in points:
+        karten.setdefault(int(t / interval), []).append((t, e))
     out = []
-    for schluessel in sorted(karten):
-        gruppe = karten[schluessel]
+    for key in sorted(karten):
+        gruppe = karten[key]
         out.append((sum(t for t, _ in gruppe) / len(gruppe),
                     sum(e for _, e in gruppe) / len(gruppe)))
     return out
 
 
-def rmse(punkte):
-    return math.sqrt(sum(e * e for _, e in punkte) / len(punkte)) if punkte else None
+def rmse(points):
+    return math.sqrt(sum(e * e for _, e in points) / len(points)) if points else None
 
 
-def ascii_bild(kurven, breite=76, hoehe=13):
-    """Error time series as text: kurven = [(name, char, points), ...] — width <= 100."""
-    kurven = [(n, z, p) for n, z, p in kurven if p]
-    if not kurven:
+def ascii_chart(curves, width=76, height=13):
+    """Error time series as text: curves = [(name, char, points), ...] — width <= 100."""
+    curves = [(n, z, p) for n, z, p in curves if p]
+    if not curves:
         return "  (no error data)"
-    tmin = min(t for _, _, p in kurven for t, _ in p)
-    tmax = max(t for _, _, p in kurven for t, _ in p)
-    ymax = max(max(e for _, e in p) for _, _, p in kurven) or 1.0
-    raster = [[" "] * breite for _ in range(hoehe)]
-    for _, zeichen, punkte in kurven:
-        for t, e in punkte:
-            spalte = int(round((t - tmin) / (tmax - tmin) * (breite - 1))) if tmax > tmin else 0
-            zeile = int(round((ymax - e) / ymax * (hoehe - 1)))
-            raster[max(0, min(hoehe - 1, zeile))][spalte] = zeichen
-    legende = "   ".join(f"{z} = {n}" for n, z, _ in kurven)
+    tmin = min(t for _, _, p in curves for t, _ in p)
+    tmax = max(t for _, _, p in curves for t, _ in p)
+    ymax = max(max(e for _, e in p) for _, _, p in curves) or 1.0
+    raster = [[" "] * width for _ in range(height)]
+    for _, zeichen, points in curves:
+        for t, e in points:
+            spalte = int(round((t - tmin) / (tmax - tmin) * (width - 1))) if tmax > tmin else 0
+            row_rect = int(round((ymax - e) / ymax * (height - 1)))
+            raster[max(0, min(height - 1, row_rect))][spalte] = zeichen
+    legende = "   ".join(f"{z} = {n}" for n, z, _ in curves)
     ausgabe = [f"Error against the truth [m], scale 0 … {ymax:.2f} m   ({legende})"]
-    for i, zeile in enumerate(raster):
-        stab = ymax * (hoehe - 1 - i) / (hoehe - 1)
-        ausgabe.append(f"{stab:6.2f} |" + "".join(zeile))
-    ausgabe.append("       +" + "-" * breite)
-    anfang, ende = f"{tmin:g}s", f"{tmax:g}s"
-    ausgabe.append("       " + anfang + " " * max(1, breite + 1 - len(anfang) - len(ende)) + ende)
+    for i, row_rect in enumerate(raster):
+        stab = ymax * (height - 1 - i) / (height - 1)
+        ausgabe.append(f"{stab:6.2f} |" + "".join(row_rect))
+    ausgabe.append("       +" + "-" * width)
+    started, end = f"{tmin:g}s", f"{tmax:g}s"
+    ausgabe.append("       " + started + " " * max(1, width + 1 - len(started) - len(end)) + end)
     return "\n".join(ausgabe)
 
 
-def png(pfad, reihen, kurven, ziel):
+def png(path, rows, curves, target):
     """Three panels: path, error over time, message rates. Needs matplotlib (optional)."""
     try:
         import matplotlib
@@ -140,79 +140,79 @@ def png(pfad, reihen, kurven, ziel):
     except ImportError:
         print("matplotlib is missing — plots stay ASCII (pip install --user matplotlib).")
         return
-    fig, feld = plt.subplots(1, 3, figsize=(17, 5))
-    bahn = [("Truth", "x_wahr", "y_wahr", "k-"), ("GPS", "x_gps", "y_gps", ".g"),
+    fig, field = plt.subplots(1, 3, figsize=(17, 5))
+    bahn = [("Truth", "x_truth", "y_truth", "k-"), ("GPS", "x_gps", "y_gps", ".g"),
             ("Odometry", "x_odom", "y_odom", ".b"), ("KF", "x_kf", "y_kf", "r-")]
     for name, xs, ys, stil in bahn:
-        x = [zahl(r.get(xs)) for r in reihen if zahl(r.get(xs)) is not None]
-        y = [zahl(r.get(ys)) for r in reihen if zahl(r.get(ys)) is not None]
+        x = [num(r.get(xs)) for r in rows if num(r.get(xs)) is not None]
+        y = [num(r.get(ys)) for r in rows if num(r.get(ys)) is not None]
         if x and y:
-            feld[0].plot(x, y, stil, label=name, linewidth=1)
-    feld[0].set_title(f"Path — {pfad}")
-    feld[0].set_xlabel("x [m]"); feld[0].set_ylabel("y [m]")
-    feld[0].legend(); feld[0].grid(True, alpha=.3); feld[0].set_aspect("equal")
-    for name, _, punkte in kurven:
-        feld[1].plot([t for t, _ in punkte], [e for _, e in punkte], label=name)
-    feld[1].set_title("Error against the truth"); feld[1].set_xlabel("t [s]")
-    feld[1].set_ylabel("Error [m]"); feld[1].legend(); feld[1].grid(True, alpha=.3)
-    sekunden = [int(zahl(r.get("t")) or 0) for r in reihen]
-    gps = [s for s, r in zip(sekunden, reihen) if zahl(r.get("t_alt_gps")) is not None]
-    kfz = [(int(zahl(r.get("t")) or 0), zahl(r.get("n_kf"))) for r in reihen
-           if zahl(r.get("n_kf")) is not None]
+            field[0].plot(x, y, stil, label=name, linewidth=1)
+    field[0].set_title(f"Path — {path}")
+    field[0].set_xlabel("x [m]"); field[0].set_ylabel("y [m]")
+    field[0].legend(); field[0].grid(True, alpha=.3); field[0].set_aspect("equal")
+    for name, _, points in curves:
+        field[1].plot([t for t, _ in points], [e for _, e in points], label=name)
+    field[1].set_title("Error against the truth"); field[1].set_xlabel("t [s]")
+    field[1].set_ylabel("Error [m]"); field[1].legend(); field[1].grid(True, alpha=.3)
+    seconds = [int(num(r.get("t")) or 0) for r in rows]
+    gps = [s for s, r in zip(seconds, rows) if num(r.get("t_age_gps")) is not None]
+    kfz = [(int(num(r.get("t")) or 0), num(r.get("n_kf"))) for r in rows
+           if num(r.get("n_kf")) is not None]
     kf_rate = [max(0.0, kfz[i][1] - kfz[i - 1][1]) for i in range(1, len(kfz))
                if kfz[i][0] != kfz[i - 1][0]]
-    feld[2].hist([gps, kf_rate], bins=range(0, max(sekunden, default=0) + 2),
+    field[2].hist([gps, kf_rate], bins=range(0, max(seconds, default=0) + 2),
                  label=["GPS fixes/s", "kf/pose/s"], color=["#4faf6f", "#d1705a"])
-    feld[2].set_title("Message rates"); feld[2].set_xlabel("second"); feld[2].legend()
+    field[2].set_title("Message rates"); field[2].set_xlabel("second"); field[2].legend()
     fig.tight_layout()
-    fig.savefig(ziel, dpi=110)
-    print(f"PNG written: {ziel}")
+    fig.savefig(target, dpi=110)
+    print(f"PNG written: {target}")
 
 
-def haupt():
+def main_plot():
     e = argparse.ArgumentParser(description="Evaluate a measurement log (./lab --log)")
-    e.add_argument("protokoll", help="CSV file written by ./lab ... --log FILE.csv")
+    e.add_argument("log", help="CSV file written by ./lab ... --log FILE.csv")
     e.add_argument("-o", "--output", metavar="FILE.png", help="write a PNG (matplotlib)")
     e.add_argument("--sensor", choices=sorted(ROHSENSOR), default="gps",
                    help="raw sensor for the comparison and the plot (default: gps)")
-    e.add_argument("--intervall", type=float, default=0.0, metavar="S",
+    e.add_argument("--interval", type=float, default=0.0, metavar="S",
                    help="average the error time series over S seconds in the plot")
     e.add_argument("--robot", default="", help="only this robot (default: the one with kf data)")
-    e.add_argument("--breite", type=int, default=76, help="width of the ASCII plot (<= 92)")
+    e.add_argument("--width", type=int, default=76, help="width of the ASCII plot (<= 92)")
     e.add_argument("--list", action="store_true", help="show the columns of the log")
     a = e.parse_args()
-    reihen = lese(a.protokoll)
+    rows = lese(a.log)
     if a.list:
-        print(f"{len(reihen)} lines, columns: " + ", ".join((reihen[0] or {}).keys()))
-        for spalte, wert in (reihen[len(reihen) // 2] or {}).items():
-            print(f"  {spalte:12} {wert!r}")
+        print(f"{len(rows)} lines, columns: " + ", ".join((rows[0] or {}).keys()))
+        for spalte, value in (rows[len(rows) // 2] or {}).items():
+            print(f"  {spalte:12} {value!r}")
         return 0
-    gruppen = nach_roboter(reihen)
+    gruppen = by_robot(rows)
     if a.robot and a.robot not in gruppen:
         sys.exit(f"robot '{a.robot}' is not in the log — it contains: "
                  + ", ".join(sorted(gruppen)))
     name = a.robot or ("" if len(gruppen) == 1 else
-                       max(gruppen, key=lambda k: sum(1 for r in gruppen[k] if zahl(r.get("x_kf")))))
+                       max(gruppen, key=lambda k: sum(1 for r in gruppen[k] if num(r.get("x_kf")))))
     for robot in [name] if name else sorted(gruppen):
         bericht(gruppen[robot], a, robot, len(gruppen))
     return 0
 
 
-def bericht(reihen, a, robot, anzahl_roboter):
+def bericht(rows, a, robot, n_robots):
     """Numbers and ASCII plot for one robot — this is what goes into the lab report."""
-    kf, roh, nees, fixes = messtreue(reihen, a.sensor)
-    t = sorted(x for x in (zahl(r.get("t")) for r in reihen) if x is not None)
+    kf, raw, nees, fixes = accuracy(rows, a.sensor)
+    t = sorted(x for x in (num(r.get("t")) for r in rows) if x is not None)
     if not t:
-        print(f"\n=== {a.protokoll} · robot '{robot}' ===\nno timestamps in the file")
+        print(f"\n=== {a.log} · robot '{robot}' ===\nno timestamps in the file")
         return
-    zusatz = "" if anzahl_roboter == 1 else f" (1 of {anzahl_roboter}, --robot selects)"
-    print(f"\n=== {a.protokoll} · Roboter '{robot}'{zusatz} ===")
-    print(f"Lines: {len(reihen)}   time: {t[0]:.1f} … {t[-1]:.1f} s   raw sensor: {a.sensor}")
-    r_kf, r_roh = rmse(kf), rmse(roh)
-    if not roh:
+    zusatz = "" if n_robots == 1 else f" (1 of {n_robots}, --robot selects)"
+    print(f"\n=== {a.log} · Roboter '{robot}'{zusatz} ===")
+    print(f"Lines: {len(rows)}   time: {t[0]:.1f} … {t[-1]:.1f} s   raw sensor: {a.sensor}")
+    r_kf, r_roh = rmse(kf), rmse(raw)
+    if not raw:
         print(f"No {a.sensor} value against the truth — are columns x_{a.sensor}/y_{a.sensor} empty?")
     else:
-        print(f"RMSE truth↔{a.sensor:<4}: {r_roh:6.3f} m   Max: {max(x[1] for x in roh):6.3f} m")
+        print(f"RMSE truth↔{a.sensor:<4}: {r_roh:6.3f} m   Max: {max(x[1] for x in raw):6.3f} m")
     if kf:
         print(f"RMSE truth↔kf  : {r_kf:6.3f} m   Max: {max(x[1] for x in kf):6.3f} m")
         if r_roh and r_kf:
@@ -221,29 +221,29 @@ def bericht(reihen, a, robot, anzahl_roboter):
             print(f"NEES mean      : {sum(nees) / len(nees):5.2f}   (1 = honest standard deviation)")
         else:
             print("NEES mean      :   —   (sx_kf/sy_kf missing — pass sigma to send_kf)")
-        n = [zahl(r.get("n_kf")) for r in reihen if zahl(r.get("n_kf")) is not None]
-        dauer = kf[-1][0] - kf[0][0]
-        if dauer > 0:
-            meldungen = int(max(n) - min(n)) if len(n) > 1 else len(kf)
-            print(f"kf/pose rate   : {meldungen / dauer:5.2f} Hz  ({meldungen} messages)")
+        n = [num(r.get("n_kf")) for r in rows if num(r.get("n_kf")) is not None]
+        duration = kf[-1][0] - kf[0][0]
+        if duration > 0:
+            messages = int(max(n) - min(n)) if len(n) > 1 else len(kf)
+            print(f"kf/pose rate   : {messages / duration:5.2f} Hz  ({messages} messages)")
     else:
         print("Not a single kf/pose value in the log: is your node running, and does it "
               "call rob.send_kf()? This file holds the raw sensor data only.")
-    abstaende = fix_abstaende(fixes)
-    if abstaende:
-        mittel = sum(abstaende) / len(abstaende)
-        mitte = sorted(abstaende)[len(abstaende) // 2]
+    gaps = fix_gaps(fixes)
+    if gaps:
+        mittel = sum(gaps) / len(gaps)
+        mitte = sorted(gaps)[len(gaps) // 2]
         print(f"GPS fix gap    : {mittel:.2f} s mean, {mitte:.2f} s median, "
-              f"largest {max(abstaende):.2f} s  ({len(set(fixes))} fixes)")
+              f"largest {max(gaps):.2f} s  ({len(set(fixes))} fixes)")
     else:
         print(f"GPS fix gap    : —   ({len(set(fixes))} fixes)")
-    kurven = [(f"{a.sensor}−truth", "o", mittle(roh, a.intervall)),
-              ("kf−truth", "*", mittle(kf, a.intervall))]
+    curves = [(f"{a.sensor}−truth", "o", center(raw, a.interval)),
+              ("kf−truth", "*", center(kf, a.interval))]
     print()
-    print(ascii_bild(kurven, breite=max(20, min(92, a.breite))))
+    print(ascii_chart(curves, width=max(20, min(92, a.width))))
     if a.output:
-        png(a.protokoll, reihen, kurven, a.output)
+        png(a.log, rows, curves, a.output)
 
 
 if __name__ == "__main__":
-    sys.exit(haupt())
+    sys.exit(main_plot())

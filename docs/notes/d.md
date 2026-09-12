@@ -52,7 +52,7 @@ samples). That satisfies K2 ("the IMU as a short-term clean yaw rate") and the
 
 ### 2.5 Late fixes: rewind instead of "now"
 `KF.schritte` parks the last 120 prediction steps (state before, dt, ω, v). If a fix arrives
-with `fix.t < f.t`, the filter rewinds to the last step before `fix.t` (`spule`),
+with `fix.t < f.t`, the filter rewinds to the last step before `fix.t` (the spool),
 updates there and replays forward to the present. Cost: ~20 lines. Gain: at 0.85 m/s and
 100 ms of delivery lag that is 8.5 cm which would otherwise run systematically behind the
 measurement — and under `tools/fastgrade.py --speed 25` the wall clock is worthless. The
@@ -81,7 +81,7 @@ I changed nothing in `config/tasks.json`, `config/default.json`, `mecanum_lab/*`
    i.e. nose south; the first straight of `kf_fusion` (6 s · 0.6 m/s = 3.6 m) drives into
    the south wall of the arena (y = 0.5, collision radius 0.21 → contact at y = 0.71).
    `kf_kovarianz` starts in the same corner and drives into it again. Result:
-   `kontakte = 1` and a verdict "wall contacts 1 violates kontakte_max=0", which the
+   `contacts = 1` and a verdict "wall contacts 1 violates contacts_max=0", which the
    student cannot influence (the grader drives, `mode = pass-through`). After the respawn
    (engine.py `reset_robot`, node.py per KF task) the expectation is: all four tasks green.
    For scale: measured one by one (one run per task starting at the spawn) all four pass
@@ -94,7 +94,7 @@ I changed nothing in `config/tasks.json`, `config/default.json`, `mecanum_lab/*`
 
 ## 4. Measured values of the reference solution (single runs, seed 1, `--speed 25`)
 
-| Task | rmse | rmse_gps | improvement | max_fehler | rate | NEES | luecke_max | verdict |
+| Task | rmse | rmse_gps | improvement | max_error | rate | NEES | outage_max | verdict |
 |---|---|---|---|---|---|---|---|---|
 | `kf_gps` | 0.102 | 0.696 | 6.85 | 0.158 | 38.6 Hz | 0.92 | — | PASS (limits 0.42/1.6/1.25/5 Hz) |
 | `kf_fusion` | 0.150 | 2.162 | 14.46 | 0.312 | 35.7 Hz | 0.28 | 0.195 m (limit 1.8) | PASS (0.45 / 2.0) |
@@ -108,7 +108,7 @@ scatters fairly widely (a filter property: it scales with P, and P hangs on `Q_A
 
 In the combined run `kf_alle` (seed 1, before the respawn fix): kf_gps rmse 0.131 / verb 6.35 /
 nees 0.99, kf_dynamik rmse 0.186 / verb 4.44 — both PASS; kf_fusion and kf_kovarianz
-failed only because of `kontakte`.
+failed only because of `contacts`.
 
 ## 5. What the filter does (one sentence, for the handout)
 
@@ -124,7 +124,7 @@ cd /home/pfitzner/git/mecanum-lab
 
 # Evidence chain from task D
 SDL_VIDEODRIVER=dummy MECANUM_LOG=warning python3 tools/fastgrade.py --task kf_alle \
-    --controller student/kf_solution.py --speed 25 --json /tmp/kf_muster.json   # Exit 2 (kontakte)
+    --controller student/kf_solution.py --speed 25 --json /tmp/kf_muster.json   # Exit 2 (contacts)
 SDL_VIDEODRIVER=dummy MECANUM_LOG=warning timeout 500 ./lab grade --task kf_alle \
     --controller student/kf_solution.py                                         # runs, see log
 SDL_VIDEODRIVER=dummy ./lab run --world arena --task kf_gps --robot test \

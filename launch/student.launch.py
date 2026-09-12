@@ -12,25 +12,25 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 
-WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WAHR = ("true", "1", "yes", "on")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TRUE = ("true", "1", "yes", "on")
 
 
 def start(context, *args, **kwargs):
-    datei = LaunchConfiguration("controller").perform(context)
-    if not os.path.isabs(datei):
-        datei = os.path.join(WURZEL, datei)
+    controller = LaunchConfiguration("controller").perform(context)
+    if not os.path.isabs(controller):
+        controller = os.path.join(REPO, controller)
     robot = LaunchConfiguration("robot").perform(context)
     cmd = [sys.executable, "-m", "mecanum_lab.node", "controller",
-           "--robot", robot, "--controller", datei]
+           "--robot", robot, "--controller", controller]
     config = LaunchConfiguration("config").perform(context)
     if config:
         cmd += ["--config", config]
-    umgebung = {"PYTHONPATH": os.pathsep.join([WURZEL, os.environ.get("PYTHONPATH", "")]),
+    env = {"PYTHONPATH": os.pathsep.join([REPO, os.environ.get("PYTHONPATH", "")]),
                 "MECANUM_USE_SIM_TIME": "1" if LaunchConfiguration(
-                    "use_sim_time").perform(context).lower() in WAHR else "0"}
-    return [ExecuteProcess(cmd=cmd, additional_env=umgebung, output="screen",
-                           name=f"knoten_{robot}", emulate_tty=True)]
+                    "use_sim_time").perform(context).lower() in TRUE else "0"}
+    return [ExecuteProcess(cmd=cmd, additional_env=env, output="screen",
+                           name=f"node_{robot}", emulate_tty=True)]
 
 
 def generate_launch_description():

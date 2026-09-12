@@ -18,7 +18,7 @@
     "default is gps.zones = [] and a demo asks for the zones it wants. Do not use this file when",
     "you grade, unless you also recalibrate the thresholds.",
     "",
-    "Semantics (sensors.GpsSensor._zonen): rectangles are world metres, the first zone containing",
+    "Semantics (sensors.GpsSensor._zones): rectangles are world metres, the first zone containing",
     "the robot wins, sigma_scale multiplies gps.sigma_xy, bias_xy is added to the existing bias",
     "(multipath pushes the fix away from the reflector), block means 'no fix at all'.",
     "Broken entries are dropped rather than crashing the run. Turn the drawing off with `s`.",

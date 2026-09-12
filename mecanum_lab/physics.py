@@ -17,6 +17,7 @@ import math
 from .types import Pose, Twist, wrap_angle
 
 WHEELS = ("VL", "VR", "HL", "HR")          # index 0..3; the order is contractual
+WHEELS_EN = ("FL", "FR", "RL", "RR")       # the same four wheels with English labels (CONTRACT §6.9)
 
 
 @dataclass
@@ -71,7 +72,7 @@ class Chassis:
     """
 
     def __init__(self, g: Geometry, pose: Pose, seed: int | None = None):
-        self.geom = g
+        self.geometry = g
         self.pose = Pose(pose.x, pose.y, pose.theta)
         self.twist = Twist()
         self.wheels = [0.0] * 4             # measured actual speed (rad/s)
@@ -81,13 +82,13 @@ class Chassis:
 
     def set_wheels(self, wheels) -> None:
         """Set target speeds, clamped to ±max_speed per wheel."""
-        lim, vals = self.geom.max_speed, list(wheels)[:4]
+        lim, vals = self.geometry.max_speed, list(wheels)[:4]
         vals += [0.0] * (4 - len(vals))
         self.cmd = [max(-lim, min(lim, float(v))) for v in vals]
 
     def step(self, dt: float, walls: list) -> None:
         """One physics step: motor follows command, kinematics, pose integration, wall."""
-        g = self.geom
+        g = self.geometry
         ramp, lag = g.max_accel * dt, (1.0 - math.exp(-dt / g.tau)) if g.tau > 0 else 1.0
         for i in range(4):
             delta = (self.cmd[i] - self.wheels[i]) * lag
@@ -104,7 +105,7 @@ class Chassis:
 
     def _collide(self, walls: list) -> None:
         """Circle against rectangles: push out, wheels off, count a contact only once."""
-        g, p = self.geom, self.pose
+        g, p = self.geometry, self.pose
         r, hit = g.footprint_r, False
         for w in walls:
             dx = p.x - min(max(p.x, w.x0), w.x1)
@@ -119,12 +120,12 @@ class Chassis:
             else:                                     # centre inside the rectangle: one
                 left, right = p.x - w.x0, w.x1 - p.x        # edge leads out, never diagonal
                 down, up = p.y - w.y0, w.y1 - p.y
-                kante = min((left, 0), (right, 1), (down, 2), (up, 3))[1]
-                if kante == 0:
+                edge = min((left, 0), (right, 1), (down, 2), (up, 3))[1]
+                if edge == 0:
                     p.x = w.x0 - r
-                elif kante == 1:
+                elif edge == 1:
                     p.x = w.x1 + r
-                elif kante == 2:
+                elif edge == 2:
                     p.y = w.y0 - r
                 else:
                     p.y = w.y1 + r

@@ -29,10 +29,10 @@ from mecanum_lab.types import wrap_angle
 Q_ACC = 12.0          # m²/s³  process noise: everything the CV model cannot do
 SIGMA_V = 0.08        # m/s    scatter of the measured wheel speed (motion update)
 SIGMA_TH = 0.03       # rad/√s gyro heading uncertainty — only used for the reported sth
-BIAS_PROBEN, STILLSTAND = 80, 0.02     # IMU averaging at standstill: samples, still limit
+BIAS_PROBEN, STANDSTILL = 80, 0.02     # IMU averaging at standstill: samples, still limit
 P0_POS, P0_VEL, P0_TH = 0.50, 0.50, 0.05   # initial 1σ: position, velocity, heading
-MELDE_DT = 0.02       # s = 50 Hz: kf/pose report rate (K4 requires at least 10 Hz)
-SCHLAF = 2.0          # s: a longer step means the node slept — not a prediction
+REPORT_DT = 0.02       # s = 50 Hz: kf/pose report rate (K4 requires at least 10 Hz)
+SLEEP = 2.0          # s: a longer step means the node slept — not a prediction
 
 # ---------------------------------------------------------- matrix helpers by hand
 # Glue code, already written: a Kalman filter is a pile of matrix multiplications.
@@ -112,27 +112,27 @@ class KF:
         self.P = madd(mul(mul(F, self.P), transpose(F)), Q)
         self.t += dt
 
-    def update(self, stellen, messwert, R):
-        """Measurement update on the states in `stellen`: (0,1) = GPS position, (2,3) = velocity.
+    def update(self, slots, measurement, R):
+        """Measurement update on the states in `slots`: (0,1) = GPS position, (2,3) = velocity.
 
         H has ones exactly on those slots, so S = P[subset] + R is a 2×2 (the only inverse we
         need) and K = P·Hᵀ·S⁻¹ is a 4×2.
         """
-        S = [[self.P[i][j] + (R if i == j else 0.0) for j in stellen] for i in stellen]
+        S = [[self.P[i][j] + (R if i == j else 0.0) for j in slots] for i in slots]
         Si = inv2(S)
-        # TODO 3: build K (4×2):  K[i][j] = sum(P[i][stellen[k]] * Si[k][j] for k in (0,1))
+        # TODO 3: build K (4×2):  K[i][j] = sum(P[i][slots[k]] * Si[k][j] for k in (0,1))
         K = [[0.0, 0.0] for _ in range(4)]                     # TODO 3: replace with K
-        y = [messwert[m] - self.x[stellen[m]] for m in range(2)]  # innovation = measured − predicted
+        y = [measurement[m] - self.x[slots[m]] for m in range(2)]  # innovation = measured − predicted
         # TODO 4: correct the state — for every i: self.x[i] += K[i][0]*y[0] + K[i][1]*y[1]
         # TODO 5: correct the covariance — self.P = msub(self.P, mul(mul(K, S), transpose(K)))
         #   (keeps P symmetric; leaving P alone means estimating at the initial 1σ forever)
         self.n += 1
         return y
 
-    def schritt(self, dt, omega, vx_welt, vy_welt, R_v):
+    def step(self, dt, omega, vx_world, vy_world, R_v):
         """Prediction plus motion update: the odometry pins vx, vy to a few cm/s."""
         self.prediction(dt, omega)
-        self.update((2, 3), [vx_welt, vy_welt], R_v)
+        self.update((2, 3), [vx_world, vy_world], R_v)
 
     def sigmas(self):
         """TODO 6: the reported 1σ — sx = √P[0][0], sy = √P[1][1], sth = √var_θ.
@@ -145,9 +145,9 @@ class KF:
 
 # --------------------------------------------------------------------- glue code
 
-def stempel(*messen) -> float:
+def stamp(*measure) -> float:
     """Newest stamp among the measurements given — 0.0 for those that are not there yet."""
-    return max([m.t for m in messen if m is not None] + [0.0])
+    return max([m.t for m in measure if m is not None] + [0.0])
 
 
 def mission(rob, task):
@@ -157,37 +157,37 @@ def mission(rob, task):
     than the filter's own state. Never on the wall clock — tools/fastgrade.py runs 25× faster,
     and a wall-clock-driven filter would run in the wrong direction.
     """
-    f, sigma_xy, bias, letzter_fix, letzter_meldung = None, 0.5, 0.0, 0.0, -1e9
-    bias_summe, bias_n, R_v = 0.0, 0, SIGMA_V ** 2
-    grundlinie = stempel(rob.odom(), rob.imu(), rob.gps())       # what the bus already knew
+    f, sigma_xy, bias, last_fix, letzter_meldung = None, 0.5, 0.0, 0.0, -1e9
+    bias_sum, bias_n, R_v = 0.0, 0, SIGMA_V ** 2
+    baseline = stamp(rob.odom(), rob.imu(), rob.gps())       # what the bus already knew
     while rob.running() and rob.task() == task:
         rob.spin(0.005)
         o, i, gps = rob.odom(), rob.imu(), rob.gps()
         if o is None:
             continue
-        if f is None and stempel(o, i, gps) <= grundlinie:
+        if f is None and stamp(o, i, gps) <= baseline:
             continue        # still the last messages of the previous task, not this drive
-        # TODO 7: average the gyro bias at standstill — while hypot(o.vx, o.vy) < STILLSTAND and
-        #   bias_n < BIAS_PROBEN: bias_summe += i.gz, bias_n += 1, bias = bias_summe / bias_n.
+        # TODO 7: average the gyro bias at standstill — while hypot(o.vx, o.vy) < STANDSTILL and
+        #   bias_n < BIAS_PROBEN: bias_sum += i.gz, bias_n += 1, bias = bias_sum / bias_n.
         #   Without averaging a 5 mrad/s bias drags the heading 3 degrees off in 10 s.
         if f is None:                                   # start from the odometry: pose is good
             f = KF(o.x, o.y, o.vx, o.vy, o.theta, o.t)
             sigma_xy = float(rob.config("gps.sigma_xy", 0.5) or 0.5)   # guessing is needless
         gierrate = (i.gz - bias) if i is not None else o.omega
         t_mess = max(o.t, i.t if i is not None else 0.0)
-        if t_mess - f.t > SCHLAF:                # five seconds of CV model are not a prediction,
+        if t_mess - f.t > SLEEP:                # five seconds of CV model are not a prediction,
             f = KF(o.x, o.y, o.vx, o.vy, o.theta, o.t)      # they are a new start
         if t_mess > f.t:                 # rotate the body velocity into the world by theta
             c, s = math.cos(f.theta), math.sin(f.theta)
-            f.schritt(t_mess - f.t, gierrate, c * o.vx - s * o.vy, s * o.vx + c * o.vy, R_v)
+            f.step(t_mess - f.t, gierrate, c * o.vx - s * o.vy, s * o.vx + c * o.vy, R_v)
         # Position update: every fix exactly once. And only fixes from this task — the bus
         # remembers the last message, so a fix from the previous task (before the respawn)
         # would be a lie for this mission. Checking against f.start is enough.
-        if gps is not None and gps.t >= f.start and gps.t > letzter_fix:
-            letzter_fix = gps.t
+        if gps is not None and gps.t >= f.start and gps.t > last_fix:
+            last_fix = gps.t
             f.prediction(max(gps.t - f.t, 0.0), f.omega)  # extrapolate to the fix's time
             f.innov = math.hypot(*f.update((0, 1), [gps.x, gps.y], sigma_xy ** 2))
-        if f.t - letzter_meldung >= MELDE_DT:            # estimate with its 1σ onto kf/pose
+        if f.t - letzter_meldung >= REPORT_DT:            # estimate with its 1σ onto kf/pose
             letzter_meldung = f.t
             sx, sy, sth = f.sigmas()
             rob.send_kf(f.x[0], f.x[1], f.theta, sx, sy, sth,

@@ -4,6 +4,23 @@ Status: after the latest calibration run. This note extends `docs/CONTRACT-KF.md
 justifies every deviation from the first draft. Order: first the findings (faults that the
 integration test showed), then the thresholds, then the open remainder.
 
+## The English sweep (this pass)
+
+Every identifier is now English (`tools/germanids.py` guards names the way `langcheck.py` guards
+prose), and so are the arguments on the command line and in the launch files. The old German
+spellings still work where a printed handout uses them: `launch/kf.launch.py` and
+`launch/sim.launch.py` translate the argument and print
+`deprecated launch argument 'sekunden', use 'seconds'`, `tasks.py` maps the keys of an old
+`config/tasks.json` through `_LEGACY_KEYS` with one warning per key, and `./lab --log-intervall`
+behaves the same way. CONTRACT §6.11 holds both tables; new code always uses the English name.
+
+Two things fell out of the sweep besides the renames. A grading report and the CSV log now use
+English field names with **no** alias — students read those two with their own scripts, and a
+renamed column is a visible, immediate error rather than a silently missing value. And
+`ros2 launch launch/kf.launch.py` without arguments no longer dies: the old `LogInfo` line read the
+`welt` configuration before it was declared, so ROS raised `SubstitutionFailure` before a single
+node had started.
+
 ## 1. Faults found and fixed
 
 Nos. 1–13 and 14–17 are covered by tests (red without the fix, verified); nos. 18–20 are
@@ -14,16 +31,16 @@ showed — which is why they appear here as table rows, not as tests.
 |---|---|---|---|
 | 1 | ROS run: node dies with `KeyError: 'PWCS'`, no `kf/pose` in RViz | `ros_bridge.to_ros()` names the class `PoseWithCovarianceStamped`, the lookup asked for `"PWCS"` | `ros_bridge.py` |
 | 2 | The sim process dies as soon as a node sends `kf/pose`: `ValueError: truth value of an array` | `cov_diag()` wrote `len(cov or [])` — under ROS `cov` is a numpy-like array | `ros_bridge.py`, test in `tests/test_kf_grading_integrator.py` |
-| 3 | Second task of a grading run: estimate ~1.2 m off, NEES 35 | The blind run started where the previous task had ended (wall contacts, then the wrong path) | `engine.reset_robot()` + calls in `node.verbinde_auftrag()` and `tools/fastgrade.py` per KF task |
-| 4 | The first task of a run measures with the profile of the *last* task | `tasks.sim_profil()` merged the `sim` blocks of all selected tasks (kf_gps 5 Hz + kf_fusion 1 Hz ⇒ 1 Hz for both) | `tasks.py`: `sim_profil()` now returns the start profile = profile of the first task; per task the grader applies its own |
+| 3 | Second task of a grading run: estimate ~1.2 m off, NEES 35 | The blind run started where the previous task had ended (wall contacts, then the wrong path) | `engine.reset_robot()` + calls in `node.wire_task()` and `tools/fastgrade.py` per KF task |
+| 4 | The first task of a run measures with the profile of the *last* task | `tasks.sim_profile()` merged the `sim` blocks of all selected tasks (kf_gps 5 Hz + kf_fusion 1 Hz ⇒ 1 Hz for both) | `tasks.py`: `sim_profile()` now returns the start profile = profile of the first task; per task the grader applies its own |
 | 5 | `./lab grade --task kf_alle` drives through the `maze` arena | `--world` had the fixed default `maze` | `node.py`: default `None`, KF tasks take `arena`; experiment 1 unchanged |
-| 6 | `ros2 launch launch/kf.launch.py bewerten:=kf_alle` grades a robot named "kf_alle" | `cmd_sim()` passed `--grade` to `_grader()` as the robot name (swapped arguments) | `node.py` (`_grader(args.robot, args.grade, …)`) — also affected `launch/lab.launch.py` |
+| 6 | `ros2 launch launch/kf.launch.py grade:=kf_alle` grades a robot named "kf_alle" | `cmd_sim()` passed `--grade` to `_grader()` as the robot name (swapped arguments) | `node.py` (`_grader(args.robot, args.grade, …)`) — also affected `launch/lab.launch.py` |
 | 7 | `./lab run --robot alice --controller …` shows an empty arena | `cmd_run()` spawned only `--robots` | `node.py`: `--robot` is spawned automatically (exactly as in `cmd_grade`) |
-| 8 | Measurement log (`--log`) has empty `*_kf` columns | The log tap sits on the sim outbox; `kf/pose` however comes from the students | `node.simlauf()` now taps the incoming estimate too (deduplicated) |
+| 8 | Measurement log (`--log`) has empty `*_kf` columns | The log tap sits on the sim outbox; `kf/pose` however comes from the students | `node.run_loop()` now taps the incoming estimate too (deduplicated) |
 | 9 | Grader reports `rate_hz 38.6` although the node sends nothing | The subscription callback in `grade.py` fires again on every `spin()` — `_kf_seen` counted calls, not messages | `grade._kf_saehen(msg)` counts new messages only (object/stamp) |
 | 10 | Report shows `rmse 1000000000.0` | "never an estimate" was passed on as a number | `grade.py`: display capped at 999, own hint "no kf/pose message received at all" |
-| 11 | IMU bias random walk was invisible (tests) | `_stichprobe()` never applied `w_a`/`w_g` to the bias | `sensors.py`, test in `tests/test_sensors_imu_b.py` |
-| 12 | After a respawn or profile switch the odometry stamp sits at 0, the GPS stamp at 45 s | The odometry and IMU clocks count from the moment they are created | `sensors.py`: `t_offset` per sensor, `engine._zeitbezug()` anchors them to simulation time |
+| 11 | IMU bias random walk was invisible (tests) | `_one_sample()` never applied `w_a`/`w_g` to the bias | `sensors.py`, test in `tests/test_sensors_imu_b.py` |
+| 12 | After a respawn or profile switch the odometry stamp sits at 0, the GPS stamp at 45 s | The odometry and IMU clocks count from the moment they are created | `sensors.py`: `t_offset` per sensor, `engine._clock_to_sim()` anchors them to simulation time |
 | 13 | Reference solution picks up an old GPS position in the second task (15 m off) | The bus keeps the last message; a fix from the previous task was swallowed as a current measurement | `student/kf_solution.py`, `student/kf_template.py`: `KF.start` = mission start, earlier fixes dropped; the rule is in the handout now ("Three rules") |
 
 Only a real ROS run could have shown two of them (nos. 1, 2) — `tools/check.sh --ros`
@@ -33,20 +50,20 @@ is not optional in experiment 2.
 
 | # | Symptom | Cause | Fixed in |
 |---|---|---|---|
-| 14 | `./lab grade --task alle` (experiment 1) drives into the arena wall, T2 stays at `path 0` | The tasks name their arena in `config/tasks.json` (`"welt": "production"`), my `cfg_get_welt()` read that recommendation only for `--world auto` and for KF tasks — so experiment 1 ran in `maze` while `tools/fastgrade.py` ran in `production` | `node.cfg_get_welt()`: the task recommendation always applies, `--world` wins; test `test_versuch_1_bekommt_production_und_versuch_2_arena` |
+| 14 | `./lab grade --task alle` (experiment 1) drives into the arena wall, T2 stays at `path 0` | The tasks name their arena in `config/tasks.json` (`"world": "production"`), my `cfg_get_world()` read that recommendation only for `--world auto` and for KF tasks — so experiment 1 ran in `maze` while `tools/fastgrade.py` ran in `production` | `node.cfg_get_world()`: the task recommendation always applies, `--world` wins; test `test_task_1_gets_production_and_task_2_arena` |
 | 15 | `--task alle` after experiment 2 = eight tasks, including the KF blind runs — and the arena recommendation turns into a majority vote | Before experiment 2 `alle` meant "all tasks". Now: `alle`/`v1` = experiment 1, `kf_alle`/`v2` = experiment 2, new `beide` for everything | `tasks.resolve()` (+ docstring) |
-| 16 | The student node reports `unknown task 'alle'` before the first task starts | `mach_engine()` published the raw `--task` value on `/sim/task`; but a group is not a task | `node.erster_auftrag()` — the first real ID is what gets published |
+| 16 | The student node reports `unknown task 'alle'` before the first task starts | `make_engine()` published the raw `--task` value on `/sim/task`; but a group is not a task | `node.first_task()` — the first real ID is what gets published |
 
-| 17 | **Experiment 1 fails silently**: T2/T3/T4 report `path 0.0`, grader stages run up to the time limit even though the robots drive cleanly | The engine pushes the robot list (`/sim/robots` with `mission_state`, `distance`, `contacts`) only on `spawn`/`reset`. `simlauf()` never refreshed it — the grader saw the spawn instant for the whole grading | `node.simlauf()`: publish the list every round when it changed; test `test_simlauf_haelt_die_Roboterliste_aktuell` (provably red without the fix) |
+| 17 | **Experiment 1 fails silently**: T2/T3/T4 report `path 0.0`, grader stages run up to the time limit even though the robots drive cleanly | The engine pushes the robot list (`/sim/robots` with `mission_state`, `distance`, `contacts`) only on `spawn`/`reset`. `run_loop()` never refreshed it — the grader saw the spawn instant for the whole grading | `node.run_loop()`: publish the list every round when it changed; test `test_simlauf_haelt_die_Roboterliste_aktuell` (provably red without the fix) |
 
 | 18 | `tools/check.sh --ros` aborts right at the ROS block ("ROS not sourced") although ROS 2 is present | `set -u` in the script plus the ROS setup files, which read unset `AMENT_*` variables — the same case already solved in `./lab` with `set +u` | `tools/check.sh` (set +u around the source) |
-| 19 | One KF task of `kf_alle` fails **at random** with the same seed (`rmse 3.5 m`, `NEES 332`), the next run of the very same command is clean | The student node runs in its own thread. When a new task starts it reads `rob.odom()` — and the bus still holds the last message of the *previous* drive: pose metres away, stamp seconds old. The filter started on that and then predicted the gap as one CV step | `student/kf_solution.py`, `student/kf_template.py` (`stempel()` baseline + `SCHLAF`), regression tests in `tests/test_kf_solution_d.py` |
+| 19 | One KF task of `kf_alle` fails **at random** with the same seed (`rmse 3.5 m`, `NEES 332`), the next run of the very same command is clean | The student node runs in its own thread. When a new task starts it reads `rob.odom()` — and the bus still holds the last message of the *previous* drive: pose metres away, stamp seconds old. The filter started on that and then predicted the gap as one CV step | `student/kf_solution.py`, `student/kf_template.py` (`stamp()` baseline + `SCHLAF`), regression tests in `tests/test_kf_solution_d.py` |
 
 No. 17 was the most expensive finding: it hits **experiment 1**, and it was visible neither in
 the unit tests nor in `tools/fastgrade.py` (that script publishes the list itself, line 89)
 nor in the window (the renderer query reads the engine directly). Only the complete
 `check.sh` run against experiment 1 showed it — `path 0.0 m — barely moved?` was the only
-clue. Since then the rule is: after every rebuild of `simlauf()` also run
+clue. Since then the rule is: after every rebuild of `run_loop()` also run
 `./lab grade --task alle` (experiment 1), not only the KF tasks.
 
 Lesson from no. 14: **a new task belongs in an arena that it names itself**, and picking the
@@ -110,17 +127,18 @@ hence the loose lower bound instead of 0.5 from the first draft.
   the rate: ROS clients only see what is published after they subscribe — publishing purely
   on change makes `ros2 topic echo --once` hang.
 * The KF tasks depend on the command sequence in `config/tasks.json`. Anyone changing the
-  world or the spawns must re-check the runs (`kontakte` has to stay 0 — the grader drives
+  world or the spawns must re-check the runs (`contacts` has to stay 0 — the grader drives
   blind, a contact is not a student error).
 * `install.sh` builds the ROS interfaces only if `colcon` is present; without them the
   JSON handshake takes over (CONTRACT §4). Run `./install.sh` once in the lab room.
-* **Language is a gate, not a preference**: written prose and UI text are English, and
-  `python3 tools/langcheck.py` runs as a step in `tools/check.sh`. It reports umlauts
-  everywhere (no identifier here uses them) and German words in prose. German-derived names
-  that are API stay (`sekunden`, `aufgabe`, `bewerten`, `wahrheit`, `protokoll`,
-  `aufzeichnung`, ROS topics, JSON keys, `VL/VR/HL/HR`, `simlauf()`, `welt_fuer()`); renaming
-  them would invalidate handouts and student code, so it is a separate deliberate step.
-  What the detector cannot see is a sentence that *describes* an old rule — the README used to
+* **Language is a gate, not a preference**: everything written and everything named is English,
+  and two tools run as steps in `tools/check.sh`. `python3 tools/langcheck.py` reads the prose:
+  it reports umlauts everywhere (no identifier here uses them) and German words in prose.
+  `python3 tools/germanids.py` reads the names: it parses every Python file and reports German
+  identifiers, German data keys and non-ASCII identifiers, and fails on anything outside its
+  allowlist (ROS names, `VL/VR/HL/HR`, the CLI task groups, and the German values of
+  `tasks._LEGACY_KEYS` and the launch `DEPRECATED` tables, which it reads from the code itself).
+  What neither detector can see is a sentence that *describes* an old rule — the README used to
   say "comments and UI text in German" while every file was English. Read the rules once in a
   while, do not only run the tool.
 * No. 19 generalises: **a node must never trust a message that was already in the bus when its
@@ -214,13 +232,13 @@ honest exactly where a real mecanum robot lies. `physics.py` now models that one
 body velocity goes to 0, the wheels keep `robot.slip` × the commanded speed (default 1, `0` is
 the old ideal static friction). Measured with seed 5, 4 s of full throttle into the east wall of
 `arena`: the body moves 0.69 m, the odometry counts 1.55 m — **0.86 m of phantom distance**, and
-0.003 m with `robot.slip=0`. Tests: `test_slip_am_hindernis_taeuscht_der_odometrie_a` (both
-settings) and `test_slip_wert_kommt_aus_der_konfiguration_a` (the knob really reaches
+0.003 m with `robot.slip=0`. Tests: `test_slip_at_an_obstacle_fools_the_odometry_a` (both
+settings) and `test_slip_value_comes_from_the_config_a` (the knob really reaches
 `Geometry`). Grading is unaffected: the reference solution drives without contacts, so it never
 enters the slip branch.
 
 Turning by keyboard existed but was undiscoverable, and one of its two keys killed the window:
-`q` is both "yaw left" in `tasten()` and "quit" in the renderer. Yaw is now `q`/`,` and `e`/`.`
+`q` is both "yaw left" in `teleop_keys()` and "quit" in the renderer. Yaw is now `q`/`,` and `e`/`.`
 (±0.9 rad/s, `e` = counter-clockwise = left), the renderer only quits on `q` when teleop is off
 (`ESC` always works), and while teleop is on the HUD header prints the driving keys instead of
 the view keys.
@@ -245,12 +263,12 @@ metres (`o`) and the rubber that slipping wheels leave behind; two new view laye
 
 **Four things the code review turned up, all fixed and tested:**
 
-1. `tasks.welt_fuer` chose the arena with `max(set(hints), key=hints.count)`. Set order follows
+1. `tasks.world_for` chose the arena with `max(set(hints), key=hints.count)`. Set order follows
    the string hash, and CPython randomises that per process — measured: `--task beide` picked
    `arena` under `PYTHONHASHSEED=0,6,7` and `production` under `1…5`. The same seed graded a
    different hall. Now the tie goes to the first task, as the docstring always promised.
 2. `types.Scan` promised "clockwise from front-left" while the lidar, the helper
-   `seitlicher_abstand` and CONTRACT §5 use beam 0 forward, counter-clockwise. That is the central
+   `lateral_distance` and CONTRACT §5 use beam 0 forward, counter-clockwise. That is the central
    sign convention of experiment 1 and it was written down backwards in the file students read.
 3. The GPS cross was drawn inside `_schaetzung`, which the frame loop calls only for the estimate
    layer — so the menu row and key `g` did nothing as soon as `k` was off. Now its own method.
@@ -274,10 +292,10 @@ source — cannot be expressed; `kf.gps_delay` and `lidar.max_walls` are config 
 
 ## 8. The grader now runs on the simulation clock
 
-`simlauf` used to hand the grader the wall-clock delta, so `Grader.tick()` — whose docstring says
+`run_loop` used to hand the grader the wall-clock delta, so `Grader.tick()` — whose docstring says
 "advance one **simulation** step" — advanced on the wall: pausing the window kept the student's
 task clock running, and a scheduling hiccup shifted the whole drive plan relative to the
-simulator. It now receives `eng.t - sim_zeit`, the time the simulator actually advanced, so
+simulator. It now receives `eng.t - sim_t`, the time the simulator actually advanced, so
 grading stays consistent with what the robot experienced, and pausing pauses both.
 
 That also exposed the last piece of randomness in KF grading: K3's NEES floor (now 0.05, with the

@@ -16,7 +16,7 @@ class Camera:
     def __init__(self, size, world_size=(10.0, 10.0), zoom=1.0, margin=16,
                  px_per_meter_min=50.0):
         self.margin, self.px_min = margin, float(px_per_meter_min)
-        self.size, self.zoom = _massiv(size), float(zoom)
+        self.size, self.zoom = _solid(size), float(zoom)
         self.fit, self.fit_all = 50.0, 50.0
         self.world = tuple(world_size)
         self.cx, self.cy, self.s = 0.0, 0.0, 50.0
@@ -25,17 +25,17 @@ class Camera:
     # ----------------------------------------------------------------------- Kalibrierung
 
     def resize(self, size) -> None:
-        self.size = _massiv(size)
+        self.size = _solid(size)
         self.update(self.world)
 
     def update(self, world_size) -> None:
         """Fit scale, pixels per metre and a centre that keeps the world in reach."""
         self.world = tuple(world_size)
         wx, wy = [max(v, 0.5) for v in self.world]
-        ganz = min((self.size[0] - 2 * self.margin) / wx,
+        whole = min((self.size[0] - 2 * self.margin) / wx,
                    (self.size[1] - 2 * self.margin) / wy)
-        self.fit_all = ganz
-        self.fit = max(ganz, self.px_min)
+        self.fit_all = whole
+        self.fit = max(whole, self.px_min)
         self.s = self.fit * min(max(self.zoom, 0.25), 20.0)
         self.clamp()
 
@@ -93,14 +93,14 @@ class Camera:
     @property
     def rect(self) -> tuple:
         """Screen rectangle of the world — everything outside it is void."""
-        oben, unten = self.px(0.0, self.world[1]), self.px(self.world[0], 0.0)
-        return (int(oben[0]), int(oben[1]), max(1, int(unten[0] - oben[0])),
-                max(1, int(unten[1] - oben[1])))
+        top, bottom = self.px(0.0, self.world[1]), self.px(self.world[0], 0.0)
+        return (int(top[0]), int(top[1]), max(1, int(bottom[0] - top[0])),
+                max(1, int(bottom[1] - top[1])))
 
     @property
     def meters_wide(self) -> float:
         return self.size[0] / self.s
 
 
-def _massiv(size) -> tuple:
+def _solid(size) -> tuple:
     return (max(MIN_PX, int(size[0])), max(MIN_PX // 2 + 1, int(size[1])))

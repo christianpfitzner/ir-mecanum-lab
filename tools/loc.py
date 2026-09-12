@@ -21,10 +21,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Addendum, integration of experiment 2 (justified per CONTRACT §7, numbers measured):
 #   engine.py  300 -> 340   one robot is dropped at the spawn pose per KF task
 #                           (reset_robot), sensor clocks follow the simulation time
-#                           (_zeitbezug), a task with its own GPS outage (set_task),
+#                           (_clock_to_sim), a task with its own GPS outage (set_task),
 #                           config_json/robots_info for topics and the measurement log.
-#   node.py    465 -> 520   arena from the tasks (cfg_get_welt), erster_auftrag for
-#                           /sim/task, the robot list published continuously (simlauf),
+#   node.py    465 -> 520   arena from the tasks (cfg_get_world), first_task for
+#                           /sim/task, the robot list published continuously (run_loop),
 #                           and the settling kf/pose in the measurement log. That is
 #                           pacing, which was missing before — experiment 1 was silently off.
 #   grade.py   610 -> 620   KF step plan, blind command run, RMSE/NEES/GPS outage.
@@ -43,7 +43,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #
 # Addendum, GPS shadow zones + the overlays that make them visible (numbers measured):
 #   sensors.py 295 -> 330    gps.zones in GpsSensor.fix (place-based sigma, multipath bias,
-#                            blackout) and _zonen(), which drops a broken demo entry instead
+#                            blackout) and _zones(), which drops a broken demo entry instead
 #                            of killing a lab run. Empty by default, so every graded task
 #                            measures exactly what it measured before this existed.
 #   overlays.py new, 140    three effects that belong to no existing file: hatched GPS
@@ -55,6 +55,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #                          already promise (one robot + keyboard), instead of the handout
 #                          line ending in "unrecognized arguments".
 #   CORE_TOTAL 4300 -> 4450 sensors +35 and overlays +150; nothing else grew.
+#
+# Addendum, the English sweep (CONTRACT §1: identifiers are English too; numbers measured):
+#   tasks.py 170 -> 210     _LEGACY_KEYS is 46 lines of old key -> new key, and it has to be
+#                           complete to be any good: a task file printed before the sweep must
+#                           still load. Plus the one warning per key that is found.
+#   launch/kf.launch.py 160 -> 185   declares the arguments it used to forward blindly (47 of
+#                           them) and resolves the deprecated names of CONTRACT §6.11. The
+#                           argument table itself used to live only in the printed handout, and
+#                           the file died on the first launch without arguments because of it.
+#   tools/fastgrade.py 140 -> 145    keeps --wanduhr-max as an alias for --wallclock-max.
+#   CORE_TOTAL 4450 -> 4500  only tasks.py grew in the core; every other module is the same size
+#                           it was, because a rename does not add lines (the diff was symmetric).
+# The names of the fields students read (report, CSV) cost nothing here: they are strings.
 BUDGET = {
     "mecanum_lab/types.py": 345, "mecanum_lab/stub.py": 115,
     "mecanum_lab/engine.py": 340, "mecanum_lab/worlds.py": 135,
@@ -63,16 +76,16 @@ BUDGET = {
     "mecanum_lab/render.py": 470, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
     "mecanum_lab/node.py": 550, "mecanum_lab/robot_io.py": 255,
-    "mecanum_lab/tasks.py": 170, "mecanum_lab/grade.py": 620,
+    "mecanum_lab/tasks.py": 210, "mecanum_lab/grade.py": 620,
     "mecanum_lab/logbook.py": 100,
     "student/controller_template.py": 125, "student/solution.py": 310,
     "student/kf_template.py": 200, "student/kf_solution.py": 310,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
-    "launch/lab.launch.py": 60, "launch/kf.launch.py": 160,
-    "tools/kfplot.py": 250, "tools/fastgrade.py": 140, "tools/worldpic.py": 240,
+    "launch/lab.launch.py": 60, "launch/kf.launch.py": 185,
+    "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 240,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 4450
+CORE_TOTAL = 4500
 
 
 def loc(path):

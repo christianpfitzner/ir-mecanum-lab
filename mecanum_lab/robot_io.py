@@ -52,18 +52,18 @@ class RobotIO:
         self.name = types.sanitize_name(name)
         self.role = role
         self.bus = bus if bus is not None else make_bus(f"{role}_{self.name}")
-        self.eigener_bus = bus is None and not isinstance(self.bus, stub.StubBus)
+        self.owns_bus = bus is None and not isinstance(self.bus, stub.StubBus)
         self.cfg = cfg                                  # sensing config, loaded lazily
         self.stale_timeout = float(stale_timeout)
         self._wheels, self._cmd = self.bus.pub("wheels", self.name), self.bus.pub("twist", self.name)
-        self._state, self._gemeldet = self.bus.pub("mission", self.name), None
+        self._state, self._reported = self.bus.pub("mission", self.name), None
         self._kf, self._kfinfo = self.bus.pub("kf", self.name), self.bus.pub("kfinfo", self.name)
         self.ik = None            # serve() stores module.inverse_kinematics here, see below
 
     def spin(self, timeout=0.01): self.bus.spin(timeout)
     def running(self) -> bool: return bool(self.bus.ok())
     def age(self, kind: str) -> float: return self.bus.last(kind, self.name)[1]   # 1e9: nothing yet
-    def vorhanden(self) -> bool: return min(self.age("odom"), self.age("gps")) < self.stale_timeout
+    def present(self) -> bool: return min(self.age("odom"), self.age("gps")) < self.stale_timeout
 
     def sleep(self, sec: float) -> None:
         """Sleep while spinning — without spin() the sensor data goes stale."""
@@ -71,26 +71,26 @@ class RobotIO:
         while self.running() and time.monotonic() < ende:
             self.spin(min(0.02, ende - time.monotonic()))
 
-    def _wert(self, kind: str, frisch: bool = False):
-        """Sampler: last value of a topic; `frisch` applies cmd_timeout as a watchdog."""
-        wert, alter = self.bus.last(kind, self.name)
-        if frisch:
+    def _value(self, kind: str, fresh: bool = False):
+        """Sampler: last value of a topic; `fresh` applies cmd_timeout as a watchdog."""
+        value, age = self.bus.last(kind, self.name)
+        if fresh:
             if self.cfg is None:
                 self.cfg = types.load_config()
-            return wert if alter <= float(self.cfg.get("cmd_timeout", 0.35)) else None
-        return wert
+            return value if age <= float(self.cfg.get("cmd_timeout", 0.35)) else None
+        return value
 
-    def odom(self): return self._wert("odom")
-    def gps(self): return self._wert("gps")
-    def scan(self): return self._wert("scan")
-    def imu(self): return self._wert("imu")
-    def kf(self): return self._wert("kf")
-    def cmd_vel(self): return self._wert("twist", frisch=True)
+    def odom(self): return self._value("odom")
+    def gps(self): return self._value("gps")
+    def scan(self): return self._value("scan")
+    def imu(self): return self._value("imu")
+    def kf(self): return self._value("kf")
+    def cmd_vel(self): return self._value("twist", fresh=True)
     def task(self): return str(self.bus.last("task")[0] or "")
     def mission_state(self): return str(self.bus.last("mission", self.name)[0] or "")
     def robots(self) -> list: return json.loads(self.bus.last("robots")[0] or "[]")
 
-    def sensor_profil(self) -> dict:
+    def sensor_profile(self) -> dict:
         """Active sensor profile of the simulation (gps/odom/imu …) — from /sim/config.
 
         Do not guess which noise values apply: they are listed here. The grader checks
@@ -119,8 +119,8 @@ class RobotIO:
             log.warning("world topic contains no JSON — reading the world locally.")
         try:
             from . import worlds
-            konfig = self.cfg or types.load_config()
-            w = worlds.load_world(str(konfig.get("world")), cfg=konfig)
+            cfg = self.cfg or types.load_config()
+            w = worlds.load_world(str(cfg.get("world")), cfg=cfg)
         except Exception as exc:
             log.warning("world not readable (%s) — goal unknown.", exc)
             return {}
@@ -131,12 +131,12 @@ class RobotIO:
     def send_wheels(self, w) -> None:
         # Four wheel speeds [VL, VR, HL, HR] in rad/s — the order is the contract
         try:
-            rad = [float(v) for v in w]
+            radius = [float(v) for v in w]
         except (TypeError, ValueError):
-            rad = []
-        if len(rad) != 4 or not all(abs(v) < 1e6 for v in rad):
+            radius = []
+        if len(radius) != 4 or not all(abs(v) < 1e6 for v in radius):
             raise ValueError(f"wheel_speeds needs exactly four finite values in rad/s: {w!r}")
-        self._wheels(rad)
+        self._wheels(radius)
 
     def publish_cmd_vel(self, vx: float, vy: float = 0.0, omega: float = 0.0) -> None:
         """Set the body speed — the drive command for T2..T4.
@@ -152,15 +152,15 @@ class RobotIO:
             self.send_wheels(self.ik(vx, vy, omega))
 
     def set_mission_state(self, state: str) -> None:
-        if state != self._gemeldet:                      # do not flood the topics
-            self._gemeldet = state
+        if state != self._reported:                      # do not flood the topics
+            self._reported = state
             self._state(str(state))
 
     def send_kf(self, x: float, y: float, theta: float = 0.0, sx: float = 0.0,
                 sy: float = 0.0, sth: float = 0.0, info: dict | None = None) -> None:
         """Report your own state estimate (experiment 2) — including the uncertainty.
 
-        `sx/sy/sth` are standard deviations (1σ) in m and rad, not variances. Without
+        `sx/sy/sth` are standard deviations (1σ) in m and radius, not variances. Without
         these numbers the task `kf_kovarianz` cannot be graded; a filter that claims 5 m
         and is 0.1 m off has estimated nothing. `info` goes to `/<robot>/kf/info` as JSON
         and shows up in the GUI — for Q, R, counters, whatever.
@@ -170,24 +170,24 @@ class RobotIO:
         if info is not None:
             self._kfinfo(json.dumps(info, ensure_ascii=False))
 
-    def config(self, pfad: str, standard=None):
+    def config(self, path: str, standard=None):
         """Sensing value of the running simulation, e.g. `rob.config("imu.rate")`.
 
         Values from `/sim/config` first (those are the ones that count), then the local
         config tree — so a test profile set by the grader is not overlooked.
         """
-        wert = types.cfg_get(self.sensor_profil(), pfad, None)
-        if wert is not None:
-            return wert
+        value = types.cfg_get(self.sensor_profile(), path, None)
+        if value is not None:
+            return value
         if self.cfg is None:
             self.cfg = types.load_config()
-        return types.cfg_get(self.cfg, pfad, standard)
+        return types.cfg_get(self.cfg, path, standard)
 
     def spawn(self, name: str, variant: str = "") -> dict:
         return self.bus.call(types.topic("spawn"), {"name": name, "variant": variant})
 
     def close(self) -> None:
-        if self.eigener_bus:                             # shared in-process bus stays
+        if self.owns_bus:                             # shared in-process bus stays
             self.bus.shutdown()
 
 
@@ -205,24 +205,24 @@ def serve(module, name: str | None = None, hz: float = 50.0, argv: list | None =
     once. Ends when the robot disappears or the bus closes."""
     name = (name or _name_from_argv(sys.argv[1:] if argv is None else argv)
             or os.environ.get("MECANUM_ROBOT") or "student")
-    rob, dauer = RobotIO(name, bus=bus), 1.0 / min(max(float(hz), 1.0), 200.0)
+    rob, tick_time = RobotIO(name, bus=bus), 1.0 / min(max(float(hz), 1.0), 200.0)
     rob.ik = getattr(module, "inverse_kinematics", None)   # publish_cmd_vel -> own IK
-    anfang, letzter, letzter_fehler, kam = time.monotonic(), None, 0.0, False
+    started, last_task, last_error, saw_robot = time.monotonic(), None, 0.0, False
     log.info("node '%s' starting for robot '%s' (%s).", getattr(module, "__name__", "?"),
-             rob.name, "ROS" if rob.eigener_bus else "in-process bus")
+             rob.name, "ROS" if rob.owns_bus else "in-process bus")
     while rob.running():
-        kam = kam or rob.age("odom") < 1e8 or rob.age("gps") < 1e8
-        if not kam and time.monotonic() - anfang < startup:
+        saw_robot = saw_robot or rob.age("odom") < 1e8 or rob.age("gps") < 1e8
+        if not saw_robot and time.monotonic() - started < startup:
             rob.spin(0.05)                               # still waiting for the spawn
             continue
-        if not kam or not rob.vorhanden():               # robot gone or no fresh data
+        if not saw_robot or not rob.present():               # robot gone or no fresh data
             log.info("no robot '%s' (spawn it: ./lab spawn --name %s) or no data anymore.",
                      rob.name, rob.name)
             break
         task, start = rob.task(), time.monotonic()
         kinematik = task in ("", "kinematik")
-        if task != letzter:
-            letzter, _ = task, rob.set_mission_state("idle" if kinematik else "running")
+        if task != last_task:
+            last_task, _ = task, rob.set_mission_state("idle" if kinematik else "running")
             if not kinematik:
                 try:
                     module.mission(rob, task)            # mission brings its own loop
@@ -231,14 +231,14 @@ def serve(module, name: str | None = None, hz: float = 50.0, argv: list | None =
                     log.exception("mission('%s') failed", task)
                     rob.set_mission_state(f"failed:{type(exc).__name__}: {exc}")
                 continue
-        befehl = rob.cmd_vel() if kinematik else None
-        if befehl is not None:
+        command = rob.cmd_vel() if kinematik else None
+        if command is not None:
             try:
-                rob.send_wheels(module.inverse_kinematics(befehl.vx, befehl.vy, befehl.omega))
+                rob.send_wheels(module.inverse_kinematics(command.vx, command.vy, command.omega))
             except Exception as exc:
-                if time.monotonic() - letzter_fehler > 2.0:
-                    letzter_fehler = time.monotonic()
+                if time.monotonic() - last_error > 2.0:
+                    last_error = time.monotonic()
                     log.error("inverse_kinematics(%.2f, %.2f, %.2f) -> %s: %s",
-                              befehl.vx, befehl.vy, befehl.omega, type(exc).__name__, exc)
-        rob.spin(max(0.0, dauer - (time.monotonic() - start)))
+                              command.vx, command.vy, command.omega, type(exc).__name__, exc)
+        rob.spin(max(0.0, tick_time - (time.monotonic() - start)))
     rob.close()

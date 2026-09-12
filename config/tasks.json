@@ -1,7 +1,7 @@
 {
  "_comment": "Tasks for both experiments — the single source of truth for thresholds AND worksheet text. The grader (mecanum_lab/grade.py) reads the same file the LaTeX handouts read: changing a threshold is a JSON edit, not a change of code. Tasks with 'versuch': 2 belong to the Kalman-filter experiment ('--task kf_alle'); a 'sim' block is the test profile that node.py applies as the sensor setup before grading.",
- "bestanden_ab": 50,
- "reihenfolge": [
+ "pass_from": 50,
+ "order": [
   "kinematik",
   "quadrat",
   "korridor",
@@ -14,192 +14,192 @@
  "tasks": [
   {
    "id": "kinematik",
-   "titel": "T1 — Inverse kinematics of the four Mecanum wheels",
-   "punkte": 30,
-   "welt": "production",
-   "haltezeit": 1.2,
+   "title": "T1 — Inverse kinematics of the four Mecanum wheels",
+   "points": 30,
+   "world": "production",
+   "hold_time": 1.2,
    "text": "Your node receives a body velocity as a Twist (vx forward, vy sideways to the left, omega counter-clockwise) and makes four wheel speeds in rad/s out of it — exactly the four lines that later drive the motor controllers on the real robot. The grader sends three test drives (forward, sideways left, rotate) and reads the odometry to see where the robot actually goes: sign errors and swapped wheels show up at once, correct numbers pass closely. What counts is behaviour, not your code.",
-   "prueft": [
+   "checks": [
     "Magnitude and sign of all four wheel equations",
     "Wheel assignment VL/VR/HL/HR (index 0..3 on wheel_speeds)",
     "Unit rad/s (not rpm, not percent)"
    ],
-   "hilfen": [
+   "hints": [
     "The roll axes of the Mecanum wheel point forward-inward in the X layout: a positive vy means left, so VL has to run slower (or negative) than VR.",
     "To test, set only omega=0 and vy=0: then all four wheels must run at the same positive speed.",
     "Lever arm a = lx + ly; the yaw term is +/- a*omega. Sign check: omega > 0 -> VL and HL backwards, VR and RR forwards.",
     "Watch the name colour dot and the wheel ticks in the GUI: that is where you see each wheel's direction."
    ],
-   "abgabe": "After three test drives of 3 s each the grader shows three green ticks: dx > 0.35 m, dy > 0.35 m, dtheta > 1.2 rad — each with a small residual error on the other axes.",
-   "phasen": [
+   "deliverable": "After three test drives of 3 s each the grader shows three green ticks: dx > 0.35 m, dy > 0.35 m, dtheta > 1.2 rad — each with a small residual error on the other axes.",
+   "phases": [
     {
      "id": "vx",
-     "hint": "vorwaerts",
+     "hint": "forward",
      "vx": 0.3,
      "vy": 0.0,
      "omega": 0.0,
-     "dauer": 3.0,
-     "erwarte": {
+     "duration": 3.0,
+     "expect": {
       "dx_min": 0.35,
-      "dy_betrag_max": 0.15,
-      "winkel_betrag_max": 0.2
+      "dy_abs_max": 0.15,
+      "yaw_abs_max": 0.2
      }
     },
     {
      "id": "vy",
-     "hint": "seitlich links",
+     "hint": "sideways left",
      "vx": 0.0,
      "vy": 0.3,
      "omega": 0.0,
-     "dauer": 3.0,
-     "erwarte": {
+     "duration": 3.0,
+     "expect": {
       "dy_min": 0.35,
-      "dx_betrag_max": 0.15,
-      "winkel_betrag_max": 0.2
+      "dx_abs_max": 0.15,
+      "yaw_abs_max": 0.2
      }
     },
     {
      "id": "omega",
-     "hint": "Drehen CCW",
+     "hint": "turn CCW",
      "vx": 0.0,
      "vy": 0.0,
      "omega": 0.6,
-     "dauer": 3.0,
-     "erwarte": {
-      "winkel_min": 1.2,
-      "dx_betrag_max": 0.35,
-      "dy_betrag_max": 0.35
+     "duration": 3.0,
+     "expect": {
+      "yaw_min": 1.2,
+      "dx_abs_max": 0.35,
+      "dy_abs_max": 0.35
      }
     }
    ]
   },
   {
    "id": "quadrat",
-   "titel": "T2 — Square drive on odometry only",
-   "punkte": 30,
-   "welt": "production",
+   "title": "T2 — Square drive on odometry only",
+   "points": 30,
+   "world": "production",
    "timeout": 90,
-   "seite": 1.0,
-   "abschluss_max": 0.25,
-   "winkel_max_deg": 20.0,
-   "weg_min": 3.0,
-   "weg_max": 12.0,
-   "kontakte_max": 0,
+   "side": 1.0,
+   "closure_max": 0.25,
+   "yaw_max_deg": 20.0,
+   "path_min": 3.0,
+   "path_max": 12.0,
+   "contacts_max": 0,
    "text": "Four sides of one metre each, every corner 90 degrees counter-clockwise, back at the start pose in the end — all of it from odometry alone, without LIDAR and without GPS. The odometry comes from the measured wheel speeds and therefore drifts: anyone integrating open-loop (just velocity times time) does not land back at the start. This task shows why you keep tracking the pose and correct on purpose.",
-   "prueft": [
+   "checks": [
     "Aiming at fixed intermediate pose waypoints (side length first, then a 90 degree turn)",
     "Dealing with drift and motor lag: correcting instead of chasing",
     "Final condition: position error and heading error at the start point"
    ],
-   "hilfen": [
+   "hints": [
     "One P controller per axis is enough: vx = kp*(ziel_x - x) with a clamp, omega = kp_w*heading error; limit both by vx_max.",
     "Compute in the start body frame (invert the start pose), otherwise your square drifts off with the drift.",
     "Write the four corners as a pose list [(x, y, theta), ...] and drive them in order; only turn once a corner sits within a few centimetres.",
     "The task counts as met at a final error < 0.25 m and a heading error < 20 degrees."
    ],
-   "abgabe": "Robot stands again at its start point (final error < 0.25 m, < 20 degrees), has covered 3-12 m and touched no wall.",
-   "ziel": "keins"
+   "deliverable": "Robot stands again at its start point (final error < 0.25 m, < 20 degrees), has covered 3-12 m and touched no wall.",
+   "target": "none"
   },
   {
    "id": "korridor",
-   "titel": "T3 — Drive to the gate, the LIDAR guards the walls",
-   "punkte": 30,
-   "welt": "production",
+   "title": "T3 — Drive to the gate, the LIDAR guards the walls",
+   "points": 30,
+   "world": "production",
    "timeout": 120,
-   "ziel": "goal",
-   "messung": "odom",
-   "ziel_max": 0.3,
-   "kontakte_max": 0,
-   "weg_min": 1.0,
-   "weg_max": 40.0,
-   "abstand_min": 0.16,
-   "geradeaus_omega_max": 0.25,
+   "target": "goal",
+   "source": "odom",
+   "target_max": 0.3,
+   "contacts_max": 0,
+   "path_min": 1.0,
+   "path_max": 40.0,
+   "lateral_min": 0.16,
+   "straight_omega_max": 0.25,
    "text": "From the start to this world's goal 'gate'. You may take the direction from odometry, but the LIDAR has to do the work at the walls: brake or give way at doors, tables and the neighbouring robot, without any contact. The LIDAR delivers 360 rays (Scan.ranges, inf = no hit); the straight-ahead sector is your brake beam, the side rays hold the distance to the wall.",
-   "prueft": [
+   "checks": [
     "Grouping rays into sectors (ahead / left / right) instead of guessing single values",
     "Braking on the forward drive before it crashes — and starting again once the way is clear",
     "Goal detection and a clean final 'done' signal"
    ],
-   "hilfen": [
+   "hints": [
     "Index for an angle: i = round(angle/scan.angle_increment); forward is 0, left sits at +90 degrees (index N/4), right at -90 degrees.",
     "inf means 'no hit anywhere near' — always cap it with range_max before computing, otherwise your controller computes with infinity.",
     "Braking: smallest value in the +/-30 degree sector; below 0.5 m the robot stands still, below 0.3 m continue only sideways or while turning.",
     "Sideways distance is only graded on straight driving (|omega| small), because corners inevitably cut the corners."
    ],
-   "abgabe": "Robot stands within 0.3 m of the gate, had zero wall contacts and never passed anything closer than 0.16 m sideways.",
-   "zeit_max": 120
+   "deliverable": "Robot stands within 0.3 m of the gate, had zero wall contacts and never passed anything closer than 0.16 m sideways.",
+   "time_max": 120
   },
   {
    "id": "gps_anfahrt",
-   "titel": "T4 (bonus) — Drive to the loading spot using GPS",
-   "punkte": 10,
-   "welt": "production",
+   "title": "T4 (bonus) — Drive to the loading spot using GPS",
+   "points": 10,
+   "world": "production",
    "timeout": 90,
-   "ziel": "spawn",
-   "ziel_index": -1,
-   "messung": "gps",
-   "ziel_max": 0.45,
-   "kontakte_max": 0,
-   "weg_min": 0.5,
-   "weg_max": 40.0,
+   "target": "spawn",
+   "target_index": -1,
+   "source": "gps",
+   "target_max": 0.45,
+   "contacts_max": 0,
+   "path_min": 0.5,
+   "path_max": 40.0,
    "text": "Return drive to the loading spot — that is the last goal of this world, deliberately NOT your own start pose, so that T4 is not satisfied just because you were already standing there. You are guided by GPS (PoseStamped, noisy, 5 Hz), not by odometry. A P controller on a noisy position otherwise circles the goal: a dead zone inside the goal circle and a damped turn rate are the actual learning point.",
-   "prueft": [
+   "checks": [
     "A different sensor source: GPS instead of odometry (and hence no accumulated drift)",
     "Dead zone and hysteresis against sensor noise",
     "Goal definition taken from the world (last spawns goal) instead of hard-coded numbers"
    ],
-   "hilfen": [
+   "hints": [
     "GPS has been arriving at ~5 Hz so far — regulate slowly enough (controller Hz < sensor rate) and keep the setpoint small.",
     "Dead zone: inside 0.1-0.15 m of the goal distance command nothing at all, otherwise the controller swings around the goal.",
     "Always form the heading error with types.wrap_angle(), otherwise the robot turns 350 degrees around the goal.",
     "The loading spot is world()['spawns'][-1]; T3's gate is world()['goal']."
    ],
-   "abgabe": "Robot stands within 0.45 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)",
-   "zeit_max": 90
+   "deliverable": "Robot stands within 0.45 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)",
+   "time_max": 90
   },
   {
    "id": "kf_gps",
-   "titel": "K1 — Position estimate from GPS alone (Kalman filter)",
-   "punkte": 30,
-   "versuch": 2,
-   "art": "kf",
-   "welt": "arena",
+   "title": "K1 — Position estimate from GPS alone (Kalman filter)",
+   "points": 30,
+   "experiment": 2,
+   "kind": "kf",
+   "world": "arena",
    "timeout": 60,
-   "einlauf": 4.0,
+   "warmup": 4.0,
    "sensor": "gps",
-   "schaetzung": "kf",
-   "wiederhole": 1,
-   "fahrt": [
+   "estimate": "kf",
+   "repeat": 1,
+   "drive": [
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": 0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": -0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": -0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     }
    ],
    "sim": {
@@ -218,53 +218,53 @@
     }
    },
    "rmse_max": 0.42,
-   "verbesserung_min": 1.6,
-   "max_fehler_max": 1.25,
+   "improvement_min": 1.6,
+   "max_error_max": 1.25,
    "rate_min": 5.0,
-   "kontakte_max": 0,
+   "contacts_max": 0,
    "text": "The grader drives your robot through the arena — you command nothing, you only estimate. In this subtask you have the GPS only (2 Hz, a good 0.5 m of scatter); odometry and IMU sit on their topics but stay out of it. From two noisy numbers per second a linear filter makes you better than the raw sensor: a state vector of position and velocity, a constant-velocity prediction (CV model) and an update that weights every measurement by its own uncertainty. Your estimate belongs on /<robot>/kf/pose — standard deviation included.",
-   "prueft": [
+   "checks": [
     "State vector (x, y, vx, vy) and transition matrix of the CV model",
     "Prediction with the real time difference dt, not with an averaged fixed value",
     "Kalman gain from prediction and measurement uncertainty instead of gut feeling",
     "Publishing kf/pose regularly, including sx/sy"
    ],
-   "hilfen": [
+   "hints": [
     "Compute in world metres, not in the body frame — otherwise your filter drifts off with the very drift you are trying to shake off.",
     "The CV model is 4×4: F = [[1,0,dt,0],[0,1,0,dt],[0,0,1,0],[0,0,0,1]]. Without numpy, four handwritten lines of matrix multiplication are enough.",
     "Measurement uncertainty R = diag(σ², σ²) with σ from rob.config('gps.sigma_xy') — the number is in the sensor profile on /sim/config, guessing is unnecessary.",
     "Process noise Q from an assumed acceleration uncertainty q per axis: Q = q·[[dt⁴/4, dt³/2],[dt³/2, dt²]]; q in m²/s³, a usable start is 0.3 … 1.0.",
     "If the estimate trails the measurement: that is no fault of the filter, but a Q that is too small or a measurement timestamp lying too far back."
    ],
-   "abgabe": "RMSE of your own estimate against the exact pose below 0.42 m and at least 1.6 times better than the raw GPS; kf/pose rate at least 5 Hz."
+   "deliverable": "RMSE of your own estimate against the exact pose below 0.42 m and at least 1.6 times better than the raw GPS; kf/pose rate at least 5 Hz."
   },
   {
    "id": "kf_fusion",
-   "titel": "K2 — Fusing GPS, odometry and IMU (with a GPS outage)",
-   "punkte": 30,
-   "versuch": 2,
-   "art": "kf",
-   "welt": "arena",
+   "title": "K2 — Fusing GPS, odometry and IMU (with a GPS outage)",
+   "points": 30,
+   "experiment": 2,
+   "kind": "kf",
+   "world": "arena",
    "timeout": 56,
-   "einlauf": 4.0,
+   "warmup": 4.0,
    "sensor": "gps",
-   "schaetzung": "kf",
-   "wiederhole": 1,
-   "fahrt": [
+   "estimate": "kf",
+   "repeat": 1,
+   "drive": [
     {
      "vx": 0.6,
-     "dauer": 6
+     "duration": 6
     },
     {
      "vx": 0.6,
      "omega": 0.26,
-     "sinus": 0.1,
-     "frequenz": 0.08,
-     "dauer": 25
+     "sine": 0.1,
+     "frequency": 0.08,
+     "duration": 25
     },
     {
      "vx": -0.6,
-     "dauer": 6
+     "duration": 6
     }
    ],
    "sim": {
@@ -291,22 +291,22 @@
      "rate": 20.0
     }
    },
-   "luecke": {
-    "dauer_min": 6.0,
-    "fehler_max": 1.8
+   "outage": {
+    "duration_min": 6.0,
+    "error_max": 1.8
    },
    "rmse_max": 0.8,
-   "verbesserung_min": 2.5,
+   "improvement_min": 2.5,
    "rate_min": 5.0,
-   "kontakte_max": 0,
+   "contacts_max": 0,
    "text": "The same game, but the hall is honest now: the GPS only delivers 1 Hz with 0.8 m of scatter and drops out completely for ten seconds in the middle of the drive (a GPS outage behind the hall corner — the simulation really suppresses the fixes, no message arrives). Without countermeasures your estimate runs away during the gap, because a CV model knows no acceleration. So the other two sensor sources come into play: odometry as a cheap motion model (it supplies vx, vy and ω straight from the wheels) and the IMU as a short-term clean yaw rate and acceleration. The IMU must never be integrated open-loop — its bias of a few hundredths of m/s² becomes metres when integrated twice.",
-   "prueft": [
+   "checks": [
     "Two kinds of information in one filter: position update (GPS) and motion update (odometry/IMU) — or a motion model using measured v and ω",
     "Dealing with dropouts: the prediction keeps running when no fix arrives",
     "Recognising odometry drift as correlated, not as white noise",
     "Knowing what an IMU can do (fractions of a second) and what it cannot (ten seconds)"
    ],
-   "hilfen": [
+   "hints": [
     "The most workable route: state (x, y, vx, vy) in the world frame, predict with the *measured* body velocity (Twist from the odometry, rotated into the world) instead of your own estimate, yaw rate from the gyro.",
     "The IMU axes are specific force: az contains +g. For the plane you need ax and ay — and those are noisy and biased, so only usable short-term.",
     "Bias trick for little money: average the IMU while standing still (before the drive or in every pause) and subtract the mean — that is exactly how the calibration is done later on the real robot.",
@@ -314,51 +314,51 @@
     "Rule of thumb for the gap: without a fix the error grows with elapsed time. With a good motion model the ten seconds stay under 1.8 m.",
     "At 1 Hz GPS the absolute RMSE hangs strongly on the noise realisation — the improvement over the raw sensor is the stable quantity."
    ],
-   "abgabe": "RMSE below 0.80 m and at least 2.5 times better than the raw GPS — with 1 Hz GPS at 0.8 m scatter the absolute error is noise-bound, so what is measured is mainly the gain. And inside the GPS outage (the grader measures it by missing fixes) the estimate may never run more than 1.8 m away."
+   "deliverable": "RMSE below 0.80 m and at least 2.5 times better than the raw GPS — with 1 Hz GPS at 0.8 m scatter the absolute error is noise-bound, so what is measured is mainly the gain. And inside the GPS outage (the grader measures it by missing fixes) the estimate may never run more than 1.8 m away."
   },
   {
    "id": "kf_kovarianz",
-   "titel": "K3 — Not only estimate, but also know how good it is (covariance)",
-   "punkte": 20,
-   "versuch": 2,
-   "art": "kf",
-   "welt": "arena",
+   "title": "K3 — Not only estimate, but also know how good it is (covariance)",
+   "points": 20,
+   "experiment": 2,
+   "kind": "kf",
+   "world": "arena",
    "timeout": 60,
-   "einlauf": 4.0,
+   "warmup": 4.0,
    "sensor": "gps",
-   "schaetzung": "kf",
-   "wiederhole": 1,
-   "fahrt": [
+   "estimate": "kf",
+   "repeat": 1,
+   "drive": [
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": 0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": -0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     },
     {
      "vx": 0.0,
      "omega": -0.5,
-     "dauer": 3.2
+     "duration": 3.2
     },
     {
      "vx": 0.45,
-     "dauer": 9
+     "duration": 9
     }
    ],
    "sim": {
@@ -382,50 +382,50 @@
    ],
    "rmse_max": 0.42,
    "rate_min": 5.0,
-   "kontakte_max": 0,
+   "contacts_max": 0,
    "text": "A filter without an honest covariance is a crank: the values may be right, the uncertainty never is. So here almost exclusively your announced standard deviation is graded — with the normalised error squared mean (NEES: mean of (error/σ)² over both axes). Around 1 means you know exactly what you are doing; 0.2 means 'my reported σ is far larger than my actual error' (cautious), 5 means 'far smaller' (confident — that is the one that makes you a hazard). Take K1 or K2 as your base and tune Q and R so that the covariance describes the actual error.",
-   "prueft": [
+   "checks": [
     "Difference between process noise Q (what the model lacks) and measurement noise R (what the sensor lacks) — and how both make the covariance grow or shrink",
     "NEES as the test quantity for the uncertainty you announce yourself",
     "Consistency over the whole drive, not just in a quiet phase"
    ],
-   "hilfen": [
+   "hints": [
     "NEES = (ex²/sx² + ey²/sy²)/2 — with two degrees of freedom the expected value is 1, a single value up to about 5.99 is still unremarkable (χ², 95 %).",
     "Larger Q → covariance grows faster → NEES falls, but the error rises. That is the real trade-off, not 'prettier numbers'.",
     "Check your arithmetic by scaling sx and sy by 1.1 as a test: if that moves the NEES a lot, you are computing in the wrong place.",
     "The GPS scatter is given (0.5 m): R = diag(0.25; 0.25) m² — anything more is guesswork."
    ],
-   "abgabe": "Mean NEES between 0.05 and 3.5 with an RMSE below 0.42 m — the announced uncertainty has to fit the actual error (1 = exactly right, 0.05 = σ twenty times larger than the error, 3.5 = σ 1.9 times too small). The upper bound is the strict one: anyone who under-reports is lying. The lower bound is deliberately generous — a well-tuned filter measured under real-time pacing lands anywhere between 0.09 and 0.9, and failing an excellent run (RMSE 0.04 m, 17x improvement) for being cautious would be arbitrary.",
-   "verbesserung_min": 1.0,
-   "max_fehler_max": 1.25
+   "deliverable": "Mean NEES between 0.05 and 3.5 with an RMSE below 0.42 m — the announced uncertainty has to fit the actual error (1 = exactly right, 0.05 = σ twenty times larger than the error, 3.5 = σ 1.9 times too small). The upper bound is the strict one: anyone who under-reports is lying. The lower bound is deliberately generous — a well-tuned filter measured under real-time pacing lands anywhere between 0.09 and 0.9, and failing an excellent run (RMSE 0.04 m, 17x improvement) for being cautious would be arbitrary.",
+   "improvement_min": 1.0,
+   "max_error_max": 1.25
   },
   {
    "id": "kf_dynamik",
-   "titel": "K4 (bonus) — Fast drive, faithful estimate",
-   "punkte": 10,
-   "versuch": 2,
-   "art": "kf",
-   "welt": "arena",
+   "title": "K4 (bonus) — Fast drive, faithful estimate",
+   "points": 10,
+   "experiment": 2,
+   "kind": "kf",
+   "world": "arena",
    "timeout": 45,
-   "einlauf": 4.0,
+   "warmup": 4.0,
    "sensor": "gps",
-   "schaetzung": "kf",
-   "wiederhole": 1,
-   "fahrt": [
+   "estimate": "kf",
+   "repeat": 1,
+   "drive": [
     {
      "vx": 0.85,
-     "dauer": 6
+     "duration": 6
     },
     {
      "vx": 0.85,
      "omega": 0.34,
-     "sinus": 0.12,
-     "frequenz": 0.12,
-     "dauer": 19
+     "sine": 0.12,
+     "frequency": 0.12,
+     "duration": 19
     },
     {
      "vx": -0.85,
-     "dauer": 6
+     "duration": 6
     }
    ],
    "sim": {
@@ -444,22 +444,22 @@
     }
    },
    "rmse_max": 0.35,
-   "verbesserung_min": 1.8,
-   "max_fehler_max": 0.9,
+   "improvement_min": 1.8,
+   "max_error_max": 0.9,
    "rate_min": 10.0,
-   "kontakte_max": 0,
+   "contacts_max": 0,
    "text": "Bonus for cleanly tuned filters: 0.85 m/s, a tighter curve, an oscillation superimposed on the path and an IMU at 200 Hz. A pure CV model systematically trails the corner here — the remedy is a state vector with yaw rate (or a CV model with a much larger Q, which pays for the trade-off). The GPS arrives often (5 Hz), but with 0.6 m of scatter: anyone who only averages stays below the twofold improvement.",
-   "prueft": [
+   "checks": [
     "Model error versus measurement noise: anyone riding a corner with a straight-line prediction pays with a systematic following error",
     "Rate of kf/pose (at least 10 Hz) — anyone publishing only at measurement times loses to the latency",
     "Using the high IMU rate for short-term prediction"
    ],
-   "hilfen": [
+   "hints": [
     "State (x, y, vx, vy, ω) or (x, y, θ, v): both linearise cleanly if you take the curve rate from the gyro.",
     "Predict up to the *measurement timestamp* of the incoming measurement, then update — at 5 Hz GPS and 0.85 m/s, 100 ms of lag is 8.5 cm.",
     "Retuning only Q and R is rarely enough; the model order is the real question behind this task."
    ],
-   "abgabe": "RMSE below 0.35 m, at least 1.8 times better than the raw GPS, maximum error below 0.9 m and kf/pose at at least 10 Hz."
+   "deliverable": "RMSE below 0.35 m, at least 1.8 times better than the raw GPS, maximum error below 0.9 m and kf/pose at at least 10 Hz."
   }
  ]
 }

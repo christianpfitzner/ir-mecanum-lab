@@ -20,6 +20,11 @@ step "Language (CONTRACT section 1: written prose is English)"
 # Not cosmetics: handouts, comments and report text are what students read, and German creeps
 # back in with every new feature. langcheck reports umlauts anywhere and German words in prose.
 run "python3 tools/langcheck.py --quiet"
+step "Identifiers (CONTRACT section 1: names are English too)"
+# The prose was English long before the identifiers were. This parses every module and fails on a
+# German identifier or dict key outside the documented exceptions (ROS names, the wheel labels,
+# the two compatibility maps) — without it, the rename of 2024-09 would quietly undo itself.
+run "python3 tools/germanids.py --quiet"
 step "Repository hygiene (.gitignore keeps build junk out of git)"
 # Once a byte-code or LaTeX by-product is committed, every student clone carries it forever and
 # every regeneration shows up as a diff. This fails when one reappears in the index.
@@ -47,7 +52,7 @@ step "Teleop path (pass-through) without a student node"
 run "./lab sim --world track --robots a,b --headless --seconds 3"
 
 step "Experiment 2: arena world, installation, measurement log tool"
-run "python3 tools/worldcheck.py --welt arena"
+run "python3 tools/worldcheck.py --world arena"
 run "bash -n install.sh"
 run "./install.sh --check"
 if [[ -f student/kf_solution.py ]]; then
@@ -101,7 +106,18 @@ if [[ "${1:-}" == "--ros" ]]; then
   timeout 40 ros2 launch launch/lab.launch.py headless:=true seconds:=35 controller:=student/solution.py || true
   if [[ -f student/kf_template.py ]]; then
     step "ROS 2: lab 2 through kf.launch.py (KF topics in the real sim)"
-    run "timeout 45 ros2 launch launch/kf.launch.py headless:=true sekunden:=25 aufgabe:=kf_gps controller:=student/kf_template.py"
+    # Not run() with a plain timeout: ros2 launch also waits for the student node, so running
+    # over the timeout (124) is the expected end of a healthy run — but an exit before that is a
+    # crashed launch file, which is exactly what no step used to catch.
+    mkdir -p .runs
+    timeout 45 ros2 launch launch/kf.launch.py headless:=true seconds:=25 task:=kf_gps \
+        controller:=student/kf_template.py > .runs/kf_launch.log 2>&1
+    rc=$?
+    if [[ $rc == 0 || $rc == 124 ]]; then
+      echo "  ok: kf.launch.py ran for 45 s without crashing (rc $rc)"
+    else
+      echo "  FAIL: kf.launch.py exited with $rc"; tail -12 .runs/kf_launch.log; fail=1
+    fi
   fi
   kill $sim 2>/dev/null
 fi
