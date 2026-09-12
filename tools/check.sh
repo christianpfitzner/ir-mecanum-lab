@@ -20,6 +20,19 @@ step "Language (CONTRACT section 1: written prose is English)"
 # Not cosmetics: handouts, comments and report text are what students read, and German creeps
 # back in with every new feature. langcheck reports umlauts anywhere and German words in prose.
 run "python3 tools/langcheck.py --quiet"
+step "Repository hygiene (.gitignore keeps build junk out of git)"
+# Once a byte-code or LaTeX by-product is committed, every student clone carries it forever and
+# every regeneration shows up as a diff. This fails when one reappears in the index.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  junk=$(git ls-files | grep -E '\.(py[cod]|aux|fls|fdb_latexmk|synctex\.gz|toc|out|lof|lol|log)$' || true)
+  if [ -n "$junk" ]; then
+    echo "  FAIL: build junk is tracked:"; printf '%s\n' "$junk" | sed 's/^/         /'; fail=1
+  else
+    echo "  ok: no byte-code or LaTeX junk in the index"
+  fi
+else
+  echo "  skipped: not a git worktree"
+fi
 step "Arena picture for the documentation (worlds/*.txt -> docs/img/worlds.png)"
 # Generated, not hand-drawn: this proves every world still draws and that worldpic agrees with
 # worlds/*.txt. It writes to /tmp — docs/img/worlds.png is updated on purpose by the tool.

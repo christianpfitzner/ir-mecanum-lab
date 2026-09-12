@@ -115,7 +115,7 @@ maze has room to drive in while the graded arenas stay as they are.
 ./lab docs                # topics, tasks, examples
 ./lab robots              # who is driving right now?
 ./lab grade --task kf_gps --controller student/kf_solution.py --json bericht.json
-tools/check.sh            # teaching team's gate (tests, grading, budgets, pictures)
+tools/check.sh            # teaching team's gate (tests, grading, budgets, hygiene)
 python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --speed 25
 ```
 

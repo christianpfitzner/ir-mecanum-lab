@@ -1,0 +1,75 @@
+# What this repository must never contain: files that a tool can regenerate.
+# The rule for the teaching team: if `tools/check.sh`, `make` or the interpreter can produce it,
+# it does not belong in git — see also the hygiene step at the end of tools/check.sh.
+
+# Byte-code caches. `tools/check.sh` runs compileall, so these reappear after every single run.
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Test and linter state — derived from the tests, never a result worth keeping.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging and ROS 2 builds. setup.py and `colcon build` put these next to the sources; the
+# workspace directories are anchored at the root so a source directory named log/ stays visible.
+build/
+dist/
+sdist/
+wheels/
+*.egg
+*.egg-info/
+.eggs/
+/install/
+/log/
+
+# LaTeX by-products of docs/praktikum (the Makefile's clean target removes the same set).
+# The two PDFs stay in the repository on purpose: they are the printable handout, and a fresh
+# clone has to be printable without a LaTeX installation. Do not add *.pdf here.
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.out
+*.lof
+*.lol
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+*.log
+
+# Output that the lab tools write when they are asked to: `--json bericht.json`,
+# `--log messung.csv`, `tools/kfplot.py -o bild.png`. Students generate these in the repository
+# and must not commit them; anchored at the root, so docs/img/ stays untouched.
+/bericht.json
+/bericht.pdf
+/*.csv
+/*.png
+student/*.csv
+student/*.png
+
+# Virtual environments (install.sh installs with pip --user, but people still create them).
+.venv/
+venv/
+env/
+
+# Editors, patch leftovers and OS litter.
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.bak
+.DS_Store
+Thumbs.db
+nohup.out

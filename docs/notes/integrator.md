@@ -186,3 +186,22 @@ carrying a stale copy). Physics, bus and grading did not grow.
 and for TF evidence with ROS sourced: `./lab sim --robots alice --headless --seconds 20` plus
 `ros2 topic echo --once /tf_static` → `alice/base_link -> alice/laser`, `alice/imu_link`;
 `ros2 topic echo --once /tf` → `map -> alice/odom` (identity), `alice/odom -> alice/base_link`.
+
+## 5. Repo hygiene (`.gitignore`, and why the PDFs stay)
+
+62 `.pyc` files and twelve LaTeX by-products (`.aux`, `.fls`, `.fdb_latexmk`, `.log`, `.out`,
+`.toc`) were tracked, so every clone carried the previous author's byte-code and every
+`compileall` run showed up as a diff. `.gitignore` now covers byte-code and test caches,
+`setup.py`/colcon output (`build/`, `dist/`, `*.egg-info/`, `/install/`, `/log/`), LaTeX
+by-products, the output the tools write when asked (`--json bericht.json`, `--log messung.csv`,
+`kfplot -o bild.png`), virtualenvs and editor litter. `tools/check.sh` fails if a byte-code or
+LaTeX by-product appears in the index again.
+
+**The two handout PDFs stay in git on purpose** — a clone must be printable without LaTeX; do
+not add `*.pdf` to `.gitignore`. `.gitignore` deliberately does not ignore `docs/img/`: that
+figure is a generated artefact that is meant to be shipped (worldpic draws it, the check proves
+it still draws).
+
+**Reproduce:** `git ls-files | grep -E '\.(py[cod]|aux|fls|log|toc|out)$'` must print nothing,
+and `git status` must stay clean after `python3 -m compileall -q mecanum_lab && python3 -m pytest
+tests -q`.
