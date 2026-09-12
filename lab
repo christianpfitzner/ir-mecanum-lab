@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Einstiegspunkt für beide Versuche: ./lab <befehl> [optionen]
-# Setzt PYTHONPATH, holt ROS 2 dazu, wenn es die Maschine hergibt, und ruft den Knoten.
+# Entry point for both labs: ./lab <command> [options]
+# Sets PYTHONPATH, adds ROS 2 when the machine offers it, and calls the node.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
-export PYGAME_HIDE_SUPPORT_PROMPT=1   # kein pygame-Werbetext im Terminal der Studierenden
+export PYGAME_HIDE_SUPPORT_PROMPT=1   # no pygame banner in the students' terminal
 
 if ! python3 -c "import pygame" >/dev/null 2>&1; then
-  echo "pygame fehlt — einmalig:" >&2
-  echo "  ./install.sh                       (empfohlen, prüft auch ROS und Tests)" >&2
-  echo "  sudo apt install python3-pygame    (oder: pip3 install --user pygame)" >&2
+  echo "pygame is missing — install it once:" >&2
+  echo "  ./install.sh                       (recommended, also checks ROS and the tests)" >&2
+  echo "  sudo apt install python3-pygame    (or: pip3 install --user pygame)" >&2
   exit 3
 fi
 
-# ROS 2 only wenn vorhanden; MECANUM_ROS=stub zwingt den In-Prozess-Bus (kein ROS nötig).
-# set +u ist Pflicht: die ROS-Setup-Skripte lesen AMENT_*-Variablen, die beim ersten
-# Source noch nicht gesetzt sind — mit `set -u` würde der Launcher hier lautlos sterben.
+# ROS 2 only when present; MECANUM_ROS=stub forces the in-process bus (no ROS needed).
+# set +u is required: the ROS setup scripts read AMENT_* variables that the first
+# source has not set yet — with `set -u` the launcher would die silently right here.
 if [[ "${MECANUM_ROS:-}" != "stub" ]]; then
   set +u
   for f in "${ROS_SETUP:-}" "/opt/ros/${ROS_DISTRO:-kilted}/setup.bash" \
@@ -33,29 +33,29 @@ case "${1:-}" in
     python3 -m mecanum_lab.node -h
     cat <<'HILFE'
 
-Beispiele Versuch 1 (alles ohne ROS, nur mit pygame):
+Lab 1 examples (all of it without ROS, with pygame only):
   ./lab run --robot alice --controller student/controller_template.py
-      Simulator + dein Knoten in einem Prozess, mit Fenster. Abbruch mit q.
+      Simulator + your node in one process, with a window. Quit with q.
   ./lab run --robot alice --controller student/solution.py --world track --seconds 60
-      Dasselbe mit der Musterlösung.
+      The same with the reference solution.
   ./lab grade --robot alice --task v1 --json bericht.json
-      Versuch-1-Aufträge durchprüfen; Exit 2 wenn nicht bestanden.
+      Grade the lab 1 tasks; exit code 2 if not passed.
 
-Beispiele Versuch 2 (Zustandsschätzung / Kalman-Filter):
+Lab 2 examples (state estimation / Kalman filter):
   ./lab run --world arena --task kf_gps --robot alice \
       --controller student/kf_template.py --truth
-      Filterwerkstatt mit Fenster; die Sim fährt, du schätzt nur.
+      Filter workbench with a window; the sim drives, you only estimate.
   ./lab grade --task kf_alle --controller student/kf_solution.py --log messung.csv
-      Alle KF-Aufträge bewerten und die Messreihe für den Bericht mitschreiben.
+      Grade all KF tasks and record the measurement series for the lab report.
   ./lab run --world arena --task kf_fusion --set gps.sigma_xy=1.2 --set imu.rate=400
-      Sensorik frei verstellen — alles über --set, keine JSON-Datei nötig.
+      Change the sensors freely — everything through --set, no JSON file needed.
 
-ROS-2-Betrieb:
+ROS 2 operation:
   ./lab sim --world production --robots alice,bob --headless
-  ./lab spawn --name carlo              # Roboter zu einer laufenden Simulation hinzufügen
-  ./lab robots                          # Was fährt gerade?
-  ros2 launch launch/kf.launch.py       # Versuch 2 komplett konfiguriert (siehe --show-args)
-  MECANUM_ROS=stub ./lab sim --headless --seconds 5      # bewusst ohne ROS
+  ./lab spawn --name carlo              # add a robot to a running simulation
+  ./lab robots                          # what is driving right now?
+  ros2 launch launch/kf.launch.py       # lab 2 fully configured (see --show-args)
+  MECANUM_ROS=stub ./lab sim --headless --seconds 5      # deliberately without ROS
 HILFE
     ;;
   *) exec python3 -m mecanum_lab.node "$@" ;;

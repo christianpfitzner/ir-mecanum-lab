@@ -1,8 +1,8 @@
-"""Prueft die ROS-Verpackung — ohne ROS, ohne Build, ohne Fenster (Agent F).
+"""Checks the ROS packaging — no ROS, no build, no window (agent F).
 
-Was hier steht ist absichtlich statisch (XML/AST/Text): ein kaputtes package.xml oder
-ein .srv mit umbenannten Feldern faellt in der Praxis erst nach einem colcon-Build auf,
-und dann sucht man ewig. Diese Tests fangen es vorher.
+What is written here is deliberately static (XML/AST/text): a broken package.xml or a
+.srv with renamed fields only surfaces in practice after a colcon build, and then
+finding it takes forever. These tests catch it beforehand.
 """
 import ast
 import os
@@ -12,16 +12,16 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-import mecanum_lab  # nur fuer den Wurzelpfad
+import mecanum_lab  # only for the root path
 from mecanum_lab.types import topic
 
 WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(mecanum_lab.__file__)))
 PKT = os.path.join(WURZEL, "interfaces", "mecanum_lab_interfaces")
 
-ANFORDERUNG = {                                        # CONTRACT §4, Reihenfolge egal
+ANFORDERUNG = {                                        # CONTRACT §4, order does not matter
     "req": {"name": "string", "variant": "string"},
-    # variant in der Response ist die von B erwartete Zusatzangabe (welche Variante es
-    # wirklich wurde) — CONTRACT §4 listet sie nicht, sie schadet keinem Feld.
+    # variant in the response is the extra field B expects (which variant it actually
+    # became) — CONTRACT §4 does not list it, and it does no harm to any other field.
     "resp": {"success": "bool", "message": "string", "index": "uint8", "color": "string",
              "marker": "string", "variant": "string", "x": "float64", "y": "float64",
              "theta": "float64"},
@@ -57,11 +57,11 @@ def test_srv_felder_wie_vertrag():
             if zeile:
                 typ, feld = zeile.split()[0], zeile.split()[1]
                 gefunde[feld] = typ
-        assert gefunde == soll, f"Servicefeldern weichen ab: {gefunde}"
+        assert gefunde == soll, f"service fields deviate: {gefunde}"
 
 
 def test_srv_ohne_zusatzliche_ordner():
-    assert not os.path.exists(os.path.join(PKT, "msg")), "Versuch 1 braucht keine Messages"
+    assert not os.path.exists(os.path.join(PKT, "msg")), "Experiment 1 needs no messages"
 
 
 # ---------------------------------------------------------------------- package.xml
@@ -72,11 +72,11 @@ def test_srv_ohne_zusatzliche_ordner():
     (os.path.join(PKT, "package.xml"), "mecanum_lab_interfaces", "ament_cmake", 30),
 ])
 def test_package_xml_wohlgeformt_und_vollstaendig(pfad, name, bauform, max_zeilen):
-    wurzel = ET.parse(pfad).getroot()                       # wirft bei missgebildetem XML
+    wurzel = ET.parse(pfad).getroot()                     # raises on malformed XML
     assert wurzel.findtext("name") == name
     assert wurzel.findtext("export/build_type") == bauform
-    assert wurzel.findtext("license"), "Lizenz fehlt"
-    assert wurzel.findtext("maintainer"), "Maintainer fehlt"
+    assert wurzel.findtext("license"), "license missing"
+    assert wurzel.findtext("maintainer"), "maintainer missing"
     assert zeilen(pfad) <= max_zeilen
 
 
@@ -85,8 +85,8 @@ def test_hauptpaket_deklariert_was_es_importiert():
     abhaengigkeiten = {e.text for e in wurzel.findall("exec_depend")}
     for_needed = {"rclpy", "std_msgs", "geometry_msgs", "nav_msgs", "sensor_msgs",
                   "rosgraph_msgs"}
-    assert for_needed <= abhaengigkeiten, f"fehlende exec_depend: {for_needed - abhaengigkeiten}"
-    assert "std_srvs" in abhaengigkeiten                    # /sim/reset nutzt Trigger
+    assert for_needed <= abhaengigkeiten, f"missing exec_depend: {for_needed - abhaengigkeiten}"
+    assert "std_srvs" in abhaengigkeiten                    # /sim/reset uses Trigger
 
 
 def test_interfacepaket_ist_rosidl_paket():
@@ -117,7 +117,7 @@ def test_console_script_zeigt_auf_main():
 
 
 def test_node_main_ist_importierbar():
-    from mecanum_lab.node import main                      # Entry-Punkt-Ziel existiert wirklich
+    from mecanum_lab.node import main                    # the entry-point target really exists
     assert callable(main)
 
 
@@ -127,7 +127,7 @@ def test_requirements_nur_pygame():
     assert len(zeilen_) == 1 and zeilen_[0].startswith("pygame"), zeilen_
 
 
-# --------------------------------------------------------------------- launch-Dateien
+# ---------------------------------------------------------------------- launch files
 
 
 @pytest.mark.parametrize("datei,args", [
@@ -140,11 +140,11 @@ def test_requirements_nur_pygame():
 def test_launch_datei_klein_und_mit_argumenten(datei, args):
     pfad = os.path.join(WURZEL, "launch", datei)
     text = liest(pfad)
-    assert zeilen(pfad) < 60, f"{datei} ueber 60 Zeilen"
+    assert zeilen(pfad) < 60, f"{datei} over 60 lines"
     assert "generate_launch_description" in text
     ast.parse(text)
     for arg in args:
-        assert f'"{arg}"' in text, f"{datei}: Argument {arg} fehlt"
+        assert f'"{arg}"' in text, f"{datei}: argument {arg} missing"
     assert "DeclareLaunchArgument" in text
 
 
@@ -157,18 +157,18 @@ def test_headless_setzt_sdl_treiber():
 def test_launch_startt_node_modul_und_setzt_pythonpath():
     for datei in ("sim.launch.py", "student.launch.py", "lab.launch.py"):
         text = liest(os.path.join(WURZEL, "launch", datei)).replace("'", '"')
-        assert '"-m", "mecanum_lab.node"' in text, f"{datei}: startet nicht das Node-Modul"
+        assert '"-m", "mecanum_lab.node"' in text, f"{datei}: does not start the node module"
         assert "PYTHONPATH" in text, datei
-        assert "os.path.dirname" in text, f"{datei}: Pfade muessen relativ zum File loesen"
+        assert "os.path.dirname" in text, f"{datei}: paths must resolve relative to the file"
 
 
 def test_launch_dateien_bauen_wirklich_eine_description():
-    """So pruefen wie spaeter `ros2 launch`: die Datei wird per Pfad geladen, der
-    Quellbaum darf dabei NICHT auf sys.path stehen — unser Verzeichnis `launch/`
-    wuerde das ROS-Paket `launch` als Namespace-Paket ueberdecken. Der Test laeuft
-    deshalb in einem Subprozess ohne PYTHONPATH (und ueberspringt ohne ROS)."""
+    """Check the way `ros2 launch` later will: load the file by path, and the source
+    tree must NOT be on sys.path while that happens — our `launch/` directory would
+    shadow the ROS package `launch` as a namespace package. The test therefore runs
+    in a subprocess without PYTHONPATH (and skips when ROS is missing)."""
     if os.environ.get("MECANUM_ROS", "").lower() == "stub":
-        pytest.skip("bewusst ohne ROS gelaufen")
+        pytest.skip("deliberately run without ROS")
     code = """
 import importlib.util, sys
 for pfad in sys.argv[1:]:
@@ -180,7 +180,7 @@ for pfad in sys.argv[1:]:
                    if type(a).__name__ == "DeclareLaunchArgument")
     print(len(beschreibung.entities), namen)
 """
-    pfad = os.environ.get("PYTHONPATH", "")          # ROS-Pfade bleiben, unser Quellbaum raus
+    pfad = os.environ.get("PYTHONPATH", "")          # keep the ROS paths, drop our source tree
     rest = [e for e in pfad.split(os.pathsep) if e and os.path.abspath(e) != WURZEL]
     umgebung = dict(os.environ, PYTHONPATH=os.pathsep.join(rest))
     pfade = [os.path.join(WURZEL, "launch", d) for d in
@@ -188,7 +188,7 @@ for pfad in sys.argv[1:]:
     lauf = subprocess.run([sys.executable, "-c", code, *pfade], cwd="/tmp", env=umgebung,
                           capture_output=True, text=True, timeout=60)
     if "No module named" in lauf.stderr and "launch" in lauf.stderr:
-        pytest.skip("ROS-2-Paket 'launch' nicht sourced")
+        pytest.skip("ROS 2 package 'launch' not sourced")
     assert lauf.returncode == 0, lauf.stderr[-600:]
     assert "world" in lauf.stdout and "controller" in lauf.stdout and "use_sim_time" in lauf.stdout
 

@@ -1,9 +1,9 @@
-"""Alles auf einmal: Simulator + dein Knoten + (optional) Bewerter.
+"""Everything at once: simulator + your node + (optional) grader.
 
     ros2 launch launch/lab.launch.py robot:=alice controller:=student/solution.py \
         world:=production headless:=true seconds:=60
 
-Der Bewerter laeuft im Sim-Prozess mit (/--grade), sein Bericht steht am Ende.
+The grader runs inside the sim process (/--grade); its report comes at the end.
 """
 import os
 import sys
@@ -24,7 +24,7 @@ def start(context, *args, **kwargs):
     if kopflos:
         pfad["SDL_VIDEODRIVER"] = "dummy"
     node = lambda befehl: [sys.executable, "-m", "mecanum_lab.node", befehl]   # noqa: E731
-    roboten = hol("robots") or hol("robot")        # ohne Angabe: genau dein Roboter
+    roboten = hol("robots") or hol("robot")        # if omitted: exactly your robot
     sim = node("sim") + ["--world", hol("world"), "--robots", roboten,
                          "--seconds", hol("seconds")]
     if kopflos:
@@ -48,8 +48,8 @@ def generate_launch_description():
         DeclareLaunchArgument("robot", default_value="muster"),
         DeclareLaunchArgument("robots", default_value="muster"),
         DeclareLaunchArgument("controller", default_value="student/solution.py"),
-        DeclareLaunchArgument("task", default_value="", description="leer = Bewerter-steuert"),
-        DeclareLaunchArgument("grade", default_value="", description="z. B. alle oder kinematik"),
+        DeclareLaunchArgument("task", default_value="", description="Empty = grader decides"),
+        DeclareLaunchArgument("grade", default_value="", description="e.g. alle or kinematik"),
         DeclareLaunchArgument("seconds", default_value="0"),
         DeclareLaunchArgument("headless", default_value="false"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),

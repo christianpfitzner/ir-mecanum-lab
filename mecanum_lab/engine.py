@@ -1,10 +1,10 @@
-"""SimEngine: Welt + Roboter + Sensoren zu einem Takt verdrahtet.
+"""SimEngine: wires world + robots + sensors into a single tick.
 
-Der Engine-Kern kennt weder ROS noch pygame: er kennt Physik, Sensoren und eine
-`outbox` mit Messungen, die ein Andere (ROS-Bridge, Auswerter, Test) abholt.
-`Robot` bekommt zusaetzlich die Attribute `odometer` und `inertial` (die Engine-eigenen
-Sensoren) — Dataclasses ohne __slots__ erlauben das, und es haelt die Sicht auf den
-Roboter fuer GUI und Bewerter klein.
+The engine core knows neither ROS nor pygame: it knows physics, sensors and an
+`outbox` of measurements that someone else (ROS bridge, grader, test) picks up.
+`Robot` additionally gets the attributes `odometer` and `inertial` (the engine's own
+sensors) — dataclasses without __slots__ allow that, and it keeps the view of the
+robot small for the GUI and the grader.
 """
 import json
 import logging
@@ -19,20 +19,20 @@ MAX_OUTBOX = 20000
 
 
 class SpawnError(Exception):
-    """Robotername ungueltig, vergeben, oder Limit erreicht."""
+    """Robot name invalid, already taken, or limit reached."""
 
 
 class SimEngine:
-    """Besitzt die Welt und alle Roboter; ein simulerter Sekundenzeiger pro Takt."""
+    """Owns the world and all robots; one simulated second hand per tick."""
 
     def __init__(self, world, cfg: dict | None = None, seed: int | None = None):
         self.cfg = cfg or load_config()
         self.world = world
         self.seed = seed
         self.t = 0.0
-        self.t_task = 0.0                            # Beginn des aktuellen Auftrags
+        self.t_task = 0.0                            # start of the current task
         self.task = ""
-        self.erzwungen: dict = {}                    # --set-Angaben: gewinnen gegen jedes Prüfprofil
+        self.erzwungen: dict = {}                    # --set values: beat any test profile
         self.robots: dict[str, Robot] = {}
         self.outbox: list = []                       # (kind, robot|None, payload)
         self._noise = sensors.Noise(seed)
@@ -42,15 +42,15 @@ class SimEngine:
         self._sub = 1.0 / float(cfg_get(self.cfg, "rate", 50))
         self._acc = 0.0
 
-    # ------------------------------------------------------------------ Roboterverwaltung
+    # ------------------------------------------------------------------ Robot management
 
     def spawn(self, name: str, variant: str = "", pose: Pose | None = None) -> Robot:
-        """Neuen Roboter aufnehmen. Name muss eindeutig und gueltig sein."""
+        """Add a new robot. The name must be unique and valid."""
         name = sanitize_name(name)
         if name in self.robots:
-            raise SpawnError(f"Name '{name}' ist schon vergeben.")
+            raise SpawnError(f"Name '{name}' is already taken.")
         if len(self.robots) >= int(cfg_get(self.cfg, "spawn_limit", 12)):
-            raise SpawnError(f"Roboterlimit ({cfg_get(self.cfg, 'spawn_limit')}) erreicht.")
+            raise SpawnError(f"Robot limit ({cfg_get(self.cfg, 'spawn_limit')}) reached.")
         idx = self._index
         self._index += 1
         variant = variant or VARIANTS[idx % len(VARIANTS)]
@@ -66,10 +66,10 @@ class SimEngine:
         self.robots[name] = r
         self.publish_world()
         p = r.chassis.pose
-        log.info("Roboter '%s' gespawnt (%s, %s) an (%.2f, %.2f, %.0f Grad)",
+        log.info("spawned robot '%s' (%s, %s) at (%.2f, %.2f, %.0f deg)",
                  name, variant, color, p.x, p.y, math.degrees(p.theta))
-        log.debug("IMU '%s': Bias a=(%+.3f,%+.3f,%+.3f) m/s^2, g=(%+.4f,%+.4f,%+.4f) rad/s, "
-                  "Skala a=%.4f g=%.4f", name, *r.inertial.b_a, *r.inertial.b_g,
+        log.debug("IMU '%s': bias a=(%+.3f,%+.3f,%+.3f) m/s^2, g=(%+.4f,%+.4f,%+.4f) rad/s, "
+                  "scale a=%.4f g=%.4f", name, *r.inertial.b_a, *r.inertial.b_g,
                   r.inertial.k_a, r.inertial.k_g)
         return r
 
@@ -80,23 +80,23 @@ class SimEngine:
         return found
 
     def _zeitbezug(self, r) -> None:
-        """Sensoruhren an die Simulationszeit haengen — ihre Stempel sind Weltzeit, nicht 'seit Spawn'.
+        """Attach sensor clocks to simulation time — stamps are world time, not 'since spawn'.
 
-        Odometrie und IMU zaehlen ab ihrer Entstehung. Ohne Bezug waere ihr Stempel nach
-        einem Respawn oder Profilwechsel wieder 0, waehrend das GPS weiter
-        Simulationszeit meldet — ein Filter, der beide Stempel vergleicht, wuerde von dort
-        in die Zukunft praedizieren (und in der Bewertung komplett daneben liegen).
+        Odometry and the IMU count from their own creation. Without a reference their stamp
+        would read 0 again after a respawn or profile switch, while the GPS keeps reporting
+        simulation time — a filter comparing both stamps would predict from there into the
+        future (and be completely wrong in the grading).
         """
         r.odometer.t_offset = self.t
         r.inertial.t_offset = self.t
 
     def reset_robot(self, name: str) -> bool:
-        """Einen Roboter zurueck an seine Startpose — ohne die Simulationszeit anzufassen.
+        """Return one robot to its start pose — without touching the simulation time.
 
-        Der KF-Bewerter faehrt eine Kommandofolge blind, ohne den Roboter je zu sehen: die muss
-        an der Spawn-Pose beginnen, sonst faehrt sie in der zweiten Aufgabe gegen eine Wand,
-        weil die erste irgendwo geendet hat. Die Simulationszeit laeuft weiter — Protokoll,
-        Sensorstempel und die auftragsrelative Zeitrechnung der Sensoren haengen an ihr.
+        The KF grader drives a command sequence blind, never seeing the robot: it has to start
+        at the spawn pose, otherwise the second task drives into a wall because the first one
+        ended somewhere. Simulation time keeps running — the log, the sensor stamps and the
+        sensors' task-relative time accounting hang off it.
         """
         r = self.robots.get(name)
         if r is None:
@@ -115,7 +115,7 @@ class SimEngine:
         return True
 
     def reset(self) -> None:
-        """Alle Roboter zurueck an ihre Startpose, Zaehler null (Namen bleiben)."""
+        """Return all robots to their start pose, counters at zero (names stay)."""
         for r in self.robots.values():
             home = self.world.spawn_pose(r.spec.index)
             r.chassis.pose = Pose(home.x, home.y, home.theta)
@@ -134,14 +134,14 @@ class SimEngine:
         self.publish_world()
 
     def set_task(self, name: str) -> None:
-        """Auftrag setzen; damit beginnt auch die Zeitrechnung der Sensor-Eingriffe.
+        """Set the task; this also starts the clock for the sensor interventions.
 
-        Zweimal derselbe Auftrag ist kein neuer Auftrag: sonst würden `t_task` und das
-        Sensorprofil zurückgesetzt, während der Auftrag nur laufend an Späteinsteiger
-        verteilt wird (node.py veröffentlicht /sim/task einmal pro Sekunde erneut).
+        The same task twice is not a new task: otherwise `t_task` and the sensor profile would
+        reset while the task is only being handed to late joiners over and over (node.py
+        republishes /sim/task once per second).
 
-        `gps.gap` und `gps.bias_step` stehen in Sekunden **nach Auftragsbeginn** in der
-        Aufgabendatei — sonst hängt es am Startknopf, wann das Funkloch kommt.
+        `gps.gap` and `gps.bias_step` are seconds **after task start** in the task file —
+        otherwise the start button decides when the GPS outage hits.
         """
         name = name or ""
         if name == self.task:
@@ -151,15 +151,15 @@ class SimEngine:
         self._gps.t0 = self.t
 
     def set_sensor_profil(self, profil: dict) -> None:
-        """Sensorik im laufenden Betrieb umschalten — der Bewerter nutzt das je Aufgabe.
+        """Switch the sensors while running — the grader uses this per task.
 
-        Jedes `sim`-Profil in config/tasks.json beschreibt eine andere Halle (anderes GPS,
-        andere IMU-Rate, Funkloch). Statt für jede Aufgabe neu zu starten, werden die
-        Sensoren neu aufgebaut: andere Rauschzugänge, sonst nichts. Die Odometrie beginnt
-        an der aktuellen Pose, sonst hätte ein Profilwechsel einen Sprung in der Pose.
+        Every `sim` profile in config/tasks.json describes another arena (different GPS, IMU
+        rate, GPS outage). Instead of restarting for each task the sensors are rebuilt: other
+        noise inputs, nothing else. Odometry starts at the current pose, otherwise a profile
+        switch would jump the pose.
 
-        Zweimal dasselbe Profil melden wird ignoriert — sonst würde jede Sekunde die
-        Odometrie auf die Wahrheit zurückgesetzt und der IMU-Bias neu gewürfelt.
+        Reporting the same profile twice is ignored — otherwise every second odometry would be
+        reset to the truth and the IMU bias re-rolled.
         """
         meldung = json.dumps(profil, sort_keys=True, default=str)
         if not profil or meldung == getattr(self, "_profil_meldung", None):
@@ -167,7 +167,7 @@ class SimEngine:
         self._profil_meldung = meldung
         merge(self.cfg, dict(profil))
         if self.erzwungen:
-            merge(self.cfg, dict(self.erzwungen))     # was per Hand gesetzt wurde, bleibt stehen
+            merge(self.cfg, dict(self.erzwungen))     # what was set by hand stays put
         self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
         self._gps = sensors.GpsSensor(self._noise, cfg_get(self.cfg, "gps"))
         self._gps.t0 = getattr(self, "t_task", self.t)
@@ -181,13 +181,13 @@ class SimEngine:
         for art in ("gps", "odom", "imu", "truth"):
             for r in self.robots.values():
                 r.ticks.pop(art, None)
-        log.info("Sensorprofil umgestellt: gps σ=%.2f m %.1f Hz, imu %.0f Hz%s", float(
+        log.info("sensor profile switched: gps σ=%.2f m %.1f Hz, imu %.0f Hz%s", float(
             cfg_get(self.cfg, "gps.sigma_xy", 0.0)), float(cfg_get(self.cfg, "gps.rate", 0.0)),
             float(cfg_get(self.cfg, "imu.rate", 0.0)),
-            ", Funkloch " + str(cfg_get(self.cfg, "gps.gap")) if cfg_get(self.cfg, "gps.gap")
+            ", GPS outage " + str(cfg_get(self.cfg, "gps.gap")) if cfg_get(self.cfg, "gps.gap")
             else "")
 
-    # ------------------------------------------------------------------- Kommandos (ROS)
+    # ------------------------------------------------------------------- Commands (ROS)
 
     def set_cmd_vel(self, name: str, twist: Twist) -> None:
         r = self.robots.get(name)
@@ -195,11 +195,11 @@ class SimEngine:
             r.vel_cmd, r.t_vel = twist, self.t
 
     def set_wheel_speeds(self, name: str, wheels) -> None:
-        """Radgeschwindigkeiten [FL, FR, RL, RR] in rad/s — der Uebungskern."""
+        """Wheel speeds [FL, FR, RL, RR] in rad/s — the exercise core."""
         r = self.robots.get(name)
         if not r or len(wheels or []) != 4:
             return
-        r.mode = "wheels"                            # ab jetzt zaehlt nur noch das
+        r.mode = "wheels"                            # from now on only this counts
         r.wheel_cmd, r.t_cmd = [float(w) for w in wheels], self.t
 
     def set_mission(self, name: str, state: str) -> None:
@@ -208,21 +208,21 @@ class SimEngine:
             r.mission_state = str(state)
 
     def set_kf(self, name: str, kf) -> None:
-        """Eigene Schätzung eines Roboters annehmen (Versuch 2) und gegen die Wahrheit messen.
+        """Accept a robot's own state estimate (experiment 2) and measure it against the truth.
 
-        Der Fehler hier ist nur fuer HUD und `./lab robots` da — bewertet wird im
-        Bewerter (grade.py), weil der die Zeitfenster und die Messreihen kennt.
+        The error here is only for the HUD and `./lab robots` — grading happens in the grader
+        (grade.py), because that one knows the time windows and the measurement series.
         """
         r = self.robots.get(name)
         if r and kf is not None:
-            kf.t = self.t                                # Ankunft in Simulationszeit stempeln
+            kf.t = self.t                                # stamp the arrival in simulation time
             r.kf = kf
             r.kf_err = math.hypot(kf.x - r.pose.x, kf.y - r.pose.y)
 
-    # ------------------------------------------------------------------------- Zeitschritt
+    # ------------------------------------------------------------------------- Time stepping
 
     def step(self, dt: float) -> None:
-        """Veraeffte Zeit in feste Physikschritte zerlegen (Determinismus)."""
+        """Split elapsed time into fixed physics steps (determinism)."""
         self._acc = min(self._acc + max(dt, 0.0), 0.5)
         while self._acc >= self._sub:
             self._substep(self._sub)
@@ -239,8 +239,8 @@ class SimEngine:
             r.wheels = list(r.chassis.wheels)
             r.contacts = r.chassis.contacts
             r.distance += math.hypot(p.x - x0, p.y - y0)
-            odo = r.odometer.update(r.chassis.wheels, dt)      # jeden Schritt integrieren
-            for msg in r.inertial.sample(r.pose, r.twist, dt):  # IMU laeuft schneller als die Physik
+            odo = r.odometer.update(r.chassis.wheels, dt)      # integrate every step
+            for msg in r.inertial.sample(r.pose, r.twist, dt):  # IMU runs faster than the physics
                 self._push("imu", r.spec.name, msg)
                 r.imu = msg
             if self._due(r, "odom", cfg_get(self.cfg, "odom.rate", 50.0), dt):
@@ -251,7 +251,7 @@ class SimEngine:
                 self._push("scan", r.spec.name, r.scan)
             if self._due(r, "gps", cfg_get(self.cfg, "gps.rate", 5.0), dt):
                 fix = self._gps.fix(r.pose, self.t)
-                if fix is not None:                            # Funkloch: keine Meldung, kein letzter Fix
+                if fix is not None:                            # GPS outage: no message, no last fix
                     r.gps = fix
                     self._push("gps", r.spec.name, fix)
             if cfg_get(self.cfg, "debug_truth") and self._due(
@@ -260,7 +260,7 @@ class SimEngine:
         self.t += dt
 
     def _drive(self, r: Robot, dt: float) -> None:
-        """Kommandos anwenden: eigene Radwerte schlagen cmd_vel, beides mit Watchdog."""
+        """Apply commands: own wheel values beat cmd_vel, both with a watchdog."""
         wheels_ok = r.wheel_cmd is not None and 0 <= self.t - r.t_cmd <= self.cfg["cmd_timeout"]
         vel_ok = r.vel_cmd is not None and 0 <= self.t - r.t_vel <= self.cfg["cmd_timeout"]
         if r.mode == "wheels" and wheels_ok:
@@ -270,10 +270,10 @@ class SimEngine:
             r.chassis.set_wheels(physics.inverse_kinematics(
                 r.chassis.geom, v.vx, v.vy, v.omega))
         else:
-            r.chassis.set_wheels([0.0] * 4)          # Funkstille -> Motor ausrollen
+            r.chassis.set_wheels([0.0] * 4)          # radio silence -> let the motors coast down
 
     def _due(self, r: Robot, kind: str, rate: float, dt: float) -> bool:
-        """Sensor-Rate-Einhaltung pro Roboter und Messgroesse."""
+        """Enforce the sensor rate per robot and measured quantity."""
         period = 1.0 / max(rate, 0.001)
         acc = r.ticks.get(kind, 0.0) + dt
         if acc >= period:
@@ -282,17 +282,17 @@ class SimEngine:
         r.ticks[kind] = acc
         return False
 
-    # ------------------------------------------------------------------------- Nachrichten
+    # ------------------------------------------------------------------------- Messages
 
     def _push(self, kind: str, robot: str | None, payload) -> None:
-        if len(self.outbox) > MAX_OUTBOX:            # Endlosschleife ohne Abnehmer
+        if len(self.outbox) > MAX_OUTBOX:            # endless loop without a consumer
             del self.outbox[:MAX_OUTBOX // 2]
-        if hasattr(payload, "t"):                    # Simulationszeit in die Messung pragen
+        if hasattr(payload, "t"):                    # stamp simulation time into the measurement
             payload.t = self.t
         self.outbox.append((kind, robot, payload))
 
     def drain(self) -> list:
-        """Alle offenen Messungen holen und die Outbox leeren (von der Bridge gerufen)."""
+        """Take all pending measurements and empty the outbox (called by the bridge)."""
         out, self.outbox = self.outbox, []
         return out
 
@@ -312,7 +312,7 @@ class SimEngine:
         self._push("robots", None, json.dumps(self.robots_info()))
 
     def world_json(self) -> str:
-        """Kurzbeschreibung der Welt (Groesse, Ziel, Starts) — fuer Studierendenknoten."""
+        """Short world description (size, goal, spawns) — for student nodes."""
         g = self.world.goal
         return json.dumps({"name": self.world.name, "cell": self.world.cell,
                            "size": list(self.world.size),
@@ -321,7 +321,7 @@ class SimEngine:
                            "walls": len(self.world.walls)})
 
     def config_json(self) -> str:
-        """Sensorprofil der laufenden Simulation — der Bewerter prüft darauf ihr Prüfprofil."""
+        """Sensor profile of the running simulation — the grader checks its test profile here."""
         profil = {k: cfg_get(self.cfg, k) for k in
                   ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth")}
         profil["seed"] = self.seed

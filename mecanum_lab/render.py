@@ -1,25 +1,34 @@
-"""Pygame-Ansicht des Simulators: liest engine.world und engine.robots, aendert nichts.
+"""Pygame view of the simulator: reads engine.world and engine.robots, changes nothing.
 
-Die Welt passt mit Rand ins Fenster; 1..9 springt zu einem Roboter, 0 zeigt wieder
-alles, +/- zoomt. Pause, Scan, Spur, Zoom und Fokus leben im Renderer, poll() meldet
-nur die Tastendrucke seit dem letzten Aufruf — Teleop und Auftragslogik bleiben beim
-Aufrufer (node.py). Physik und ROS werden dabei nie angefasst.
+Three parts, and only this module draws:
+
+* `cam.py`  scale and centre of the view — wheel zoom at the cursor, drag pan, resize, `f`
+* `menu.py`  which sensor layers are drawn; switching a layer off never touches the bus
+* here      the layers themselves: floor, walls, scan, trail, estimate, robot with wheels
+
+The world is drawn as a closed box: everything outside `world.size` is void, so a missing
+border wall is visible as a gap instead of looking like more floor. Walls are filled blocks
+without an outline — with a 1 m grid the outline read as a second, thinner wall. 1..9 jumps
+to a robot, 0 shows everything again. Physics and ROS are never touched.
 """
 import math
 
 import pygame
 
+from . import cam as kamera
+from . import menu as menue
 from .types import cfg_get
 
-MARGIN = 40                                        # Pixelrand, den die Welt nie ueberlaeuft
-HELP = "q Ende | SPACE Pause | l Scan | t Spur | k Schätzung | 0 alles | 1..9 Roboter | +/- Zoom"
+HELP = "q quit | SPACE pause | m menu | f fit | 0 all | 1..9 robot | wheel zoom | drag pan"
 GREY = (210, 212, 218)
-GPS_FARBE = (250, 210, 90)                         # Messung: flach und eckig
-KF_FARBE = (120, 240, 170)                         # Schätzung: leuchtend und rund
-KF_SICHERHEIT = 2.0                                # wie viele σ die Ellipse in der GUI zeigt
-CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))     # FL, FR, RL, RR im Koerperrahmen
-ROLLERS = ((1, -1), (1, 1), (1, 1), (1, -1))       # Rollachsen der X-Anordnung
-# Kennzeichnung je Roboter als Liste von (radius, winkel in Grad); radius 1 = Fussabdruck.
+GPS_FARBE = (250, 210, 90)                         # measurement: flat and angular
+KF_FARBE = (120, 240, 170)                         # estimate: bright and round
+KF_SICHERHEIT = 2.0                                # how many σ the GUI ellipse shows
+CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))     # FL, FR, RL, RR in the body frame
+ROLLERS = ((1, -1), (1, 1), (1, 1), (1, -1))       # roller axes of the X arrangement
+RAD_ROLLEN = 3                                     # strokes drawn per wheel
+ROLLEN_EICHUNG = 0.25                              # wheel rad -> on-screen rotation, illustrative
+# Marker per robot as a list of (radius, angle in degrees); radius 1 = footprint.
 SHAPES = {
     "triangle": [(1, -90), (1, 30), (1, 150)],
     "square": [(1.2, a) for a in (45, 135, 225, 315)],
@@ -30,25 +39,34 @@ SHAPES = {
     "star": [v for a in range(0, 360, 36) for v in ((1.35, a), (.55, a + 18))],
     "cross": [v for a in range(0, 360, 45) for v in ((1.3, a), (.5, a + 22.5))],
 }
-# Taste -> (umgeschaltetes Attribut, Name der Flanke im poll()-Worterbuch)
+# key -> (attribute toggled, edge name in the poll() dict, '' for a view-only switch)
 KEYS = {"space": ("paused", "pause"), "l": ("show_scan", "toggle_lidar"),
-        "t": ("show_trails", "toggle_trail"), "k": ("show_kf", "toggle_kf")}
+        "t": ("show_trails", "toggle_trail"), "k": ("show_kf", "toggle_kf"),
+        "g": ("show_gps", ""), "w": ("show_wheels", ""), "v": ("show_velocity", ""),
+        "d": ("show_markers", ""), "z": ("show_goal", ""), "h": ("show_hud", "")}
 
 
 def body(theta: float, dx: float, dy: float) -> tuple:
-    """Vektor aus dem Koerperrahmen (x vorn, y links) in die Welt drehen."""
+    """Rotate a vector from the body frame (x forward, y left) into the world."""
     c, s = math.cos(theta), math.sin(theta)
     return (dx * c - dy * s, dx * s + dy * c)
 
 
 def rgb(color, factor: float = 1.0) -> tuple:
-    """Farbe aus types.PALETTE (0..1) -> pygame (0..255), optional abgedunkelt."""
+    """Color from types.PALETTE (0..1) -> pygame (0..255), optionally darkened."""
     return tuple(min(255, int(255 * v * factor)) for v in color)
 
 
 def mix(a: tuple, b: tuple, part: float = .5) -> tuple:
-    """Zwei Farben mischen; Teil 0..1 zugunsten von b."""
-    return tuple(int((1 - part) * x + part * y) for x, y in zip(rgb(a), rgb(b)))
+    """Mix two colors; part 0..1 in favor of b.
+
+    Accepts both colour spaces used in this file — `types.PALETTE` values (0..1) and colors
+    already converted by `rgb()` (0..255). Without that, `mix(rgb(spec.rgb), ...)` multiplied by
+    255 a second time and drew everything near white, which is how a red robot got a white box.
+    """
+    wert = lambda w: [255 * v if v <= 1 else v for v in w]            # noqa: E731 - reads inline
+    a, b = wert(a), wert(b)
+    return tuple(int((1 - part) * x + part * y) for x, y in zip(a, b))
 
 
 def _add(p: tuple, d: tuple) -> tuple:
@@ -56,10 +74,10 @@ def _add(p: tuple, d: tuple) -> tuple:
 
 
 def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
-    """Eckpunkte einer Kennzeichnungsform in Pixeln, unbekannte Namen als Kreis.
+    """Corner points of a marker shape in pixels, unknown names drawn as a circle.
 
-    Das Minus vor theta gleicht die nach unten zeigende Bildschirmy aus, damit sich die
-    Form mit dem Roboter mitdreht statt spiegelverkehrt zu stehen.
+    The minus before theta compensates the downward screen y, so the shape turns with the
+    robot instead of standing mirrored.
     """
     return [(centre[0] + radius * rt * math.cos(math.radians(ang) - theta),
              centre[1] + radius * rt * math.sin(math.radians(ang) - theta))
@@ -67,77 +85,108 @@ def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
 
 
 class Renderer:
-    """Ein Frame pro draw(), Tastendrucke pro poll(); Zustand hier, Entscheidungen dort."""
+    """One frame per draw(), key presses per poll(); state here, decisions there."""
 
     def __init__(self, engine, cfg: dict):
         style = cfg_get(cfg, "gui_style") or {}
-        self.engine, self.cfg, self.size = engine, cfg, (int(cfg_get(cfg, "width", 1120)),
-                                                         int(cfg_get(cfg, "height", 700)))
+        self.engine, self.cfg = engine, cfg
         self.col_wall = rgb(style.get("wall", (.34, .36, .42)))
         self.col_floor = rgb(style.get("floor", (.13, .14, .17)))
-        self.scan_dim = 1 - int(style.get("lidar_alpha", 70)) / 255      # helle, blasse Punkte
+        self.col_void = rgb(style.get("void", (.06, .065, .08)))     # outside the world
         self.trail_len = int(style.get("trail_len", 400))
-        self.show_scan, self.show_trails, self.paused = True, True, False
-        self.show_kf = True
-        self.kf_spur = {}                                      # letzte Schätzungen je Name
-        self.zoom, self.focus = 1.0, None
-        try:                                                    # bewusst ohne pygame.init():
-            pygame.display.init()                               # Audio und Joystick braucht
-            pygame.font.init()                                  # die Ansicht nicht
+        self.rad_scale = float(style.get("wheel_scale", 2.4))        # wheels: drawn bigger than 5 cm
+        self.chassis_scale = float(style.get("chassis_scale", 1.0))  # body box, in addition to lx/ly
+        self.show_scan = self.show_trails = self.show_gps = self.show_kf = True
+        self.show_wheels = self.show_velocity = True
+        self.show_markers = self.show_goal = self.show_hud = True
+        self.paused = False
+        self.kf_spur, self.trails, self.phase = {}, {}, {}           # per robot name
+        self.focus = None
+        self.size = (int(cfg_get(cfg, "width", 1120)), int(cfg_get(cfg, "height", 700)))
+        try:                                                    # deliberately no pygame.init():
+            pygame.display.init()                               # the view needs neither
+            pygame.font.init()                                  # audio nor joystick
         except pygame.error as exc:
-            raise RuntimeError("Kein Display — fuer Headless SDL_VIDEODRIVER=dummy setzen."
+            raise RuntimeError("no display — set SDL_VIDEODRIVER=dummy for headless runs"
                                ) from exc
-        self.screen = pygame.display.set_mode(self.size)
+        self.screen = pygame.display.set_mode(self.size, pygame.RESIZABLE)
+        self.cam = kamera.Camera(self.size, engine.world.size or (10, 10),
+                                 px_per_meter_min=float(style.get("px_per_meter_min", 50)))
         pygame.display.set_caption(f"mecanum_lab — {engine.world.name}")
-        pygame.event.get()                                      # Reste eines Vorfensters weg
+        pygame.event.get()                                      # drop events of an old window
         self.font, self.big = pygame.font.Font(None, 17), pygame.font.Font(None, 21)
+        self.menu = menue.Panel(self.font, self.big)
         self.clock = pygame.time.Clock()
-        self.trails, self.phase = {}, {}                        # Pfad und Radverdrehung je Name
-        self.s, self.ox, self.oy = 100.0, 0.0, 0.0              # Pixel je Meter, Bildschirmnull
+        self._drag, self._frame = None, 0
         self._t, self._closed, self._alive = float(engine.t), False, True
+        self._ereignisse = {pygame.QUIT: self._ev_quit,
+                            pygame.VIDEORESIZE: self._ev_resize,
+                            pygame.MOUSEBUTTONDOWN: self._ev_mouse_down,
+                            pygame.MOUSEMOTION: self._ev_mouse_motion,
+                            pygame.MOUSEBUTTONUP: self._ev_mouse_up,
+                            pygame.MOUSEWHEEL: self._ev_wheel,
+                            pygame.KEYDOWN: self._ev_key}
 
-    def _cam(self) -> None:
-        """Pixel je Meter und Bildschirm-Ursprung bestimmen (einmal pro Frame)."""
-        wx, wy = [max(v, .5) for v in (self.engine.world.size or (10, 10))]
-        s = min((self.size[0] - 2 * MARGIN) / wx, (self.size[1] - 2 * MARGIN) / wy)
-        s *= min(max(self.zoom, 1.0), 8.0)
-        bots = list(self.engine.robots.values())
-        rx, ry = (bots[self.focus].pose.x, bots[self.focus].pose.y) if self.focus is not None \
-            and self.focus < len(bots) else (wx / 2, wy / 2)
-        hvx, hvy = self.size[0] / (2 * s), self.size[1] / (2 * s)
-        rx = wx / 2 if hvx >= wx / 2 else min(max(rx, hvx), wx - hvx)   # Welt bleibt sichtbar
-        ry = wy / 2 if hvy >= wy / 2 else min(max(ry, hvy), wy - hvy)
-        self.s, self.ox, self.oy = s, self.size[0] / 2 - rx * s, self.size[1] / 2 + ry * s
+    # ------------------------------------------------------------------------- Kamera-Fassade
+    @property
+    def zoom(self) -> float:
+        return self.cam.zoom
+
+    @property
+    def s(self) -> float:
+        return self.cam.s
+
+    @property
+    def ox(self) -> float:
+        return self.size[0] / 2 - self.cam.cx * self.s
+
+    @property
+    def oy(self) -> float:
+        return self.size[1] / 2 + self.cam.cy * self.s
 
     def px(self, x: float, y: float) -> tuple:
-        """Weltmeter -> Pixel: Welty zeigt nach oben, Bildschirmy nach unten."""
-        return (self.ox + x * self.s, self.oy - y * self.s)
+        """World meters -> pixels (the camera knows centre and scale)."""
+        return self.cam.px(x, y)
+
+    def _cam(self) -> None:
+        """Scale for this frame; a focused robot stays in the middle unless one is dragging."""
+        self.cam.update(self.engine.world.size or (10, 10))
+        bots = list(self.engine.robots.values())
+        if self.focus is not None and self.focus < len(bots) and not self._drag:
+            pose = bots[self.focus].pose
+            self.cam.center_on(pose.x, pose.y)
+        elif self.focus is None:
+            self.cam.clamp()
 
     def _text(self, txt, x, y, color, big=False, center=False) -> int:
         img = (self.big if big else self.font).render(txt, True, color)
         self.screen.blit(img, img.get_rect(center=(x, y)) if center else (x, y))
         return img.get_width()
 
+    # ------------------------------------------------------------------------------ ein Frame
+
     def draw(self, cap: bool = True) -> None:
-        """Ein kompletter Frame. cap=False ohne Frameraten-Bremse (fuer Messungen)."""
+        """One complete frame. cap=False drops the frame-rate cap (for measurements)."""
         eng = self.engine
-        dt = max(0.0, min(float(eng.t) - self._t, .5))          # nur Simzeit treibt die Rollen
-        self._t = float(eng.t)
+        dt = max(0.0, min(float(eng.t) - self._t, .5))      # only simulation time drives the rollers
+        self._t, self._frame = float(eng.t), self._frame + 1
         self._cam()
-        self.screen.fill(self.col_floor)
+        self.screen.fill(self.col_void)
         self._world()
         self.trails = {k: v for k, v in self.trails.items() if k in eng.robots}
         self.kf_spur = {k: v for k, v in self.kf_spur.items() if k in eng.robots}
         self.phase = {k: v for k, v in self.phase.items() if k in eng.robots}
         for robot in eng.robots.values():
-            self._trail(robot)
+            self._trail(robot)                              # kept while hidden, not thrown away
             if self.show_scan:
                 self._scan_dots(robot)
             if self.show_kf:
                 self._schaetzung(robot)
         for robot in eng.robots.values():
             self._robot(robot, dt)
-        self._hud()
+        if self.show_hud:
+            self._hud()
+        self.menu.draw(self.screen, (self.size[0], 52), self)
         if self.paused:
             self._text("PAUSE", self.size[0] / 2, 24, (250, 220, 120), True, True)
         pygame.display.flip()
@@ -145,54 +194,58 @@ class Renderer:
             self.clock.tick(int(cfg_get(self.cfg, "gui_rate", 30) or 30))
 
     def _world(self) -> None:
-        """Deko-Linien, Waende und Ziel."""
+        """Floor inside the world box, void outside, walls as filled blocks, goal."""
         w, sc = self.engine.world, self.screen
-        for x0, y0, x1, y1 in w.markings or []:
-            pygame.draw.line(sc, mix(self.col_floor, (1, 1, 1), .45), self.px(x0, y0),
-                             self.px(x1, y1), 2)
+        feld = pygame.Rect(self.cam.rect)
+        pygame.draw.rect(sc, self.col_floor, feld)
+        for x0, y0, x1, y1 in (w.markings or []) if self.show_markers else []:
+            pygame.draw.line(sc, mix(self.col_floor, (1, 1, 1), .4), self.px(x0, y0),
+                             self.px(x1, y1), max(1, int(0.06 * self.s)))
         for wall in w.walls or []:
-            rect = pygame.Rect(self.px(wall.x0, wall.y1),
-                               (max(1, int((wall.x1 - wall.x0) * self.s)),
-                                max(1, int((wall.y1 - wall.y0) * self.s))))
-            pygame.draw.rect(sc, self.col_wall, rect)
-            pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), rect, 1)
-        if w.goal:
+            ecke = self.px(wall.x0, wall.y1)
+            pygame.draw.rect(sc, self.col_wall,
+                             pygame.Rect(ecke, (max(1, int((wall.x1 - wall.x0) * self.s)),
+                                                max(1, int((wall.y1 - wall.y0) * self.s)))))
+        pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), feld, 2)   # the world ends here
+        if w.goal and self.show_goal:
             centre = self.px(w.goal.x, w.goal.y)
-            for step, rad in enumerate((16, 10, 4)):            # Zielscheibe
-                pygame.draw.circle(sc, mix((1, .85, .3), (1, 1, 1), step / 3), centre, rad,
-                                   2 if step else 0)
-            self._text("Ziel", centre[0] - 12, centre[1] - 32, (1, .85, .3))
+            for ring, rad in enumerate((16, 10, 4)):                       # bullseye
+                pygame.draw.circle(sc, mix((1, .85, .3), (1, 1, 1), ring / 3), centre, rad,
+                                   2 if ring else 0)
+            self._text("goal", centre[0] - 12, centre[1] - 32, (1, .85, .3))
 
     def _scan_dots(self, robot) -> None:
+        """Hit points in the robot's own color — the screen then says which dots are whose."""
         scan = robot.scan
         if not scan or not scan.ranges:
             return
-        color = mix(rgb(robot.spec.rgb), self.col_floor, self.scan_dim)
+        color, sc, groesse = rgb(robot.spec.rgb), self.screen, 3 if self.s < 90 else 4
         for i in range(0, len(scan.ranges), max(1, len(scan.ranges) // 180)):
             rng = scan.ranges[i]
-            if not math.isfinite(rng) or rng <= scan.range_min:     # inf/nan = kein Treffer
+            if not math.isfinite(rng) or rng <= scan.range_min:     # inf/nan = no hit
                 continue
             wx, wy = _add((robot.pose.x, robot.pose.y),
                           body(robot.pose.theta + scan.angle_min + i * scan.angle_increment,
                                rng, 0))
-            pygame.draw.rect(self.screen, color, (self.px(wx, wy), (3, 3)))
+            p = self.px(wx, wy)
+            pygame.draw.rect(sc, color, (p, (groesse, groesse)))
 
     def _schaetzung(self, robot) -> None:
-        """Versuch 2: Rohmessung (Kreuz), eigene Schätzung (Raute + σ-Ellipse), Fehlerstrich.
+        """Lab 2: raw measurement (cross), own estimate (diamond + σ ellipse), error tick.
 
-        Die Ellipse ist keine Deko: wer eine zu kleine σ angibt, sieht sofort einen Filter,
-        der neben der Wahrheit herläuft, aber einen winzigen Streukreis malt — genau der
-        Selbstbetrug, den Auftrag K3 bestraft.
+        The ellipse is no decoration: report a σ that is too small and you see a filter
+        running next to the truth while drawing a tiny scatter circle — exactly the
+        self-deception that task K3 penalizes.
         """
-        sc, name = self.screen, robot.spec.name
-        if robot.gps:
+        sc = self.screen
+        if robot.gps and self.show_gps:
             px = self.px(robot.gps.x, robot.gps.y)
             pygame.draw.line(sc, GPS_FARBE, (px[0] - 5, px[1]), (px[0] + 5, px[1]), 2)
             pygame.draw.line(sc, GPS_FARBE, (px[0], px[1] - 5), (px[0], px[1] + 5), 2)
         kf = robot.kf
         if not kf:
             return
-        spur = self.kf_spur.setdefault(name, [])
+        spur = self.kf_spur.setdefault(robot.spec.name, [])
         if not spur or math.dist((kf.x, kf.y), spur[-1]) > .02:
             spur.append((kf.x, kf.y))
             del spur[:-max(1, self.trail_len)]
@@ -217,55 +270,83 @@ class Renderer:
                               [self.px(x, y) for x, y in pts], 2)
 
     def _robot(self, robot, dt: float) -> None:
-        """Fussabdruck, Kennzeichnung, Richtungspfeil, vier Mecanum-Raeder, Namenslabel."""
+        """Chassis, marker, heading, four mecanum wheels with rolling strokes, name label."""
         pose, col = robot.pose, rgb(robot.spec.rgb)
+        sc = self.screen
         lx, ly, wr, fp_m = self._geom(robot)
-        centre, fp = self.px(pose.x, pose.y), max(4, fp_m * self.s)
-        pygame.draw.circle(self.screen, mix(col, self.col_floor, .55), centre, fp, 1)
-        pygame.draw.polygon(self.screen, col, shape(robot.spec.marker, centre, fp * .55,
-                                                    pose.theta))
-        pygame.draw.line(self.screen, col, centre,
-                         self.px(*_add((pose.x, pose.y), body(pose.theta, fp_m, 0))), 3)
-        for i, (sx, sy) in enumerate(CORNERS):
-            self._wheel(robot.spec.name,
-                        self.px(*_add((pose.x, pose.y), body(pose.theta, sx * lx, sy * ly))),
-                        pose.theta, robot.wheels[i] if i < len(robot.wheels) else 0.0,
-                        i, ROLLERS[i], col, max(3, wr * self.s), dt)
-        speed = math.hypot(robot.twist.vx, robot.twist.vy)
-        if speed > .02:                                         # Geschwindigkeit als Strahl
-            heading = pose.theta + math.atan2(robot.twist.vy, abs(robot.twist.vx) or 1e-6)
-            pygame.draw.line(self.screen, mix(col, (1, 1, 1), .5), centre,
-                             self.px(*_add((pose.x, pose.y), body(heading, speed, 0))), 1)
-        self._text(robot.spec.name, centre[0], centre[1] - fp - 12, col, center=True)
+        centre, fp = self.px(pose.x, pose.y), max(6, fp_m * self.s)
+        la, be = (lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale   # metres
+        halb = min(wr * self.rad_scale, .42 * la)       # wheel radius on screen, in metres
+        lang, breit = la * self.s, be * self.s          # same in pixels
+        u, v = body(-pose.theta, 1, 0), body(-pose.theta, 0, 1)
+        kasten = self._platte(centre, u, v, lang, breit)
+        pygame.draw.polygon(sc, mix(col, self.col_floor, .55), kasten)
+        pygame.draw.polygon(sc, col, kasten, 1)
+        pygame.draw.circle(sc, mix(col, self.col_floor, .82), centre, fp, 1)  # collision circle
+        if self.show_wheels:
+            for i, (sx, sy) in enumerate(CORNERS):
+                self._wheel(robot, pose.theta, sx * (la - halb * .7), sy * (be - halb * .45),
+                            pose, halb, i, col, dt)
+        pygame.draw.polygon(sc, col, shape(robot.spec.marker, centre, min(lang, breit) * .6,
+                                           pose.theta))
+        pygame.draw.line(sc, col, centre,
+                         self.px(*_add((pose.x, pose.y), body(pose.theta, fp_m * 1.25, 0))),
+                         max(2, int(self.s * .03)))
+        if self.show_velocity:
+            speed = math.hypot(robot.twist.vx, robot.twist.vy)
+            if speed > .02:                                     # commanded velocity as a beam
+                richt = pose.theta + math.atan2(robot.twist.vy, abs(robot.twist.vx) or 1e-6)
+                pygame.draw.line(sc, mix(col, (1, 1, 1), .5), centre,
+                                 self.px(*_add((pose.x, pose.y), body(richt, speed, 0))), 2)
+        self._text(robot.spec.name, centre[0], centre[1] - breit - 14, col, center=True)
 
-    def _wheel(self, name, centre, theta, spin, index, roller, col, size, dt) -> None:
-        """Rad als Linie in Fahrtrichtung, drei Rollen als mitlaufende Diagonalstriche.
+    def _wheel(self, robot, theta, dx, dy, pose, halb, index, col, dt) -> None:
+        """Wheel body along the driving direction, roller strokes travelling along it.
 
-        Die Rollenbewegung ist auf 0.25 geeicht und nur zur Anschauung — bei 12 rad/s
-        und 30 fps wuerde sie sonst nur flackern.
+        `halb` is the drawn wheel radius in metres: `gui_style.wheel_scale` times the real 5 cm,
+        but never more than 42 % of the chassis — an aid for the eye, like the roller speed that
+        is scaled to 0.25 because 12 rad/s at 30 fps would only flicker. Physics untouched.
         """
-        phase = self.phase.setdefault(name, [0.0] * 4)
-        phase[index] = (phase[index] + spin * dt * .25) % math.tau
-        u = body(-theta, 1, 0)                    # minus: die Bildschirmy zeigt nach unten
-        pygame.draw.line(self.screen, col, _add(centre, (-u[0] * size, -u[1] * size)),
-                         _add(centre, (u[0] * size, u[1] * size)), 2)
-        roll = body(-theta, roller[0] / 1.4143, roller[1] / 1.4143)
-        for k in range(3):
-            off = (phase[index] + k * math.tau / 3) % math.tau / math.tau * 2 - 1
-            mid = _add(centre, (u[0] * size * off, u[1] * size * off))
-            pygame.draw.line(self.screen, mix(col, (1, 1, 1), .45), mid,
-                             _add(mid, (roll[0] * size * .8, roll[1] * size * .8)), 1)
+        sc = self.screen
+        phase = self.phase.setdefault(robot.spec.name, [0.0] * 4)
+        phase[index] = (phase[index] + (robot.wheels[index] if index < len(robot.wheels) else 0.0)
+                        * dt * ROLLEN_EICHUNG) % math.tau
+        mittig = self.px(*_add((pose.x, pose.y), body(theta, dx, dy)))
+        lang = max(2.2, halb * self.s)                                # half length of the wheel
+        breit = max(1.4, lang * .6)                                   # half width of the wheel
+        u, v = body(-theta, 1, 0), body(-theta, 0, 1)
+        platte = self._platte(mittig, u, v, lang, breit)
+        pygame.draw.polygon(sc, mix(col, (0, 0, 0), .55), platte)
+        if self.s > 45:                                           # a 1 px edge below that is mush
+            pygame.draw.polygon(sc, col, platte, 1)
+        rolle = body(-theta, ROLLERS[index][0] / 1.4143, ROLLERS[index][1] / 1.4143)
+        for k in range(RAD_ROLLEN):
+            anteil = (phase[index] / math.tau + k / RAD_ROLLEN) % 1.0
+            wander = (anteil * 2 - 1) * (lang - breit)            # stays inside the wheel
+            mittig_k = _add(mittig, (u[0] * wander, u[1] * wander))
+            pygame.draw.line(sc, mix(col, (1, 1, 1), .35), mittig_k,
+                             _add(mittig_k, (rolle[0] * breit * 1.3, rolle[1] * breit * 1.3)),
+                             max(1, int(breit * .3)))
+
+    @staticmethod
+    def _platte(centre, u, v, lang, breit) -> list:
+        """Rectangle around `centre` spanned by the screen vectors u (long) and v (wide)."""
+        ecken = []
+        for su, sv in ((1, 1), (1, -1), (-1, -1), (-1, 1)):
+            ecken.append((centre[0] + u[0] * lang * su + v[0] * breit * sv,
+                          centre[1] + u[1] * lang * su + v[1] * breit * sv))
+        return ecken
 
     def _hud(self) -> None:
-        """Kopfzeile plus eine Zeile je Roboter; ab 5 Robotern zwei Spalten."""
+        """Header line plus one line per robot; two columns from 5 robots up."""
         eng = self.engine
         self._text(f"{eng.world.name}  t={eng.t:6.1f}s  {self.clock.get_fps():4.0f} fps  "
-                   f"Roboter: {len(eng.robots)}  Auftrag: {eng.task or '-'}  {HELP}",
+                   f"{self.s:3.0f} px/m  robots: {len(eng.robots)}  task: {eng.task or '-'}  {HELP}",
                    8, 6, (235, 235, 240), big=True)
         width = self.size[0] // 2 if len(eng.robots) > 4 else self.size[0]
         for i, r in enumerate(eng.robots.values()):
             o = (f"x={r.odom.x:+.2f} y={r.odom.y:+.2f} th={math.degrees(r.odom.theta):+.0f}"
-                 if r.odom else "keine Odometrie")
+                 if r.odom else "no odometry")
             x = 8 + (i // 10) * width
             y = 30 + (i % 10) * 17
             pygame.draw.rect(self.screen, rgb(r.spec.rgb), (x, y + 3, 9, 9))
@@ -274,52 +355,94 @@ class Renderer:
                           (f"|v|={math.hypot(r.twist.vx, r.twist.vy):.2f} m/s", GREY),
                           (f"w={r.twist.omega:+.2f}", GREY), ("odom " + o, GREY),
                           ("gps " + (f"x={r.gps.x:+.2f} y={r.gps.y:+.2f}" if r.gps
-                                     else "kein fix"), GREY),
+                                     else "no fix"), GREY),
                           ("kf " + (f"x={r.kf.x:+.2f} y={r.kf.y:+.2f} "
                                     f"σ=({r.kf.sx:.2f},{r.kf.sy:.2f}) "
                                     f"Δ={r.kf_err:.2f} m" if r.kf else "-"), KF_FARBE),
-                          (f"Weg={r.distance:.1f}m", GREY), (f"Kontakt={r.contacts}", GREY),
+                          (f"dist={r.distance:.1f}m", GREY), (f"contacts={r.contacts}", GREY),
                           (r.mission_state, GREY)]:
                 x += self._text(label[0], x + 13, y, label[1]) + 8
 
     def _geom(self, robot) -> list:
-        """lx, ly, radradius, fussabdruck — aus der Physik, sonst aus der cfg."""
+        """lx, ly, wheel radius, footprint — from the physics, otherwise from cfg."""
         g = getattr(robot.chassis, "geom", None)
         return [getattr(g, key, cfg_get(self.cfg, "robot." + key, dflt))
                 for key, dflt in (("lx", .14), ("ly", .13), ("r", .05), ("footprint_r", .21))]
 
+    # --------------------------------------------------------------------------------- Eingaben
+
     def poll(self) -> dict:
-        """Tastendrucke seit dem letzten Aufruf; der Zustand wechselt hier, Flanke wird gemeldet."""
+        """Key presses and mouse since the last call; state flips here, the edge is reported."""
         flags = {"quit": False, "pause": False, "toggle_lidar": False,
-                 "toggle_trail": False, "camera": None, "key": ""}
+                 "toggle_trail": False, "camera": None, "key": "", "menu": "",
+                 "resized": None}
         for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                self._alive, flags["quit"] = False, True
-            elif ev.type == pygame.KEYDOWN:
-                key = pygame.key.name(ev.key)
-                flags["key"] = key
-                if key in KEYS:
-                    attr, flank = KEYS[key]
-                    setattr(self, attr, not getattr(self, attr))
-                    flags[flank] = True
-                elif key in ("q", "escape"):
-                    self._alive, flags["quit"] = False, True
-                elif key == "0":
-                    self.focus, flags["camera"] = None, 0
-                elif key in "123456789":
-                    self.focus = int(key) - 1
-                    flags["camera"] = self.focus
-                elif key in ("+", "="):
-                    self.zoom = min(self.zoom * 1.25, 8.0)
-                elif key in ("-", "_"):
-                    self.zoom = max(self.zoom / 1.25, 1.0)
+            handler = self._ereignisse.get(ev.type)
+            if handler:
+                handler(ev, flags)
         return flags
+
+    def _ev_quit(self, ev, flags) -> None:
+        self._alive, flags["quit"] = False, True
+
+    def _ev_resize(self, ev, flags) -> None:
+        self.size = (ev.w, ev.h)
+        self.screen = pygame.display.set_mode(self.size, pygame.RESIZABLE)
+        self.cam.resize(self.size)
+        flags["resized"] = self.size
+
+    def _ev_mouse_down(self, ev, flags) -> None:
+        attribut = self.menu.handle(ev)
+        if attribut:
+            setattr(self, attribut, not getattr(self, attribut))
+            flags["menu"] = attribut
+        elif ev.button == 1 and not self.menu.inside(ev.pos):
+            self._drag = ev.pos
+        elif ev.button in (2, 3):
+            self.cam.center()
+
+    def _ev_mouse_motion(self, ev, flags) -> None:
+        self.menu.handle(ev)
+        if self._drag and not self.menu.inside(ev.pos):
+            self.cam.pan(ev.pos[0] - self._drag[0], ev.pos[1] - self._drag[1])
+            self._drag = ev.pos
+
+    def _ev_mouse_up(self, ev, flags) -> None:
+        self._drag = None
+
+    def _ev_wheel(self, ev, flags) -> None:
+        if ev.y:
+            self.cam.zoom_to_at(pygame.mouse.get_pos(), 1.25 if ev.y > 0 else 0.8)
+
+    def _ev_key(self, ev, flags) -> None:
+        key = pygame.key.name(ev.key)
+        flags["key"] = key
+        if key in KEYS:
+            attribut, flank = KEYS[key]
+            setattr(self, attribut, not getattr(self, attribut))
+            if flank:
+                flags[flank] = True
+        elif key in ("q", "escape"):
+            self._alive, flags["quit"] = False, True
+        elif key == "m":
+            flags["menu"] = "menu"
+            self.menu.toggle()
+        elif key == "f":
+            self.cam.center()
+        elif key == "0":
+            self.focus, flags["camera"] = None, 0
+        elif key in "123456789":
+            self.focus, flags["camera"] = int(key) - 1, int(key) - 1
+        elif key in ("+", "="):
+            self.cam.zoom_to(1.25)
+        elif key in ("-", "_"):
+            self.cam.zoom_to(1 / 1.25)
 
     @property
     def ok(self) -> bool:
         return bool(self._alive and not self._closed and pygame.display.get_init())
 
     def close(self) -> None:
-        if not self._closed:                                      # pygame.quit nur einmal
+        if not self._closed:                                      # pygame.quit only once
             self._closed, self._alive = True, False
             pygame.quit()

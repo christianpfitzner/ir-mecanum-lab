@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Welten-Prüfer: läuft eine worlds/*.txt wirklich für den Versuch?
+"""World checker: does a worlds/*.txt actually work for the lab?
 
-Studierende dürfen eigene Umgebungen bauen (worlds/<name>.txt, Zeichen laut
-worlds.py). Dieser Prüfter meldet die vier Fehler, die im Praktikum am meisten
-Nerven kosten: Start oder Ziel in einer Wand, zu enge Stellen für den Roboter,
-kein Weg vom Start zum Ziel, und Startposen, die sich gegenseitig blockieren.
+Students may build their own environments (worlds/<name>.txt, characters per
+worlds.py). This checker reports the four errors that cost the most nerves in
+the lab: a start or goal inside a wall, gaps too narrow for the robot, no path
+from start to goal, and start poses that block each other.
 
-    python3 tools/worldcheck.py                 # alle Welten
+    python3 tools/worldcheck.py                 # all worlds
     python3 tools/worldcheck.py --welt maze --frei 0.35
-Exit-Code 1, wenn eine Welt unbrauchbar ist (für tools/check.sh).
+Exit code 1 when a world is unusable (for tools/check.sh).
 """
 import argparse
 import collections
@@ -18,7 +18,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mecanum_lab.types import Rect, cfg_get, load_config     # noqa: E402
-from mecanum_lab.worlds import list_worlds, parse_grid       # noqa: E402
+from mecanum_lab.worlds import list_worlds, parse_grid               # noqa: E402
+from mecanum_lab.worlds import zell as zell_fuer                     # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RICHTUNGEN = ((1, 0), (-1, 0), (0, 1), (0, -1))
@@ -31,14 +32,14 @@ def zeilen(pfad):
 
 
 def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
-    """Eine Welt auf Brauchbarkeit prüfen; returns (meldungen, in_ordnung)."""
+    """Check one world for usability; returns (meldungen, in_ordnung)."""
     pfad = os.path.join(ROOT, "worlds", f"{name}.txt")
     if not os.path.exists(pfad):
-        return [f"{name}: Datei fehlt"], False
+        return [f"{name}: file missing"], False
     zellen = [list(z) for z in zeilen(pfad)]
     breite = max(len(z) for z in zellen)
     zellen = [z + [" "] * (breite - len(z)) for z in zellen]
-    hoehe, zell = len(zellen), cfg_get(cfg, "worlds.cell", 0.5)
+    hoehe, zell = len(zellen), zell_fuer(cfg, name)                  # metres per grid cell
     radius = cfg_get(cfg, "robot.footprint_r", 0.21) + frei_hebe
 
     def wand(r, k):
@@ -50,14 +51,14 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
     welt = parse_grid("\n".join("".join(z) for z in zellen), zell, name)
 
     def abstand(x, y):
-        """Luftlinie Punkt -> nächste Wand (Rechtecke aus worlds.py, Punkt rein_clampen)."""
+        """Straight-line distance to the nearest wall (rects from worlds.py, point clamped in)."""
         if not welt.walls:
             return math.inf
         return min(math.dist((x, y), (min(max(x, w.x0), w.x1), min(max(y, w.y0), w.y1)))
                    for w in welt.walls)
 
-    # Freiheit je Zelle EINMAL ausrechnen (Nachbarschaftssuche fragt sie Tausende Male ab;
-    # sonst wird die Prüfung quadratisch und ein Labyrinth läuft nicht mehr durch).
+    # Compute the clearance of every cell ONCE (the neighbourhood search reads it thousands of
+    # times; otherwise the check goes quadratic and a maze never runs to the end).
     freiheit = {(r, k): abstand(*mittelpunkt(r, k))
                 for r in range(hoehe) for k in range(len(zellen[r])) if not wand(r, k)}
 
@@ -67,18 +68,18 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
     reich = startseite + cfg_get(cfg, "robot.footprint_r", 0.21) + 0.05
 
     def quadratfrei(r, k):
-        """Hat die Startpose `startseite` + Puffer nach allen Seiten frei? -> Zelle oder None.
+        """Does the start pose have `startseite` + buffer free on all sides? -> cell or None.
 
-        Auftrag T2 fährt sein Quadrat in Startrichtung, und die Startrichtung wechselt
-        je Teilnehmer (0/90/180/270 Grad, siehe worlds.py). Geprüft wird deshalb die
-        Hülle über alle vier Richtungen: ein Kasten um die Pose herum.
+        Task T2 drives its square along the starting heading, and that heading changes
+        per participant (0/90/180/270 degrees, see worlds.py). So the check takes the
+        envelope over all four directions: a box around the pose.
         """
         x, y = mittelpunkt(r, k)
         for rr in range(hoehe):
             for kk in range(len(zellen[rr])):
                 if not wand(rr, kk):
                     continue
-                ku, ko = kk * zell, (hoehe - 1 - rr) * zell      # Zelle: x0, y_unten
+                ku, ko = kk * zell, (hoehe - 1 - rr) * zell      # cell: x0, y_bottom
                 if ku < x + reich and ku + zell > x - reich and ko < y + reich and ko + zell > y - reich:
                     return (rr, kk)
         return None
@@ -92,27 +93,27 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
                 ziel = (r, k)
     meldung, ok = [], True
     if not starts:
-        meldung.append("keine Startpose (S) in der Datei")
+        meldung.append("no start pose (S) in the file")
         ok = False
     if ziel is None:
-        meldung.append("kein Ziel (G) in der Datei — T3 und T4 haben kein Ziel")
+        meldung.append("no goal (G) in the file — T3 and T4 have no target")
     for r, k in list(starts) + ([ziel] if ziel is not None else []):
         if wand(r, k):
-            meldung.append(f"{'Start' if (r, k) in starts else 'Ziel'} in Wand (Zeile {r}, Spalte {k})")
+            meldung.append(f"{'Start' if (r, k) in starts else 'Goal'} in a wall (row {r}, col {k})")
             ok = False
         elif wandabstand(r, k) < radius:
-            meldung.append(f"{'Start' if (r, k) in starts else 'Ziel'} zu eng: {wandabstand(r, k):.2f} m "
-                           f"frei, Roboter braucht {radius:.2f} m (Zeile {r}, Spalte {k})")
+            meldung.append(f"{'Start' if (r, k) in starts else 'Goal'} (row {r}, col {k}) too narrow: "
+                           f"{wandabstand(r, k):.2f} m free, robot needs {radius:.2f} m")
             ok = False
         elif (r, k) in starts:
             block = quadratfrei(r, k)
             if block:
-                meldung.append(f"Start (Zeile {r}, Spalte {k}) braucht {reich:.2f} m Freiheit nach "
-                               f"allen Seiten: Wand in Zeile {block[0]}, Spalte {block[1]} "
-                               f"(T2-Quadratfahrt, Startrichtung wechselt je Teilnehmer)")
+                meldung.append(f"Start (row {r}, col {k}) needs {reich:.2f} m of clearance on "
+                               f"all sides: wall in row {block[0]}, col {block[1]} "
+                               f"(T2 square drive, the starting heading varies per participant)")
                 ok = False
 
-    # Kürzester Zellweg Start -> Ziel (4er-Nachbarschaft, reiner Zellenzusammenhang)
+    # Shortest cell path start -> goal (4-neighbours, plain cell connectivity)
     erreichbar, vorgaenger = False, {}
     if starts and ziel is not None:
         start = starts[0]
@@ -129,15 +130,15 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
                 vorgaenger[(nr, nk)] = (r, k)
                 offen.append((nr, nk))
         if not erreichbar:
-            meldung.append("Ziel vom Start aus nicht erreichbar (4er-Zusammenhang)")
+            meldung.append("goal not reachable from the start (4-connectivity)")
             ok = False
-        else:                                       # breitester Weg: größte Mindestfreiheit
-            # Nicht der kürzeste Zellweg zählt (der schmiegt sich an Wände), sondern der
-            # weiteste: die größte Freiheit b, bei der Start und Ziel überhaupt über Zellen
-            # mit mindestens b Freiheit verbunden sind. "verbunden bei b" wird mit wachsendem
-            # b immer schlechter -> binäre Suche über die vorkommenden Freiheitswerte, jede
-            # Stufe ein simpler Flutungsdurchlauf. (Ein Maximin-Dijkstra mit Nachträgen
-            # braucht hier Minuten, weil ein Labyrinth sehr viele verschiedene Breiten hat.)
+        else:                                       # widest path: largest minimum clearance
+            # What counts is not the shortest cell path (it hugs the walls) but the widest
+            # one: the largest clearance b at which start and goal are connected at all
+            # through cells with at least b clearance. "connected at b" only worsens as b
+            # grows -> binary search over the clearance values that occur, each step a
+            # plain flood fill. (A maximin Dijkstra with updates takes minutes here,
+            # because a maze has a great many different widths.)
             werte = sorted(set(freiheit.values()))
 
             def verbunden_ab(start, b):
@@ -152,8 +153,8 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
                 return ziel in gesehen
 
             eng = 0.0
-            for start in starts:                    # jeder Teilnehmer startet woanders
-                lo, hi = 0, len(werte)              #Invariant: alle < lo sind erfuellt
+            for start in starts:                    # every participant starts elsewhere
+                lo, hi = 0, len(werte)              # Invariant: everything below lo is connected
                 while lo < hi:
                     mitte = (lo + hi) // 2
                     if verbunden_ab(start, werte[mitte]):
@@ -161,48 +162,53 @@ def pruefe(name, cfg, frei_hebe=0.0, startseite=1.0, offen_max=None):
                     else:
                         hi = mitte
                 eng = max(eng, werte[lo - 1] if lo else 0.0)
-            meldung.append(f"breitester Weg Start->Ziel: engste Stelle {eng:.2f} m frei "
-                           f"(nötig {radius:.2f} m)" + ("" if eng >= radius else "  << zu schmal"))
+            meldung.append(f"widest start->goal path: narrowest point {eng:.2f} m free "
+                           f"(needs {radius:.2f} m)" + ("" if eng >= radius else "  << too narrow"))
             if eng < radius:
                 ok = False
 
-    # Labyrinth oder Halle? Freie Zellen mit völlig freiem 3x3-Umfeld sind "offen" — in
-    # einem echten Labyrinth gibt es davon kaum eine, in einer Halle mit Tischen viele.
+    # Maze or arena? Free cells with a completely free 3x3 neighbourhood count as "open" —
+    # a real maze has almost none of them, an arena with tables has many.
     freie = [(r, k) for r in range(hoehe) for k in range(len(zellen[r])) if not wand(r, k)]
+    am_rand = [(r, k) for r, k in freie if r in (0, hoehe - 1) or k in (0, len(zellen[r]) - 1)]
+    meldung.append(f"free cells on the outer edge (the world has to be closed): {len(am_rand)}"
+                   + ("" if not am_rand else f"  << open at row/col {am_rand[:3]}"))
+    if am_rand:
+        ok = False
     if freie and offen_max is not None:
         offen = [cell for cell in freie
                  if all(not wand(cell[0] + dr, cell[1] + dk)
                         for dr in (-1, 0, 1) for dk in (-1, 0, 1))]
         anteil = len(offen) / len(freie)
-        meldung.append(f"Anteil offener Zellen (3x3 Umfeld frei): {anteil:.2f} "
-                       f"({len(offen)}/{len(freie)}) — Grenze {offen_max:.2f}"
-                       + ("" if anteil <= offen_max else "  << zu offen, das ist eine Halle"))
+        meldung.append(f"share of open cells (3x3 neighbourhood free): {anteil:.2f} "
+                       f"({len(offen)}/{len(freie)}) — limit {offen_max:.2f}"
+                       + ("" if anteil <= offen_max else "  << too open, that is an arena"))
         if anteil > offen_max:
             ok = False
     gruesse = (breite * zell, hoehe * zell)
-    meldung.insert(0, f"{name}: {gruesse[0]:.1f} x {gruesse[1]:.1f} m, {len(welt.walls)} Rechtecke, "
-                      f"{len(starts)} Starts, Ziel {'ja' if ziel else 'nein'}")
+    meldung.insert(0, f"{name}: {gruesse[0]:.1f} x {gruesse[1]:.1f} m, {len(welt.walls)} rectangles, "
+                      f"{len(starts)} starts, goal {'yes' if ziel else 'no'}")
     return meldung, ok
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Welten auf Brauchbarkeit prüfen")
-    ap.add_argument("--welt", default=None, help="nur eine Welt prüfen")
+    ap = argparse.ArgumentParser(description="Check worlds for usability")
+    ap.add_argument("--welt", default=None, help="check a single world only")
     ap.add_argument("--frei", type=float, default=0.25,
-                    help="Zuschlag auf den Roboterradius für Spielraum (m)")
+                    help="allowance on top of the robot radius, for slack (m)")
     ap.add_argument("--startseite", type=float, default=None,
-                    help="Seitenlänge des Quadrats, das an jeder Startpose Platz haben muss (m); "
-                         "Auftrag T2 fährt genau dieses Quadrat")
+                    help="side length of the square that must fit at every start pose (m); "
+                         "task T2 drives exactly that square")
     ap.add_argument("--offen-max", type=float, default=None,
-                    help="maximaler Anteil freier Zellen mit völlig freiem 3x3-Umfeld; "
-                         "0.25 fuer ein Labyrinth, groesser fuer eine Halle")
+                    help="maximum share of free cells with a fully free 3x3 neighbourhood; "
+                         "0.25 for a maze, larger for an arena")
     ap.add_argument("--cell", type=float, default=None)
     args = ap.parse_args(argv)
     cfg = load_config()
     if args.cell:
         cfg.setdefault("worlds", {})["cell"] = args.cell
-    # Welche Welt braucht wieviel freien Platz um eine Startpose? Das sagt config/tasks.json:
-    # nur Auftraege mit einer Seitenlaenge ("seite") — aktuell T2 — fahren dort ein Quadrat.
+    # How much free space around a start pose does a world need? config/tasks.json says it:
+    # only tasks with a side length ("seite") — currently T2 — drive a square there.
     try:
         from mecanum_lab import tasks as T
         quadrat_seiten = {}
@@ -211,18 +217,18 @@ def main(argv=None) -> int:
                 welt = auftrag.get("welt", "production")
                 quadrat_seiten[welt] = max(quadrat_seiten.get(welt, 0.0), float(auftrag["seite"]))
     except Exception as exc:
-        print(f"  Hinweis: config/tasks.json nicht lesbar ({exc}), Quadrat-Pruef aus")
+        print(f"  note: config/tasks.json not readable ({exc}), square check disabled")
         quadrat_seiten = {}
     fehler = 0
     for name in ([args.welt] if args.welt else list_worlds()):
-        seite = args.startseite or quadrat_seiten.get(name, 0.0)   # Quadratfahrt gibt es nur
+        seite = args.startseite or quadrat_seiten.get(name, 0.0)   # square drives only
 
         meldung, ok = pruefe(name, cfg, args.frei, seite)
-        print(("  ok   " if ok else "  FEHLT ") + meldung[0])
+        print(("  ok   " if ok else "  FAIL ") + meldung[0])
         for zeile in meldung[1:]:
             print(f"         {zeile}")
         fehler += 0 if ok else 1
-    print(f"\n{fehler} Welten mit Problemen")
+    print(f"\n{fehler} worlds with problems")
     return 1 if fehler else 0
 
 

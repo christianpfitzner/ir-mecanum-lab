@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Musterlösung Versuch 1 — Mecanum-Kinematik, Odometrie, LIDAR, GPS.
+"""Reference solution for lab 1 — Mecanum kinematics, odometry, LIDAR, GPS.
 
-Liest sich wie ein Skriptabschnitt: erst die Rechnung (T1), dann ein Regler, der diese
-Rechnung benutzt (T2), dann Sensorik (T3, T4). Derselbe Stoff wie in der Anleitung, nur
-ausgeführt. Nachprüfen:
+Reads like a section of the handout: first the calculation (T1), then a controller that
+uses it (T2), then sensing (T3, T4). The same material as in the handout, only executed.
+Check it with:
 
-    ./lab grade --robot muster --task alle          # in Echtzeit, wie im Praktikum
-    python3 tools/fastgrade.py --task alle --speed 4   # beschleunigt (Betreuer)
+    ./lab grade --robot muster --task alle          # in real time, as in the lab course
+    python3 tools/fastgrade.py --task alle --speed 4   # accelerated (instructors)
 
-Konvention (Versuchsanleitung §2): x vorn, y LINKS, theta gegen den Uhrzeiger,
-Radreihenfolge [VL, VR, HL, HR] in rad/s.
+Convention (handout §2): x forward, y LEFT, theta counter-clockwise,
+wheel order [VL, VR, HL, HR] in rad/s.
 """
 import math
 import sys
@@ -19,34 +19,34 @@ from mecanum_lab.types import Gps, cfg_get, load_config, wrap_angle
 
 CFG = load_config()
 LX, LY, R = (cfg_get(CFG, "robot.lx"), cfg_get(CFG, "robot.ly"), cfg_get(CFG, "robot.r"))
-A = LX + LY                                        # Hebelarm für Gier: a = lx + ly
+A = LX + LY                                        # lever arm for yaw: a = lx + ly
 RADIUS = cfg_get(CFG, "robot.footprint_r", 0.21)
-SPIEL = 2 * RADIUS                                 # Reserve, die wir frei halten wollen
-V_MAX, OM_MAX = 0.45, 1.1                          # m/s, rad/s — bewusst unter dem Maximum
-K_POS, K_ROT = 1.1, 2.2                            # P-Verstärkungen [1/s]
-TOL_XY, TOL_TH = 0.035, 0.06                        # Ziel-Toleranzen des P-Reglers
-RICHTUNGEN = 24                                    # Sektoren des Freiheitsfelds (15 Grad)
+SPIEL = 2 * RADIUS                                 # clearance we intend to keep free
+V_MAX, OM_MAX = 0.45, 1.1                          # m/s, rad/s — deliberately below the max
+K_POS, K_ROT = 1.1, 2.2                            # P gains [1/s]
+TOL_XY, TOL_TH = 0.035, 0.06                        # goal tolerances of the P controller
+RICHTUNGEN = 24                                    # sectors of the freedom field (15 deg)
 
 
-# ------------------------------------------------------------- T1: inverse Kinematik
+# ------------------------------------------------------------- T1: inverse kinematics
 
 def inverse_kinematics(vx, vy, omega):
-    """Körpergeschwindigkeit -> vier Radgeschwindigkeiten [VL, VR, HL, HR] in rad/s.
+    """Body velocity -> four wheel speeds [VL, VR, HL, HR] in rad/s.
 
-    Herleitung am Beispiel VL (vorn links, Rollerachse zeigt nach vorn-innen): Der Roller
-    erlaubt freie Geschwindigkeit längs seiner Achse, angetrieben wird quer dazu. Adds man
-    zur Körpergeschwindigkeit (vx, vy) den Gieranteil ω × Hebelarm, bleibt pro Rad genau
-    eine Linearkombination übrig — geteilt durch den Radradius:
+    Derivation on the example of VL (front left, its roller axis points forward-in): the
+    roller allows free motion along its own axis, the drive acts across it. Add the body
+    velocity (vx, vy) and the yaw share ω × lever arm and each wheel keeps exactly one
+    linear combination — divided by the wheel radius:
 
         [VL]   1 [ 1  -1  -a ] [  vx  ]
-        [VR] = - [ 1  +1  +a ] [  vy  ]        Vorwärtskinematik = exakte Umkehrung (§2.4)
+        [VR] = - [ 1  +1  +a ] [  vy  ]        forward kinematics = exact inverse (§2.4)
         [HL]   r [ 1  +1  -a ] [ omega ]
         [HR]     [ 1  -1  +a ]
 
-    Vorzeichenproben gegen die GUI (kosten drei Zeilen, retten zwei Praktikumsstunden):
-        vx > 0 -> alle vier positiv      (geradeaus)
-        vy > 0 -> VL und HR negativ      (zur LINKEN Seite)
-        ω > 0  -> VL und HL negativ      (linksherum)
+    Sign checks against the GUI (cost three lines, save two lab hours):
+        vx > 0 -> all four positive      (straight ahead)
+        vy > 0 -> VL and HR negative     (toward the LEFT side)
+        ω > 0  -> VL and HL negative     (turning left)
     """
     return [(vx - vy - A * omega) / R,             # VL
             (vx + vy + A * omega) / R,             # VR
@@ -58,13 +58,13 @@ def klemm(wert, betrag):
     return max(-betrag, min(betrag, wert))
 
 
-# ------------------------------------------------------------------ Sensor-Hilfsmittel
+# ------------------------------------------------------------------ Sensor helpers
 
 def freiheitsfeld(scan, richtungen=RICHTUNGEN):
-    """Kürzester Treffer je Fahrtrichtung: aus 360 Strahlen werden 24 Sektoren.
+    """Shortest hit per driving direction: 360 beams become 24 sectors.
 
-    Pro Sektor das Minimum, nicht der Mittelwert — wer mittelt, übersieht die Tischkante.
-    Diese eine Zahl pro Richtung ist alles, was ein Ausweichregler braucht.
+    Take the minimum per sector, not the mean — whoever averages misses the table edge.
+    That one number per direction is all an avoidance controller needs.
     """
     if scan is None or not getattr(scan, "ranges", None):
         return [8.0] * richtungen
@@ -79,12 +79,12 @@ def freiheitsfeld(scan, richtungen=RICHTUNGEN):
 
 
 def vy_quer(scan, totzone=0.04):
-    """Kleiner Quer-Ausgleich aus den seitlichen Sektoren hält Abstand zu Wänden.
+    """Small lateral correction from the side sectors keeps a distance to the walls.
 
-    In einem 1-m-Korridor würde man sonst unweigerlich an einer Seite langfahren; die
-    Differenz der seitlichen linken und rechten Freiheit ist die Querabweichung direkt.
-    Vorzeichen: vy positiv bedeutet nach links, also muss vy negativ werden, wenn links
-    weniger frei ist.
+    In a 1 m corridor you would otherwise inevitably scrape along one side; the
+    difference of the lateral freedom on the left and the right is the lateral offset
+    itself. Sign: positive vy means left, so vy has to go negative when the left side
+    has less room.
     """
     if scan is None or not getattr(scan, "ranges", None):
         return 0.0
@@ -98,12 +98,12 @@ def vy_quer(scan, totzone=0.04):
     return klemm(1.1 * fehl, 0.24)
 
 
-class Glättung:
-    """Exponentieller Mittelwert über x und y — theta wird NIE gemittelt.
+class Smoothing:
+    """Exponential moving average over x and y — theta is NEVER averaged.
 
-    Ein Winkel mittelbar über ±π hinweg ergibt Müll (der Roboter dreht sich im Kreis).
-    Ohne Glättung jagt ein P-Regler bei 5 Hz GPS und σ = 6 cm jedem Rauschzipfel hinterher
-    und pendelt um das Ziel — genau das ist T4s Lernpunkt.
+    An angle averaged across ±π gives garbage (the robot spins in circles). Without
+    smoothing a P controller at 5 Hz GPS and σ = 6 cm chases every noise spike and
+    swings around the goal — that is exactly the learning point of T4.
     """
 
     def __init__(self, alpha=0.45):
@@ -117,47 +117,47 @@ class Glättung:
         return Gps(t=mess.t, x=self.wert[0], y=self.wert[1], theta=mess.theta)
 
 
-# ------------------------------------------------------- Regler 1: Pose anfahren (T2)
+# ------------------------------------------------------- Controller 1: drive to a pose (T2)
 
 def fahre_zur_pose(rob, ziel, ablesen, vmax=V_MAX, zeit_max=20.0, tol=TOL_XY, bremse=False):
-    """P-Regler auf eine Ziel-Pose; Stellgröße ist die eigene inverse Kinematik.
+    """P controller for a goal pose; the control output is our own inverse kinematics.
 
-    Der Positionsfehler wird in der Welt gemessen, gesteuert wird in Körpergeschwindigkeit,
-    also den Fehler mit -theta in den Körperrahmen drehen:
+    The position error is measured in the world, the control acts in body velocity, so
+    rotate the error by -theta into the body frame:
 
         x_k =  cos θ · Δx + sin θ · Δy        y_k = -sin θ · Δx + cos θ · Δy
 
-    Danach ist es reines P: vx = K·x_k, vy = K·y_k, ω = K_θ·Δθ. Kein Integralanteil nötig —
-    die Odometrie ist selbst der Speicher, und dass sie driftet, ist ja der Auftrag.
-    `bremse=True` lässt den LIDAR vorn mitentscheiden (für Fahrten durch eine volle Halle);
-    T2 lässt es weg, weil dort ausdrücklich nur die Odometrie zählt.
-    Die Frist läuft über die Simulationszeit in der Messung, nicht über die Wanduhr.
+    After that it is pure P: vx = K·x_k, vy = K·y_k, ω = K_θ·Δθ. No integral term needed —
+    odometry is itself the memory, and that it drifts is exactly the point of the task.
+    `bremse=True` lets the LIDAR in front have a say (for driving through a full arena);
+    T2 leaves it out, because there only odometry counts by design.
+    The deadline runs on the simulation time in the measurement, not on the wall clock.
     """
-    ende, vmax, geglättet = None, max(vmax, 0.05), Glättung() if ablesen is rob.gps else None
+    ende, vmax, smooth = None, max(vmax, 0.05), Smoothing() if ablesen is rob.gps else None
     while rob.running():
         mess = ablesen()
         if mess is None:
             rob.spin(0.05)
             continue
-        if geglättet is not None:
-            mess = geglättet(mess)
+        if smooth is not None:
+            mess = smooth(mess)
         if ende is None:
             ende = mess.t + zeit_max
         elif mess.t > ende:
             return False
         dx, dy = ziel[0] - mess.x, ziel[1] - mess.y
-        längs = math.cos(mess.theta) * dx + math.sin(mess.theta) * dy
-        quer = -math.sin(mess.theta) * dx + math.cos(mess.theta) * dy
+        along = math.cos(mess.theta) * dx + math.sin(mess.theta) * dy
+        across = -math.sin(mess.theta) * dx + math.cos(mess.theta) * dy
         dtheta = wrap_angle(ziel[2] - mess.theta)
         if math.hypot(dx, dy) < tol and abs(dtheta) < TOL_TH:
             rob.publish_cmd_vel(0.0, 0.0, 0.0)
             return True
-        vx, vy = klemm(K_POS * längs, vmax), klemm(K_POS * quer, vmax * 0.7)
+        vx, vy = klemm(K_POS * along, vmax), klemm(K_POS * across, vmax * 0.7)
         om = klemm(K_ROT * dtheta, OM_MAX)
         if bremse:
             feld = freiheitsfeld(rob.scan())
-            if feld[0] < SPIEL:                       # Hindernis im Weg: nicht dagegen
-                vx = min(vx, 0.05)                    # laufen, sondern vorbeidrehen
+            if feld[0] < SPIEL:                       # obstacle in the way: do not drive
+                vx = min(vx, 0.05)                    # into it, turn past it instead
                 om = klemm(om + (1.2 if feld[RICHTUNGEN // 4] > feld[3 * RICHTUNGEN // 4]
                                  else -1.2), OM_MAX)
         rob.publish_cmd_vel(vx, vy, om)
@@ -166,42 +166,42 @@ def fahre_zur_pose(rob, ziel, ablesen, vmax=V_MAX, zeit_max=20.0, tol=TOL_XY, br
 
 
 def fahre_quadrat(rob):
-    """T2: vier Seiten à 1 m, 90° linksherum, zurück auf die Startpose — nur Odometrie."""
+    """T2: four sides of 1 m, 90° left turns, back to the start pose — odometry only."""
     start = rob.odom()
     if start is None:
-        raise RuntimeError(f"keine Odometrie für '{rob.name}' — läuft der Simulator?")
+        raise RuntimeError(f"no odometry for '{rob.name}' — is the simulator running?")
     seite, ecke, pose = 1.0, math.pi / 2, [start.x, start.y, start.theta]
     for _ in range(4):
         ziel = [pose[0] + seite * math.cos(pose[2]), pose[1] + seite * math.sin(pose[2]),
                 pose[2]]
         if not fahre_zur_pose(rob, ziel, rob.odom, zeit_max=22.0):
-            raise RuntimeError("Seite nicht erreicht — Toleranz zu eng oder Zeit zu knapp")
+            raise RuntimeError("side not reached — tolerance too tight or time too short")
         pose = [ziel[0], ziel[1], wrap_angle(pose[2] + ecke)]
     if not fahre_zur_pose(rob, [start.x, start.y, start.theta], rob.odom, zeit_max=22.0):
-        raise RuntimeError("nicht zurück am Start angekommen")
+        raise RuntimeError("did not get back to the start position")
 
 
-# ------------------------------------------- Regler 2: durch die Halle, LIDAR-gestützt
+# ------------------------------------------- Controller 2: across the arena, LIDAR-assisted
 
 def fahre_hin(rob, ziel, holung="odom", tol=0.20, zeit_max=100.0, vmax=V_MAX):
-    """T3 und T4: mit dem Freiheitsfeld zu einem Punkt — nur die Quelle unterscheidet sie.
+    """T3 and T4: reach a point with the freedom field — only the source sets them apart.
 
-    Zwei Phasen, weil beide ihre eigene Fehlerquelle haben:
+    Two phases, because both have their own source of error:
 
-    1. Weite Strecke: von den 24 Richtungen des Feldes kommen nur die in die engere Wahl,
-       die mindestens SPIEL frei haben; von denen nehmen wir die richtungsärmste zum Ziel,
-       mit leichter Bevorzugung offener Richtungen (bricht das Umkreisen eines Tischbeins,
-       den klassischen Fehler reiner Potentialfelder). Tempo wächst mit der Freiheit der
-       gewählten Richtung — bremsen passiert von allein, bevor es knallt.
-       Gegen Verrennen: 15 s ohne 30 cm Näherung heißt "Sackgasse" — dann drei Sekunden
-       lang nur der freiesten Richtung folgen (die billige Variante von Umplanung).
-    2. Letzte 1,3 m: dort bremst der Feldregler zu stark aus und versickert; also mit dem
-       Pose-Regler und LIDAR-Bremse genau einfahren.
+    1. Long leg: of the 24 directions of the field only those with at least SPIEL free
+       are candidates; of those we take the one closest to the goal direction, with a
+       slight preference for open directions (breaks the circling of a table leg, the
+       classic mistake of pure potential fields). Speed grows with the freedom of the
+       chosen direction — braking happens by itself, before anything hits.
+       Against getting wedged: 15 s without 30 cm of approach means "dead end" — then, for
+       three seconds, follow only the freest direction (the cheap form of replanning).
+    2. Last 1.3 m: there the field controller brakes too hard and stalls; so ease in
+       precisely with the pose controller and LIDAR braking.
 
-    `holung` ist der Lernunterschied: T3 misst sich mit Odometrie, T4 mit geglättetem GPS.
+    `holung` is the learning difference: T3 measures itself by odometry, T4 by smoothed GPS.
     """
     quelle = rob.odom if holung == "odom" else rob.gps
-    geglättet = Glättung() if quelle is rob.gps else None
+    smooth = Smoothing() if quelle is rob.gps else None
     letzte_entfernung, stillstand, ende, umweg_bis, letzte_messt = None, 0.0, None, 0.0, None
     schritt = 2 * math.pi / RICHTUNGEN
     while rob.running():
@@ -209,8 +209,8 @@ def fahre_hin(rob, ziel, holung="odom", tol=0.20, zeit_max=100.0, vmax=V_MAX):
         if mess is None or scan is None:
             rob.spin(0.05)
             continue
-        if geglättet is not None:
-            mess = geglättet(mess)
+        if smooth is not None:
+            mess = smooth(mess)
         if ende is None:
             ende = mess.t + zeit_max
         entfernung = math.hypot(ziel[0] - mess.x, ziel[1] - mess.y)
@@ -228,14 +228,14 @@ def fahre_hin(rob, ziel, holung="odom", tol=0.20, zeit_max=100.0, vmax=V_MAX):
             letzte_entfernung = entfernung
         elif entfernung < letzte_entfernung - 0.30:
             letzte_entfernung, stillstand = entfernung, 0.0
-        else:                                  # Fortschritt in MESSEzeit messen, nicht pro
-            stillstand += verstrichen          # Schleifendurchlauf (beschleunigte Laeufe!)
+        else:                                  # measure progress in MESSAGE time, not per
+            stillstand += verstrichen          # loop iteration (accelerated runs!)
         umweg = mess.t < umweg_bis
         if not umweg and stillstand > 15.0:
             umweg_bis, stillstand = mess.t + 3.0, 0.0
         feld = freiheitsfeld(scan)
         fahrbar = [k for k in range(RICHTUNGEN) if feld[k] >= SPIEL]
-        if not fahrbar:                               # nirgends Platz: freiste Richtung
+        if not fahrbar:                               # no room anywhere: freest direction
             k = max(range(RICHTUNGEN), key=lambda k: feld[k])
             vx, om = 0.0, klemm(1.4 * wrap_angle(k * schritt), 1.4)
         else:
@@ -244,7 +244,7 @@ def fahre_hin(rob, ziel, holung="odom", tol=0.20, zeit_max=100.0, vmax=V_MAX):
 
             def kosten(k):
                 richtung = wrap_angle(k * schritt)
-                if umweg:                             # nur Freiheit, Ziel ignorieren
+                if umweg:                             # freedom only, ignore the goal
                     return -feld[k]
                 return abs(wrap_angle(zielwinkel - richtung)) + 0.12 * max(0.0, 1.6 - feld[k])
 
@@ -256,49 +256,49 @@ def fahre_hin(rob, ziel, holung="odom", tol=0.20, zeit_max=100.0, vmax=V_MAX):
         rob.publish_cmd_vel(vx, vy_quer(scan), om)
         rob.spin(0.02)
         if mess.t > ende:
-            raise RuntimeError(f"Ziel in {zeit_max:.0f} s nicht erreicht, noch "
-                               f"{entfernung:.2f} m entfernt")
+            raise RuntimeError(f"goal not reached in {zeit_max:.0f} s, still "
+                               f"{entfernung:.2f} m away")
     return False
 
 
 def fahre_korridor(rob):
-    """T3: vom Start zum Tor der Welt. Odometrie kennt die Richtung, LIDAR die Wände."""
+    """T3: from the start to the goal of the world. Odometry knows the direction, LIDAR the walls."""
     ziel = (rob.world() or {}).get("goal")
     if not ziel:
-        raise RuntimeError("Welt hat kein Ziel — G in worlds/<name>.txt gesetzt?")
+        raise RuntimeError("world has no goal — is G set in worlds/<name>.txt?")
     return fahre_hin(rob, ziel, "odom", tol=0.20, zeit_max=100.0)
 
 
 def fahre_zu_gps(rob):
-    """T4 (Bonus): Ladeplatz = letzter Spawn-Punkt der Welt, angefahren mit GPS.
+    """T4 (bonus): loading spot = the world's last spawn point, driven to with GPS.
 
-    Neu gegenüber T3 ist nur die Quelle: GPS ist verrauscht und langsamer (5 Hz) ->
-    Glättung und eine Totzone von 15 cm, damit der Regler nicht um das Ziel pendelt. Und
-    das Ziel ist absichtlich NICHT die eigene Startpose, sonst wäre T4 geschenkt.
+    Only the source is new compared to T3: GPS is noisy and slower (5 Hz) -> smoothing
+    and a dead zone of 15 cm, so the controller does not swing around the goal. And the
+    goal is deliberately NOT your own start pose, otherwise T4 would be handed to you.
     """
     starts = (rob.world() or {}).get("spawns") or []
     if not starts:
-        raise RuntimeError("Welt hat keine Startpunkte (S/2/3/4)")
+        raise RuntimeError("world has no start points (S/2/3/4)")
     return fahre_hin(rob, starts[-1], "gps", tol=0.15, zeit_max=80.0, vmax=0.30)
 
 
-# ------------------------------------------------------------------------- Anschluss
+# ------------------------------------------------------------------------- Plumbing
 
 def mission(rob, task):
-    """Vom Runner für T2..T4 genau einmal aufgerufen, solange rob.running().
+    """Called by the runner exactly once for T2..T4, as long as rob.running().
 
-    Fertig = normal zurückkehren (der Runner meldet "done"). Aufgegeben = Exception
-    werfen: der Runner meldet "failed:<Grund>", was ehrlicher ist als ein "done" ohne
-    Zielankunft.
+    Finished = return normally (the runner then reports "done"). Given up = raise an
+    exception: the runner reports "failed:<reason>", which is more honest than a
+    "done" without reaching the goal.
     """
     for name, funktion in (("quadrat", fahre_quadrat), ("korridor", fahre_korridor),
                            ("gps_anfahrt", fahre_zu_gps)):
         if task.startswith(name):
             return funktion(rob)
-    raise RuntimeError(f"unbekannter Auftrag '{task}'")
+    raise RuntimeError(f"unknown task '{task}'")
 
 
 if __name__ == "__main__":
-    # serve() reicht bei T1 jede cmd_vel durch inverse_kinematics durch und ruft für
-    # T2..T4 mission() auf; publish_cmd_vel ist dabei der einzige Stellpfad.
+    # At T1 serve() passes every cmd_vel through inverse_kinematics; for T2..T4 it
+    # calls mission(); publish_cmd_vel stays the only control path.
     robot_io.serve(sys.modules[__name__])

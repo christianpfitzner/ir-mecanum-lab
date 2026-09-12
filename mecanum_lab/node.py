@@ -1,18 +1,18 @@
-"""Kommandozeile des Simulators — `./lab <befehl>` (CONTRACT §6.9, CONTRACT-KF §4).
+"""Simulator command line — `./lab <command>` (CONTRACT §6.9, CONTRACT-KF §4).
 
-Ein einziger Simulationslauf-Kern (`simlauf`) steckt hinter allen Varianten: mit und
-ohne Fenster, mit und ohne ROS, mit Studierendenknoten und mit Bewerter. Der Unterschied
-ist nur der Bus: `run` benutzt den In-Prozess-Bus (kein ROS nötig), `sim` nimmt echtes
-ROS, wenn rclpy da ist.
+A single simulation run core (`simlauf`) sits behind every variant: with and without a
+window, with and without ROS, with a student node and with a grader. The only difference
+is the bus: `run` uses the in-process bus (no ROS needed), `sim` takes real ROS whenever
+rclpy is available.
 
-    ./lab run  --robot alice --controller student/controller_template.py   # Schnelleinstieg
+    ./lab run  --robot alice --controller student/controller_template.py   # Quick start
     ./lab sim  --world track --robots alice,bob                            # Simulator (ROS)
-    ./lab grade --robot alice --task alle                                  # Bewerten
-    ./lab run  --task kf_gps --controller student/kf_template.py --truth    # Versuch 2
+    ./lab grade --robot alice --task alle                                  # Grade
+    ./lab run  --task kf_gps --controller student/kf_template.py --truth    # Lab 2
     ./lab spawn --name bob ; ./lab robots ; ./lab docs
 
-Einstellungen ohne JSON-Datei: `--set gps.sigma_xy=0.8 --set imu.rate=400` beliebig
-oft; das Auswerte-Protokoll schreibt `--log messung.csv`.
+Settings without a JSON file: repeat `--set gps.sigma_xy=0.8 --set imu.rate=400` as often
+as you like; `--log messung.csv` writes the measurement log.
 """
 import argparse
 import importlib.util
@@ -36,13 +36,13 @@ log = logging.getLogger("mecanum.node")
 WELTEN = ", ".join(list_worlds())
 
 
-# --------------------------------------------------------------------- Lauf-Kern
+# --------------------------------------------------------------------- Run core
 
 
 def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None):
-    """Ein Takt: Simulation einen Schritt, Messungen auf den Bus, Fenster, Bewerter, Protokoll."""
+    """One tick: step the simulation, put measurements on the bus, draw, grade, log."""
     pubs, letzte, t_clock, t_json = {}, time.monotonic(), 0.0, 0.0
-    letzte_schaetzung = {}                      # damit das Protokoll jede kf/pose-Meldung nur einmal zaehlt
+    letzte_schaetzung = {}                      # so the log counts each kf/pose message only once
     letzte_robots, t_robots = None, 0.0
     send_task = bus.pub("task")
     while bus.ok() and (rend is None or rend.ok) and (not seconds or eng.t < seconds):
@@ -51,30 +51,30 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
         letzte = jetzt
         if rend is None or not rend.paused:
             eng.step(dt)
-        for kind, robot, payload in eng.drain():          # Messungen -> Themen
+        for kind, robot, payload in eng.drain():          # measurements -> topics
             if tap:
                 tap.tap(kind, robot, payload)
             pubs.setdefault((kind, robot), bus.pub(kind, robot))(payload)
-        # Roboterliste (mission_state, distance, contacts): der Bewerter haengt daran, und ein
-        # spaet angemeldeter ROS-Client sieht ohnehin nur, was danach gesendet wird — die Engine
-        # stoesst die Liste nur bei spawn/reset an. Also hier: sofort bei Aenderung (sonst
-        # wartet der Bewerter eine Sekunde auf das Mission-Ende), aber mindestens
-        # einmal pro Sekunde — sonst haengt `ros2 topic echo /sim/robots --once` im Leeren.
+        # Robot list (mission_state, distance, contacts): the grader hangs on it, and a ROS
+        # client that subscribes late only sees what is sent afterwards — the engine pushes
+        # the list on spawn/reset only. So publish here at once on change (otherwise the
+        # grader waits a second for the mission to end), but at least once per second:
+        # `ros2 topic echo /sim/robots --once` would otherwise hang on nothing.
         robots = json.dumps(eng.robots_info())
         if robots != letzte_robots or jetzt - t_robots > 1.0:
             pubs.setdefault(("robots", None), bus.pub("robots"))(robots)
             letzte_robots, t_robots = robots, jetzt
-        if tap:                                   # kf/pose kommt von den Studierenden, nicht von der Sim
+        if tap:                                   # kf/pose comes from the students, not from the sim
             for name in eng.robots:
                 schatzung, _ = bus.last("kf", name)
                 if schatzung is not None and schatzung is not letzte_schaetzung.get(name):
                     letzte_schaetzung[name] = schatzung
                     tap.tap("kf", name, schatzung)
             tap.tick()
-        if jetzt - t_clock > 0.05:                        # /clock für use_sim_time
+        if jetzt - t_clock > 0.05:                        # /clock for use_sim_time
             bus.pub("clock")(eng.t)
             t_clock = jetzt
-        if jetzt - t_json > 1.0:                          # Weltinfo, Roboterliste, Auftrag, Profil
+        if jetzt - t_json > 1.0:                          # world info, robot list, task, profile
             bus.pub("world")(eng.world_json())
             bus.pub("config")(eng.config_json())
             send_task(eng.task)
@@ -91,13 +91,13 @@ def simlauf(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0,
         for g in graders:
             g.tick(dt)
         if graders and all(getattr(g, "fertig", False) for g in graders):
-            break                                       # Bewerter ist durch -> Lauf beenden
+            break                                       # grader is done -> end the run
         bus.spin(1.0 / hz if rend is None else 0.002)
     return eng
 
 
 def tasten() -> tuple:
-    """Pfeiltasten in Körpergeschwindigkeit: hoch/vor, runter/zurück, links/reits, q/e Gier."""
+    """Arrow keys to body speed: up/forward, down/back, left/right, q/e yaw."""
     import pygame
     k = pygame.key.get_pressed()
     return (0.35 * (k[pygame.K_UP] - k[pygame.K_DOWN]), 0.35 * (k[pygame.K_LEFT] - k[pygame.K_RIGHT]),
@@ -105,15 +105,15 @@ def tasten() -> tuple:
 
 
 def parse_set(text: str) -> tuple:
-    """`--set gps.sigma_xy=0.8` -> ("gps", {"sigma_xy": 0.8}); Wert wird als JSON geparst.
+    """`--set gps.sigma_xy=0.8` -> ("gps", {"sigma_xy": 0.8}); the value is parsed as JSON.
 
-    Zahlen, boolsche Werte und Listen gehen direkt (`imu.rate=400`, `debug_truth=true`,
-    `gps.bias_xy=[0.4,-0.2]`), sonst bleibt der Rest ein String. Zwei Punkte im Pfad
-    erlauben beliebig tiefe Einstellungen — damit ist das Launch-File der ganze Wunschzettel.
+    Numbers, booleans and lists work directly (`imu.rate=400`, `debug_truth=true`,
+    `gps.bias_xy=[0.4,-0.2]`), everything else stays a string. Two dots in the path allow
+    settings as deep as you like — the launch file can carry the whole wish list.
     """
     pfad, gleich, wert = str(text).partition("=")
     if not gleich or not pfad.strip():
-        raise ValueError(f"--set will 'pfad.unter.pfad=Wert', bekommen: '{text}'")
+        raise ValueError(f"--set wants 'path.sub.path=value', got: '{text}'")
     try:
         wert = json.loads(wert.strip())
     except ValueError:
@@ -126,7 +126,7 @@ def parse_set(text: str) -> tuple:
 
 
 def sets_zusammenfassen(roh: list) -> dict:
-    """Alle `--set`-Angaben zu einem Uberschreibungsbaum; zuletzt genannt gewinnt."""
+    """Merge all `--set` values into one override tree; the one named last wins."""
     baum = {}
     for angabe in roh or []:
         schluessel, zweig = parse_set(angabe)
@@ -146,7 +146,7 @@ def _vertiefe(baum: dict, schluessel: str, wert) -> None:
 
 
 def mach_engine(args):
-    """Config-Schichten: DEFAULT <- config/default.json <- --config <- Prüfprofil <- --set."""
+    """Config layers: DEFAULT <- config/default.json <- --config <- test profile <- --set."""
     uberschreiben = {"world": args.world, "gui": not args.headless}
     if getattr(args, "truth", False):
         uberschreiben["debug_truth"] = True
@@ -154,31 +154,32 @@ def mach_engine(args):
         try:
             uberschreiben.update(T.sim_profil(T.load_tasks(), args.task))
         except (ValueError, FileNotFoundError) as exc:
-            log.warning("Prüfprofil nicht gelesen (%s) — gemessen wird, wie die Sim läuft.", exc)
+            log.warning("test profile not readable (%s) — grading runs with the "
+                        "simulator's own settings", exc)
     uberschreiben.update(sets_zusammenfassen(getattr(args, "set", None)))
     cfg = load_config(getattr(args, "config", None), uberschreiben)
     welt = cfg_get_welt(cfg, args, uberschreiben)
-    eng = SimEngine(load_world(welt), cfg, seed=args.seed)
-    # Was per --set angegeben wurde, darf kein Auftragsprofil mehr überbieten: die Engine
-    # bekommt die Angaben als dauernde Übersteuerung mit.
+    eng = SimEngine(load_world(welt, cfg=cfg), cfg, seed=args.seed)
+    # What was given via --set must never be outbid by a task profile: the engine carries
+    # those values as a permanent override.
     eng.erzwungen = {k: v for k, v in sets_zusammenfassen(getattr(args, "set", None)).items()
                      if k != "world"}
     for name in [r for r in (args.robots or "").split(",") if r.strip()]:
         try:
             eng.spawn(name.strip())
         except (SpawnError, ValueError) as exc:
-            log.error("Roboter '%s': %s", name, exc)
+            log.error("robot '%s': %s", name, exc)
     if args.task:
         eng.set_task(erster_auftrag(args.task))
     return eng
 
 
 def erster_auftrag(kette: str) -> str:
-    """Die --task-Angabe auf ihren ersten echten Auftrag reduzieren: "alle" -> "kinematik".
+    """Reduce the --task value to its first real task: "alle" -> "kinematik".
 
-    Der Auftrag wandert auf /sim/task, und der Runner der Studierenden schaltet danach um.
-    Eine Gruppe ist aber keine Aufgabe: "alle" als Auftrag gemeldet ergibt beim Knoten
-    "unbekannter Auftrag" und eine Fehlermeldung, die niemand verschuldet hat.
+    The task travels on /sim/task, and the students' runner switches when it arrives. A
+    group is not a task, though: reporting "alle" as a task leaves the node with
+    "unknown task" and an error message nobody caused.
     """
     try:
         auftrge = T.resolve(T.load_tasks(), kette)
@@ -188,17 +189,17 @@ def erster_auftrag(kette: str) -> str:
 
 
 def cfg_get_welt(cfg: dict, args, profil: dict) -> str:
-    """Welt wählen: Angesagtes zuerst, dann die Empfehlung der Aufgaben, dann der Standard.
+    """Pick the world: what was named first, then the tasks' recommendation, then the default.
 
-    Die Aufgaben sagen ihre Halle über `"welt"` in config/tasks.json — Versuch 1 verlangt
-    `production`, Versuch 2 `arena`. Diese Empfehlung zählt auch ohne `--world auto`, sonst
-    bewertet man eine Quadratfahrt in der falschen Halle und wundert sich über Wände.
-    `--world auto` ist dasselbe, nur explizit; ein genannter Name gewinnt immer.
+    Tasks name their arena through `"welt"` in config/tasks.json — lab 1 wants
+    `production`, lab 2 `arena`. That recommendation counts without `--world auto` too,
+    otherwise you grade a square drive in the wrong arena and wonder about walls.
+    `--world auto` is the same thing, only explicit; a named world always wins.
     """
     if args.world not in (None, "", "auto"):
         return args.world
     standard = cfg.get("world", "maze")
-    if not args.task:                                     # kein Auftrag angesagt -> keine Empfehlung
+    if not args.task:                                     # no task announced -> no recommendation
         return standard
     try:
         auftrge = T.resolve(T.load_tasks(), args.task)
@@ -206,22 +207,22 @@ def cfg_get_welt(cfg: dict, args, profil: dict) -> str:
         return standard
     if not auftrge:
         return standard
-    kf = all(a.get("art") == "kf" for a in auftrge)      # Blindfahrt ohne Weltangabe: arena
+    kf = all(a.get("art") == "kf" for a in auftrge)      # blind drive with no world given: arena
     return T.welt_fuer({"tasks": auftrge}, [a["id"] for a in auftrge],
                        default="arena" if kf else standard)
 
 
-def bus_fuer(args, node_name):
-    """Stub, wenn --stub oder kein ROS; sonst der echte ROS-Bus."""
-    bus = ros_bridge.make_bus("stub" if args.stub else "auto", node_name=node_name)
+def bus_fuer(args, node_name, cfg: dict | None = None):
+    """Stub when --stub is set or there is no ROS; otherwise the real ROS bus."""
+    bus = ros_bridge.make_bus("stub" if args.stub else "auto", node_name=node_name, cfg=cfg)
     if bus is None:
         bus = stub.get_bus()
-        log.info("Kein ROS 2 aktiv — In-Prozess-Bus (läuft genauso, nur ohne ros2 topic).")
+        log.info("No ROS 2 active — using the in-process bus (runs the same, only without ros2 topic).")
     return bus
 
 
 def abo(bus, eng, name: str) -> None:
-    """Die Kommando- und Schätzungs-Themen eines Roboters in die Simulation verbinden."""
+    """Wire a robot's command and estimate topics into the simulation."""
     bus.sub("twist", name, lambda t, n=name: eng.set_cmd_vel(n, t))
     bus.sub("wheels", name, lambda w, n=name: eng.set_wheel_speeds(n, w))
     bus.sub("mission", name, lambda s, n=name: eng.set_mission(n, s))
@@ -229,21 +230,21 @@ def abo(bus, eng, name: str) -> None:
 
 
 def auftrag_profile() -> dict:
-    """{Auftrags-id: Auftrag} — Prüfprofil und Fahrart je Aufgabe, nicht global."""
+    """{task id: task} — test profile and drive mode per task, not global."""
     try:
         return {a["id"]: a for a in T.load_tasks()["tasks"]}
     except Exception as exc:
-        log.warning("Aufträge nicht lesbar (%s) — keine automatischen Prüfprofile.", exc)
+        log.warning("tasks not readable (%s) — no automatic test profiles.", exc)
         return {}
 
 
 def verbinde_auftrag(bus, eng, profile: dict | None = None, robot: str | None = None) -> None:
-    """/sim/task in die Simulation legen: Auftrag, Sensorprofil, Startpose.
+    """Put /sim/task into the simulation: task, sensor profile, start pose.
 
-    `robot` ist der Roboter, den ein Bewerter unter einer blinden Kommandofahrt hat: Bei
-    einem KF-Auftrag wird er dafür an der Spawn-Pose abgesetzt. Die Kommandofolge wird nicht
-    zurückgemeldet, also muss sie dort beginnen, wo die Welt den Roboter abstellt — sonst
-    fährt sie in der zweiten Aufgabe gegen eine Wand, weil die erste irgendwo geendet hat.
+    `robot` is the robot a grader is driving through a blind command run: for a KF task it
+    is dropped at the spawn pose for that. The command sequence is never reported back, so
+    it has to begin where the world parked the robot — otherwise the second task drives
+    into a wall, because the first one ended somewhere.
     """
     profile = auftrag_profile() if profile is None else profile
 
@@ -259,7 +260,7 @@ def verbinde_auftrag(bus, eng, profile: dict | None = None, robot: str | None = 
 
 
 def fuege_knoten(datei, name, bus):
-    """Studierendenknoten als Thread: Modul importieren, dann robot_io.serve() laufen lassen."""
+    """Student node as a thread: import the module, then let robot_io.serve() run."""
     spec = importlib.util.spec_from_file_location("student_knoten", datei)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -268,40 +269,40 @@ def fuege_knoten(datei, name, bus):
         try:
             robot_io.serve(mod, name=name, bus=bus)
         except Exception:
-            log.exception("Knoten %s ist gelaufen", datei)
+            log.exception("node %s aborted", datei)
 
     t = threading.Thread(target=lauf, daemon=True, name=f"knoten-{name}")
     t.start()
-    log.info("Knoten %s für Roboter '%s' gestartet", os.path.basename(datei), name)
+    log.info("node %s started for robot '%s'", os.path.basename(datei), name)
     return t
 
 
-# --------------------------------------------------------------------- Befehle
+# --------------------------------------------------------------------- Commands
 
 
 def protokoll(args, eng):
-    """CSV-Protokoll öffnen, wenn `--log` gegeben wurde — sonst None (nichts wird geschrieben)."""
+    """Open the CSV log when `--log` was given — otherwise None (nothing is written)."""
     if not getattr(args, "log", None):
         return None
     try:
         return Logbuch(eng, args.log, getattr(args, "log_intervall", 0.05) or 0.05)
     except OSError as exc:
-        log.error("Protokoll '%s' nicht anlegbar: %s", args.log, exc)
+        log.error("cannot create log '%s': %s", args.log, exc)
         return None
 
 
 def cmd_run(args):
-    """Simulator + Studierendenknoten in einem Prozess, ohne ROS — der Schnelleinstieg."""
+    """Simulator + student node in one process, without ROS — the quick start."""
     args.stub = True
     eng, bus = mach_engine(args), stub.get_bus()
     tap = protokoll(args, eng)
     if args.robot and args.robot not in eng.robots:
-        # `--robot` ist der Name des eigenen Roboters — ohne ihn explizit zu spawnen wäre
-        # die Halle leer, und der Studierende sähe nur eine leere Karte mit laufendem Knoten.
+        # `--robot` is the name of your own robot — without spawning it explicitly the arena
+        # would stay empty, and the student would see a blank map with a running node.
         try:
             eng.spawn(args.robot)
         except (SpawnError, ValueError) as exc:
-            log.error("Roboter '%s': %s", args.robot, exc)
+            log.error("robot '%s': %s", args.robot, exc)
     graders = [_grader(args.robot, args.task, bus, eng)] if args.grade else []
     verbinde_auftrag(bus, eng, robot=args.robot if graders else None)
     knoten = [fuege_knoten(c, args.robot, bus) for c in (args.controller or [])]
@@ -317,7 +318,7 @@ def cmd_run(args):
 
 
 def _berichte(graders, json_pfad: str | None = None) -> int:
-    """Bewertungsberichte ausgeben; 2 heisst: mindestens eine Aufgabe nicht bestanden."""
+    """Print the grading reports; 2 means at least one task was not met."""
     from .grade import format_report
     ohne_bestehen = False
     for g in graders:
@@ -338,8 +339,11 @@ def _grader(robot, task, bus, eng):
 
 
 def cmd_sim(args):
-    """Simulator solo — mit echtem ROS, wenn vorhanden (der Regelfall im Praktikumsraum)."""
-    eng, bus = mach_engine(args), bus_fuer(args, "mecanum_sim")
+    """Simulator alone — with real ROS when available (the normal case in the lab room)."""
+    eng = mach_engine(args)
+    bus = bus_fuer(args, "mecanum_sim", eng.cfg)
+    if hasattr(bus, "enable_tf"):
+        bus.enable_tf(eng, eng.cfg)               # /tf and /tf_static, so RViz can show the map
     tap = protokoll(args, eng)
     for name in list(eng.robots):
         abo(bus, eng, name)
@@ -347,20 +351,20 @@ def cmd_sim(args):
     def spawn(req):
         out = ros_bridge.spawn_handler(eng)(req)
         if out.get("success"):
-            abo(bus, eng, str(req.get("name", "")))       #auch der neue Roboter ist hörbar
+            abo(bus, eng, str(req.get("name", "")))       #the new robot is audible too
         return out
 
     bus.service(topic("spawn"), spawn)
     bus.service(topic("despawn"), ros_bridge.despawn_handler(eng))
     verbinde_auftrag(bus, eng, robot=args.robot if args.grade else None)
     bus.service(topic("reset"), lambda req: (eng.reset(), {"success": True,
-                                                           "message": "Welt zurückgesetzt"})[1])
+                                                           "message": "world reset"})[1])
     graders = [_grader(args.robot, args.grade, bus, eng)] if args.grade else []
     rend = None if args.headless else R.Renderer(eng, eng.cfg)
     if not args.stub:
         log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,kf/pose>  "
                  "/sim/<robots,world,task,config>  "
-                 "/sim/<spawn_robot,despawn_robot,reset>  /clock", "/<robot>")
+                 "/sim/<spawn_robot,despawn_robot,reset>  /clock  /tf /tf_static", "/<robot>")
     simlauf(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
     if rend:
         rend.close()
@@ -371,9 +375,9 @@ def cmd_sim(args):
 
 
 def cmd_controller(args):
-    """Nur ein Studierendenknoten (der Simulator läuft in einem anderen Terminal)."""
+    """Only a student node (the simulator runs in another terminal)."""
     if not args.controller:
-        log.error("--controller datei.py fehlt")
+        log.error("--controller file.py missing")
         return 2
     fuege_knoten(args.controller[0] if isinstance(args.controller, list) else args.controller,
                  args.robot, bus_fuer(args, f"knoten_{args.robot}")).join()
@@ -381,10 +385,10 @@ def cmd_controller(args):
 
 
 def cmd_client(args, befehl):
-    """spawn/despawn/reset/robots/task: kurz ein ROS-Problem, nicht mehr."""
+    """spawn/despawn/reset/robots/task: one short ROS request, nothing more."""
     bus = ros_bridge.make_bus("auto", node_name=f"client_{befehl}")
     if bus is None:
-        log.error("Kein ROS 2 aktiv. Im Stub-Lauf gehören diese Befehle in denselben Prozess: "
+        log.error("No ROS 2 active. In a stub run these commands belong in the same process: "
                   "./lab run --robots %s ...", args.name or "alice")
         return 2
     if befehl == "robots":
@@ -395,33 +399,33 @@ def cmd_client(args, befehl):
                 for r in json.loads(payload):
                     print(f"{r['name']:14} {r['color']:8} {r['variant']:6} {r['mode']:12} "
                           f"pose=({r['pose'][0]:6.2f},{r['pose'][1]:6.2f}) "
-                          f"weg={r['distance']:6.2f} m  anstösse={r['contacts']}  {r['mission']}")
+                          f"dist={r['distance']:6.2f} m  contacts={r['contacts']}  {r['mission']}")
                 return 0
-        log.error("Keine Antwort auf /sim/robots — läuft der Simulator?")
+        log.error("no answer from /sim/robots — is the simulator running?")
         return 2
     if befehl == "task":
         bus.pub("task")(args.task or args.name or "")
-        print(f"Auftrag '{args.task or args.name}' gesendet.")
+        print(f"task '{args.task or args.name}' sent.")
         bus.spin(0.1)
         return 0
     antwort = bus.call(topic(befehl), {"name": args.name or "", "variant": args.variant or ""})
-    print(("ok   — " if antwort.get("success") else "fehler — ") + str(antwort.get("message", "")))
+    print(("ok   — " if antwort.get("success") else "error  — ") + str(antwort.get("message", "")))
     if befehl == "spawn" and antwort.get("success"):
         print(f"     {antwort.get('color')} / {antwort.get('marker')} / {antwort.get('variant')}"
-              f" an ({antwort.get('x', 0):.2f}, {antwort.get('y', 0):.2f})")
+              f" at ({antwort.get('x', 0):.2f}, {antwort.get('y', 0):.2f})")
     bus.shutdown()
     return 0 if antwort.get("success") else 1
 
 
 def cmd_grade(args):
-    """Bewerten. Der Takt kommt aus dem Simulator dazu — hier im Stub-Lauf, ein Prozess."""
+    """Grade. The tick comes from the simulator — here in a stub run, one process."""
     args.stub = True
     eng, bus = mach_engine(args), stub.get_bus()
     tap = protokoll(args, eng)
     if args.robot not in eng.robots:
         eng.spawn(args.robot)
-    abo(bus, eng, args.robot)                      # kf/pose muss in die Sim zurückkommen
-    verbinde_auftrag(bus, eng, robot=args.robot)   # je Aufgabe ihr Prüfprofil, KF: Spawn-Pose
+    abo(bus, eng, args.robot)                      # kf/pose must get back into the sim
+    verbinde_auftrag(bus, eng, robot=args.robot)   # each task its own test profile, KF: spawn pose
     knoten = [fuege_knoten(c, args.robot, bus)
               for c in (args.controller or []) if not c.endswith(".json")]
     g = _grader(args.robot, args.task or "alle", bus, eng)
@@ -435,17 +439,19 @@ def cmd_grade(args):
 
 
 def cmd_docs(args):
-    print(f"Umgebungen: {WELTEN}\n")
-    print("Themen pro Roboter:")
+    print(f"worlds: {WELTEN}\n")
+    print("Topics per robot:")
     for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "kf", "kfinfo", "mission"):
         print(f"  {topic(kind, 'alice'):24} {MSG_SPECS[kind][0]}")
-    print("  /alice/truth (nur mit --truth bzw. debug_truth, dann mit truth.rate)")
+    print("  /alice/truth (only with --truth or debug_truth, then at truth.rate)")
     print("  /sim/robots /sim/world /sim/task /sim/config  (std_msgs/String, JSON)")
+    print("  /tf /tf_static  (tf2_msgs/TFMessage: map -> alice/odom -> alice/base_link "
+          "-> laser, imu_link)")
     print("  /sim/spawn_robot /sim/despawn_robot (mecanum_lab_interfaces/srv/SpawnRobot "
           "oder JSON-Handshake)  /sim/reset (std_srvs/srv/Trigger)  /clock")
-    print("\nAufgaben: " + T.short_help(T.load_tasks()))
-    print("Gruppen: --task alle | kf_alle | v1 | v2 | einzelner Auftrag")
-    print("\nBeispiele Versuch 2 (Kalman-Filter):")
+    print("\nTasks: " + T.short_help(T.load_tasks()))
+    print("Groups: --task alle | kf_alle | v1 | v2 | a single task")
+    print("\nExamples for lab 2 (Kalman filter):")
     print("  ./lab grade --task kf_alle --controller student/kf_solution.py --log messung.csv")
     print("  ./lab run --world arena --task kf_gps --robot alice \\")
     print("        --controller student/kf_template.py --truth --log messung.csv")
@@ -453,37 +459,38 @@ def cmd_docs(args):
     return 0
 
 
-# --------------------------------------------------------------------- Argumente
+# --------------------------------------------------------------------- Arguments
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="lab", description="Kleiner Mecanum-Simulator (CONTRACT §6.9)")
+    p = argparse.ArgumentParser(prog="lab", description="Small mecanum simulator (CONTRACT §6.9)")
     p.add_argument("--world", default=None,
-                   help=f"Umgebung: {WELTEN}, 'auto' = Empfehlung der Aufgaben "
-                        "(KF-Aufträge holen ihre Halle automatisch)")
-    p.add_argument("--robots", default="", help="Komma-getrennte Roboternamen beim Start")
-    p.add_argument("--robot", default="alice", help="Dein Robotername (Knoten, Bewerter)")
-    p.add_argument("--controller", action="append", help="Studierendenknoten, mehrfach erlaubt")
-    p.add_argument("--task", default="", help=f"Auftrag oder Gruppe: {', '.join(T.task_ids(T.load_tasks()))}, kf_alle, v1, v2")
-    p.add_argument("--seconds", type=float, default=0.0, help="nach N s Simulationszeit enden")
-    p.add_argument("--headless", action="store_true", help="ohne Pygame-Fenster")
-    p.add_argument("--stub", action="store_true", help="In-Prozess-Bus statt ROS")
-    p.add_argument("--no-teleop", action="store_true", help="Tastatursteuerung aus")
-    p.add_argument("--seed", type=int, default=1, help="Rausch-Seed (Nachfahrbarkeit)")
-    p.add_argument("--config", default=None, help="JSON-Config zusätzlich zu config/default.json")
-    p.add_argument("--set", action="append", metavar="PFAD=WERT",
-                   help="Einzelne Einstellung, z. B. --set gps.sigma_xy=0.8 (mehrfach)")
+                   help=f"World: {WELTEN}, 'auto' = the tasks' recommendation "
+                        "(KF tasks pick their arena automatically)")
+    p.add_argument("--robots", default="", help="Comma-separated robot names to start")
+    p.add_argument("--robot", default="alice", help="Your robot name (node, grader)")
+    p.add_argument("--controller", action="append", help="Student node file, repeatable")
+    p.add_argument("--task", default="",
+                   help=f"Task or group: {', '.join(T.task_ids(T.load_tasks()))}, kf_alle, v1, v2")
+    p.add_argument("--seconds", type=float, default=0.0, help="End after N s of simulation time")
+    p.add_argument("--headless", action="store_true", help="Without the Pygame window")
+    p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
+    p.add_argument("--no-teleop", action="store_true", help="Turn keyboard control off")
+    p.add_argument("--seed", type=int, default=1, help="Noise seed (reproducibility)")
+    p.add_argument("--config", default=None, help="JSON config on top of config/default.json")
+    p.add_argument("--set", action="append", metavar="PATH=VALUE",
+                   help="A single setting, e.g. --set gps.sigma_xy=0.8 (repeatable)")
     p.add_argument("--truth", action="store_true",
-                   help="exakte Pose auf /<robot>/truth veröffentlichen (Versuch 2)")
-    p.add_argument("--log", default=None, metavar="DATEI.csv",
-                   help="Messprotokoll (truth/gps/odom/kf/imu) als CSV schreiben")
+                   help="Publish the exact pose on /<robot>/truth (lab 2)")
+    p.add_argument("--log", default=None, metavar="FILE.csv",
+                   help="Write the measurement log (truth/gps/odom/kf/imu) as CSV")
     p.add_argument("--log-intervall", type=float, default=0.05,
-                   help="Abstand der Protokollzeilen in s Simzeit (Standard 0,05)")
+                   help="Spacing of log lines in s of sim time (default 0.05)")
     p.add_argument("--grade", nargs="?", const="alle", default=None,
-                   help="Bewerter mitschicken: Aufträge oder Gruppe für --robot (Standard: alle)")
-    p.add_argument("--json", default=None, help="Bewertungsbericht als JSON")
-    p.add_argument("--name", default="", help="Robotername für spawn/despawn")
-    p.add_argument("--variant", default="", help="Motorvariante: stock|slow|fast|agile")
+                   help="Run the grader too: tasks or group for --robot (default: alle)")
+    p.add_argument("--json", default=None, help="Write the grading report as JSON")
+    p.add_argument("--name", default="", help="Robot name for spawn/despawn")
+    p.add_argument("--variant", default="", help="Motor variant: stock|slow|fast|agile")
     return p
 
 
@@ -500,13 +507,13 @@ def main(argv=None):
     befehl = argv[0] if argv and not argv[0].startswith("-") else "sim"
     if befehl in ("-h", "--help", "help"):
         parser().print_help()
-        print("\nBefehle: " + ", ".join(sorted(BEFEHLE)))
+        print("\nCommands: " + ", ".join(sorted(BEFEHLE)))
         return 0
     args = parser().parse_args(argv[1:] if argv and argv[0] in BEFEHLE else argv)
     from . import setup_logging
     setup_logging()
     if befehl not in BEFEHLE:
-        log.error("unbekannter Befehl '%s' — ./lab -h", befehl)
+        log.error("unknown command '%s' — ./lab -h", befehl)
         return 2
     return BEFEHLE[befehl](args)
 

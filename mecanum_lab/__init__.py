@@ -1,4 +1,4 @@
-"""mecanum_lab — kleiner 2D-Mecanum-Simulator mit ROS-2-Anbindung fuer den Versuch 1."""
+"""mecanum_lab — small 2D Mecanum simulator with a ROS 2 binding, for experiments 1 and 2."""
 import logging
 import os
 import sys

@@ -1,93 +1,93 @@
-# Notizen Agent F — ROS-Verpackung: Paket, Service-Interface, Launch-Dateien
+# Notes Agent F — ROS packaging: package, service interface, launch files
 
-## Gebaut (LOC)
+## Built (LOC)
 
-| Datei | LOC | Zweck |
+| File | LOC | Purpose |
 |---|---|---|
-| `interfaces/mecanum_lab_interfaces/srv/SpawnRobot.srv` | 17 | Service exakt nach CONTRACT §4 (+ `variant` in der Response) |
+| `interfaces/mecanum_lab_interfaces/srv/SpawnRobot.srv` | 17 | Service exactly per CONTRACT §4 (+ `variant` in response) |
 | `interfaces/mecanum_lab_interfaces/package.xml` | 20 | ament_cmake + `member_of_group rosidl_interface_packages` |
-| `interfaces/mecanum_lab_interfaces/CMakeLists.txt` | 14 | eine `rosidl_generate_interfaces`-Zeile |
-| `package.xml` (Wurzel) | 26 | ament_python, alle exec_depend die `ros_bridge` importiert |
-| `setup.py` | 45 | `pip install -e .` und `colcon build`; data_files für config/worlds/launch/student |
-| `setup.cfg` | 4 | `lib/mecanum_lab` als Script-Ziel (ament_python-Konvention) |
-| `requirements.txt` | 9 | eine Zeile: `pygame>=2.5` |
-| `launch/sim.launch.py` | 54 | Simulator allein, `headless`/`seconds`/`world`/`robots`/`task`/`config` |
-| `launch/student.launch.py` | 46 | ein Studierendenknoten auf eine laufende Sim |
-| `launch/lab.launch.py` | 57 | Sim + Knoten zusammen (inkl. `grade:=alle`) |
-| `tests/test_package_f.py` | 152 | verpackt ohne ROS prüfbar, mit ROS mehr |
+| `interfaces/mecanum_lab_interfaces/CMakeLists.txt` | 14 | one `rosidl_generate_interfaces` line |
+| `package.xml` (root) | 26 | ament_python, all exec_depend that `ros_bridge` imports |
+| `setup.py` | 45 | `pip install -e .` and `colcon build`; data_files for config/worlds/launch/student |
+| `setup.cfg` | 4 | `lib/mecanum_lab` as script target (ament_python convention) |
+| `requirements.txt` | 9 | one line: `pygame>=2.5` |
+| `launch/sim.launch.py` | 54 | simulator alone, `headless`/`seconds`/`world`/`robots`/`task`/`config` |
+| `launch/student.launch.py` | 46 | one student node onto a running sim |
+| `launch/lab.launch.py` | 57 | sim + node together (incl. `grade:=alle`) |
+| `tests/test_package_f.py` | 152 | packaging checkable without ROS, more with ROS |
 
-Bewusst nicht gebaut: `resource/mecanum_lab`-Marker (dann wäre `ros2 pkg prefix mecanum_lab`
-möglich — unsere Launch-Dateien brauchen das nicht), `test_deps.debug`, keine
-CI-Datei. `pyproject.toml` gibt es nicht, ament_python will `setup.py`.
+Built on purpose without: the `resource/mecanum_lab` marker (`ros2 pkg prefix mecanum_lab`
+would then work — our launch files do not need it), `test_deps.debug`, no CI file.
+There is no `pyproject.toml`; ament_python wants `setup.py`.
 
-## Wie die Launch-Dateien arbeiten
+## How the launch files work
 
-Kein `colcon build` nötig: sie rechnen `WURZEL` aus `__file__`, setzen
-`PYTHONPATH=WURZEL:…` und starten `sys.executable -m mecanum_lab.node <befehl>` per
-`ExecuteProcess`. `headless:=true` setzt `SDL_VIDEODRIVER=dummy` **und** hängt
-`--headless` an. `use_sim_time` geht als `MECANUM_USE_SIM_TIME` an den Prozess.
-`robot`/`robots`: `lab.launch.py` nimmt `robot`, wenn `robots` nicht gesetzt ist —
-sonst startet die Sim ohne deinen Roboter und dein Knoten wartet dumm herum.
+No `colcon build` needed: they compute `WURZEL` from `__file__`, set
+`PYTHONPATH=WURZEL:…` and start `sys.executable -m mecanum_lab.node <befehl>` via
+`ExecuteProcess`. `headless:=true` sets `SDL_VIDEODRIVER=dummy` **and** appends
+`--headless`. `use_sim_time` reaches the process as `MECANUM_USE_SIM_TIME`.
+`robot`/`robots`: `lab.launch.py` takes `robot` when `robots` is unset —
+otherwise the sim starts without your robot and your node just waits around.
 
-## Was wirklich lief (ROS 2 Kilted, headless, keine DISPLAY)
+## What actually ran (ROS 2 Kilted, headless, no DISPLAY)
 
 ```
 $ ros2 launch launch/sim.launch.py headless:=true seconds:=40 robots:=alice world:=track
 ros2 topic list        -> /alice/{cmd_vel,gps,mission_state,odom,scan,wheel_speeds}
                           /clock /sim/{robots,task,world} /sim/{spawn,despawn}_robot/request
-ros2 topic hz /alice/scan -> average rate: 20.261 Hz      (Config: 20 Hz, korrekt)
-ros2 topic echo /alice/gps --once -> orientation.x/y/z/w gefüllt (Quaternion aus theta)
+ros2 topic hz /alice/scan -> average rate: 20.261 Hz      (config: 20 Hz, correct)
+ros2 topic echo /alice/gps --once -> orientation.x/y/z/w populated (quaternion from theta)
 ros2 topic echo /sim/world --once  -> '{"name":"track","cell":0.5,"size":[16.0,10.0],...}'
--> [INFO] process has finished cleanly   (seconds:= arbeitet, kein hängender Prozess)
+-> [INFO] process has finished cleanly   (seconds:= works, no hanging process)
 
 $ ros2 launch launch/lab.launch.py headless:=true seconds:=35 robot:=muster \
       world:=production controller:=student/controller_template.py
 [INFO] [mecanum_sim-1]: process started      [INFO] [knoten_muster-2]: process started
-beide Prozesse melden ROS-Knoten, /muster/* erscheint
-$ python3 -m pytest tests/test_package_f.py -q   -> 18 passed   (mit ROS)
-$ SDL_VIDEODRIVER=dummy python3 -m pytest tests -q -> 52 passed, 1 skipped  (ohne ROS)
+both processes report ROS nodes, /muster/* appears
+$ python3 -m pytest tests/test_package_f.py -q   -> 18 passed   (with ROS)
+$ SDL_VIDEODRIVER=dummy python3 -m pytest tests -q -> 52 passed, 1 skipped  (without ROS)
 ```
 
-## Gefunden — bitte der Reihe nach abarbeiten (Integrator)
+## Findings — work through them in order (integrator)
 
-1. **Blocker, ROS-Pfad: `./lab spawn` funktioniert nicht gegen eine per Launch gestartete
-   Simulation.** Exakter Repro (frische Shell, `source /opt/ros/kilted/setup.bash`):
-   Sim via `ros2 launch launch/sim.launch.py seconds:=45`, 11 s warten, dann
-   `./lab spawn --name karla` → **Exit 1, keine Ausgabe**. Der Client-Bus ist dabei
-   nachweislich `RclpyBus` (`make_bus("auto")` → RclpyBus), und die Sim hört auf
+1. **Blocker, ROS path: `./lab spawn` does not work against a simulation started by
+   launch.** Exact repro (fresh shell, `source /opt/ros/kilted/setup.bash`):
+   sim via `ros2 launch launch/sim.launch.py seconds:=45`, wait 11 s, then
+   `./lab spawn --name karla` → **exit 1, no output**. The client bus is provably
+   `RclpyBus` (`make_bus("auto")` → RclpyBus) and the sim listens on
    `/sim/spawn_robot/request` (`ros2 topic info --verbose`: SUBSCRIPTION, RELIABLE,
-   VOLATILE). Stub-Pfad funktioniert (B hatte das mit In-Prozess-Bus getestet).
-   Tatort: `node.py::cmd_client` + `ros_bridge`-Handshake (Antwort-Topic
-   `/sim/spawn_robot/result`, `call(timeout=2.0)`). Ein kurzlebiger Prozess braucht
-   eine *eigene, abonnierende* Antwort-Instanz — vermute dort den Fehler, oder dass
-   `success` ausbleibt und `resp.success` default-False durchreicht.
-2. **`ros2 topic echo /sim/robots --once` hängt ins Leere.** `/sim/robots`,
-   `/sim/world`, `/sim/task` werden mit Default-QoS (VOLATILE) veröffentlicht, also
-   verpasst jeder spätere Abonnierer die Meldung — für Studierende im ersten Terminal
-   ein verwirrender Ersteindruck. Empfehlung: `transient_local` (durable) für die drei
-   `/sim`-Status-Themen, oder sie zusätzlich mit ~1 Hz wiederholen.
-3. **Namensfalle `launch/`:** unser Verzeichnis `launch/` überdeckt das Python-Paket
-   `launch`, sobald der Quellbaum auf `sys.path` liegt (Namespace-Paket,
-   `import launch` → `unknown location`). `ros2 launch` stört das nicht (lädt per Pfad),
-   aber jeder Test/`python -c` aus dem Repo-Root mit `PYTHONPATH=.` stolpert. Mein Test
-   umgeht das, indem er im Subprozess ohne Quellbaum-Eintrag in `PYTHONPATH` prüft —
-   bitte genau so lassen, und einen Satz in die Anleitung: nie
-   `PYTHONPATH=$PWD export` machen und im selben Prozess `launch` importieren.
-4. **Kleine Installationslücke:** `setup.py` liefert `share/mecanum_lab/{config,worlds,
-   launch,student,docs}`, aber `mecanum_lab.types.ROOT` zeigt auf das Paketverzeichnis —
-   d.h. nach einem `colcon build` findet der Knoten `worlds/` nur im Quellbaum. Für den
-   Versuch (Arbeiten im Quellbaum) egal, für `ros2 run` aus dem Installationsbaum
-   nachziehen: entweder `--world` mit absolutem Pfad oder `get_package_share_directory`
-   als Fallback in `worlds.load_world`.
-5. **`use_sim_time` ist nur weitergereicht, nicht ausgewertet.** node.py/csv-Argumente
-   kennen kein `--ros-args`, deshalb exportiere ich `MECANUM_USE_SIM_TIME=1`. Auswerten
-   könnte es `ros_bridge._now()` (Simzeit aus `/clock` statt Wandzeit). Wer Studierenden-
-   Knoten mit `ros2 run` startet, muss `-p use_sim_time:=true` selbst mitgeben.
+   VOLATILE). The stub path works (B had tested that with the in-process bus).
+   Scene of the bug: `node.py::cmd_client` + the `ros_bridge` handshake (reply topic
+   `/sim/spawn_robot/result`, `call(timeout=2.0)`). A short-lived process needs
+   its *own subscribing* reply instance — I expect the fault there, or that
+   `success` never arrives and `resp.success` passes through its default False.
+2. **`ros2 topic echo /sim/robots --once` hangs and returns nothing.** `/sim/robots`,
+   `/sim/world`, `/sim/task` are published with default QoS (VOLATILE), so every
+   later subscriber misses the message — a confusing first impression for students at
+   the first terminal. Recommendation: `transient_local` (durable) for the three
+   `/sim` status topics, or republish them at ~1 Hz on top.
+3. **Name trap `launch/`:** our directory `launch/` shadows the Python package
+   `launch` as soon as the source tree is on `sys.path` (namespace package,
+   `import launch` → `unknown location`). `ros2 launch` does not care (it loads by path),
+   but every test/`python -c` from the repo root with `PYTHONPATH=.` trips over it. My test
+   avoids that by checking in a subprocess with no source-tree entry in `PYTHONPATH` —
+   please keep it exactly that way, and add one line to the handout: never
+   run `export PYTHONPATH=$PWD` and import `launch` in the same process.
+4. **Small installation gap:** `setup.py` ships `share/mecanum_lab/{config,worlds,
+   launch,student,docs}`, but `mecanum_lab.types.ROOT` points at the package directory —
+   i.e. after a `colcon build` the node finds `worlds/` only in the source tree. Irrelevant
+   for the experiment (work happens in the source tree), fix it for `ros2 run` from the
+   install tree: either pass `--world` with an absolute path, or use
+   `get_package_share_directory` as a fallback in `worlds.load_world`.
+5. **`use_sim_time` is only passed on, never evaluated.** The node.py/csv arguments do
+   not know `--ros-args`, so I export `MECANUM_USE_SIM_TIME=1`. `ros_bridge._now()` could
+   evaluate it (simulation time from `/clock` instead of wall clock). Anyone starting student
+   nodes with `ros2 run` has to pass `-p use_sim_time:=true` themselves.
 
-## Interface-Generierung
+## Interface generation
 
-Kein `colcon` auf diesem Rechner (`which colcon` → leer), daher ist
-`SpawnRobot.srv` **nicht** gegen `rosidl` geprüft, nur statisch (Feldnamen/-typen,
-CMake-Regel, `member_of_group`). `ros_bridge` liest `getattr(req, "variant", "")`, das
-Interface liefert es — beide Seiten passen zum Vertrag. Bei Gelegenheit:
-`colcon build --paths interfaces --merge-install --build-base /tmp/b` laufen lassen.
+No `colcon` on this machine (`which colcon` → empty), so
+`SpawnRobot.srv` is **not** checked against `rosidl`, only statically (field names/types,
+CMake rule, `member_of_group`). `ros_bridge` reads `getattr(req, "variant", "")` and the
+interface supplies it — both sides match the contract. When there is time: run
+`colcon build --paths interfaces --merge-install --build-base /tmp/b`.

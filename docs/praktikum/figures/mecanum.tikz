@@ -9,7 +9,7 @@
   free/.style={-{Stealth[length=2mm]}, draw=black!40, dashed, line width=0.7pt},
   roller/.style={draw=black!55, line width=0.5pt},
   axis/.style={-{Stealth[length=2.6mm]}, line width=1pt},
-  dim/.style={-{Stealth[length=1.5mm]}-{Stealth[length=1.5mm]}, draw=black!55,
+  dim/.style={{Stealth[length=1.5mm]}-{Stealth[length=1.5mm]}, draw=black!55,
               line width=0.5pt, font=\footnotesize},
   box/.style={draw=black!60, rounded corners=2pt, fill=yellow!12, inner sep=3pt,
               font=\footnotesize, align=left},

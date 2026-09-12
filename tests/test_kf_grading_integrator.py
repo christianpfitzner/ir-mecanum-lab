@@ -1,8 +1,8 @@
-"""Tests der KF-Bewertung in mecanum_lab/grade.py (Versuch 2, Integrator).
+"""Tests for the KF grading in mecanum_lab/grade.py (Experiment 2, integrator).
 
-Die Physik wird hier nicht gebraucht: Der Bewerter liest ausschließlich Themen, also
-spielen wir ihm truth, gps und kf/pose als-functions-of-time zu und prüfen sein Urteil.
-Genau dadurch ist die Bewertung im Stub-Lauf identisch zum ROS-Betrieb.
+No physics is needed here: the grader only reads topics, so we feed it truth, gps and
+kf/pose as functions of time and check its verdict. That is exactly why grading in the
+stub run is identical to running under ROS.
 """
 import json
 import math
@@ -14,7 +14,7 @@ from mecanum_lab.stub import StubBus
 from mecanum_lab.types import Gps, Kf, Pose, Twist
 
 AUFTRAG = {
-    "id": "kf_test", "titel": "K9 — Prüfauftrag", "punkte": 30, "versuch": 2, "art": "kf",
+    "id": "kf_test", "titel": "K9 — Graded task", "punkte": 30, "versuch": 2, "art": "kf",
     "timeout": 14.0, "einlauf": 1.0, "sensor": "gps", "schaetzung": "kf",
     "fahrt": [{"vx": 0.5, "dauer": 8.0}], "wiederhole": 1,
     "rmse_max": 0.40, "verbesserung_min": 1.5, "rate_min": 5.0, "kontakte_max": 0,
@@ -22,13 +22,13 @@ AUFTRAG = {
 
 
 def fahrt_als_zeit(t: float) -> float:
-    """x- Weg des Bewerter-Kommandos (vx = 0,5 m/s), für truth/gps/kf in derselben Bahn."""
+    """x path of the grader's command (vx = 0.5 m/s), for truth/gps/kf on the same path."""
     return 0.5 * t
 
 
 def durchlaufe(auftrag, schatz_fehler=0.10, gps_fehler=0.70, sx=0.20, sy=0.20,
                luecke_ab=None, sekunden=14.0, dt=0.02, profil=None):
-    """Bewertung gegen synthetische Themen: Wahrheit, GPS mit Fehler, Schätzung mit Fehler."""
+    """Grade against synthetic topics: truth, GPS with error, estimate with error."""
     bus = StubBus("test")
     bew = Grader("alice", auftrag["id"], bus, {"tasks": [auftrag], "reihenfolge": [auftrag["id"]]},
                  world_info={"name": "arena", "size": [24, 16], "goal": None,
@@ -52,7 +52,7 @@ def durchlaufe(auftrag, schatz_fehler=0.10, gps_fehler=0.70, sx=0.20, sy=0.20,
     return bew.report()["tasks"][0]
 
 
-# ------------------------------------------------------------------- Kommandosequenz
+# ---------------------------------------------------------------- command sequence
 
 
 def test_kommandofahrt_zaehlt_und_wiederholt():
@@ -61,7 +61,7 @@ def test_kommandofahrt_zaehlt_und_wiederholt():
     assert fahrt_dauer(auftrag) == pytest.approx(10.0)
     assert kommando_fahrt(auftrag, 1.0) == pytest.approx(Twist(vx=0.4))
     assert kommando_fahrt(auftrag, 4.0).omega == pytest.approx(0.5)
-    assert kommando_fahrt(auftrag, 6.0) == pytest.approx(Twist(vx=0.4))     # zweite Runde
+    assert kommando_fahrt(auftrag, 6.0) == pytest.approx(Twist(vx=0.4))     # second round
 
 
 def test_kommandofahrt_ohne_segmente_faehrt_einfach_draus_loos():
@@ -71,11 +71,11 @@ def test_kommandofahrt_ohne_segmente_faehrt_einfach_draus_loos():
 
 
 def test_cov_diag_liest_auch_mehrwertige_felder_wie_unter_ros():
-    """ROS liefert die Kovarianz als numpy-artiges Feld — `cov or []` ware dort ein Fehler."""
+    """ROS delivers the covariance as a numpy-like array — `cov or []` would fail there."""
     from mecanum_lab.ros_bridge import cov_diag
 
     class Feld(list):
-        def __bool__(self):                          # numpy verhaelt sich genauso
+        def __bool__(self):                          # numpy behaves the same way
             raise ValueError("The truth value of an array is ambiguous")
 
     vier_x_vier = Feld([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4])
@@ -93,7 +93,7 @@ def test_sinuesfoermige_gierrate_ueberlagert_grundwert():
     assert kommando_fahrt(auftrag, 0.5).omega == pytest.approx(0.3, abs=1e-6)
 
 
-# ------------------------------------------------------------------------ Bewertung
+# -------------------------------------------------------------------------- grading
 
 
 def test_gute_schaetzung_bestundet_und_meldet_alle_zahlen():
@@ -103,14 +103,14 @@ def test_gute_schaetzung_bestundet_und_meldet_alle_zahlen():
     assert mess["rmse"] == pytest.approx(0.10, abs=0.02)
     assert mess["rmse_gps"] == pytest.approx(0.78, abs=0.05)
     assert mess["verbesserung"] > 1.5 and mess["rate_hz"] >= 5.0
-    assert 0.4 < mess["nees"] < 1.2, mess["nees"]      # sx=sy=0,1 bei 0,1 m Fehler -> ~0,5
+    assert 0.4 < mess["nees"] < 1.2, mess["nees"]      # sx=sy=0.1 at 0.1 m error -> ~0.5
     assert ergebnis["punkte"] == 30
 
 
 def test_filter_der_nur_die_messung_wiederholt_fliegt_durch_verbesserung():
     ergebnis = durchlaufe(dict(AUFTRAG), schatz_fehler=0.70, sy=0.2)
     assert not ergebnis["bestanden"]
-    assert "Verbesserung" in ergebnis["begruendung"]
+    assert "improvement" in ergebnis["begruendung"]
     assert ergebnis["punkte"] == 0.0
 
 
@@ -121,13 +121,13 @@ def test_unehrliche_kovarianz_wird_an_dem_nees_erkent():
 
 
 def test_gps_funkloch_ohne_fusion_fliegt():
-    """Ab t = 6 s kommen keine Fixes mehr: ohne Gegenmaßnahmen wächst der Fehler."""
+    """After t = 6 s no fixes arrive: without countermeasures the error keeps growing."""
     auftrag = dict(AUFTRAG, timeout=14.0, luecke={"dauer_min": 2.0, "fehler_max": 0.5})
     gut = durchlaufe(auftrag, schatz_fehler=0.10, luecke_ab=6.0)
-    assert gut["messwerte"]["luecke_dauer"] > 2.0, "Funkloch nicht erkannt"
+    assert gut["messwerte"]["luecke_dauer"] > 2.0, "GPS outage not detected"
     assert gut["bestanden"], gut["begruendung"]
     schlampig = durchlaufe(auftrag, schatz_fehler=0.90, luecke_ab=6.0)
-    assert not schlampig["bestanden"] and "Funkloch" in schlampig["begruendung"]
+    assert not schlampig["bestanden"] and "GPS outage" in schlampig["begruendung"]
 
 
 def test_keine_schaetzung_ist_ein_klarer_begrundungstext():
@@ -149,7 +149,7 @@ def test_pruefprofil_abweichung_wird_gemeldet():
     mit_profil = durchlaufe(soll, profil=profil)
     assert mit_profil["bestanden"], mit_profil["begruendung"]
     anders = durchlaufe(soll, profil={"gps": {"rate": 20.0, "sigma_xy": 5.0}})
-    assert not anders["bestanden"] and "Prüfprofil" in anders["begruendung"]
+    assert not anders["bestanden"] and "test profile" in anders["begruendung"]
 
 
 def test_wahrheit_fehlt_ist_ein_betreuerfehler_und_kein_studentenfehler():
@@ -163,27 +163,27 @@ def test_wahrheit_fehlt_ist_ein_betreuerfehler_und_kein_studentenfehler():
     assert not ergebnis["bestanden"] and "stichproben" in ergebnis["messwerte"]
 
 
-# ------------------------------------------------------------------ Welt zu den Aufträgen
+# ------------------------------------------------------------ world for the tasks
 
 def _welt(task, world=None):
-    """Welche Halle nimmt `./lab`, wenn die Aufgabe eine Welt empfiehlt?"""
+    """Which arena does `./lab` pick when the task recommends a world?"""
     import types
     from mecanum_lab import node
     args = types.SimpleNamespace(world=world, task=task)
     return node.cfg_get_welt({"world": "maze"}, args, {})
 
 
-def_test = _welt        # Pytest sammelt nur test_*-Namen; hier ist es ein Helfer
+def_test = _welt        # Pytest only collects test_* names; this one is a helper
 
 
 def test_versuch_1_bekommt_production_und_versuch_2_arena():
-    # Die Aufgaben sagen es in config/tasks.json; wer das ignoriert, bewertet eine
-    # Quadratfahrt in der Irrgartenhalle und hält Wandkontakte für Studienleistungen.
+    # config/tasks.json says it; ignoring that grades a square run inside the maze arena
+    # and counts wall contacts as lab work.
     assert _welt("v1") == "production"
     assert _welt("kf_alle") == "arena"
     assert _welt("alle") == "production"
-    assert _welt(None) == "maze"                      # ohne Auftrag gilt der Config-Standard
-    assert _welt("v1", world="track") == "track"      # Angesagtes gewinnt
+    assert _welt(None) == "maze"                      # without a task the config default applies
+    assert _welt("v1", world="track") == "track"      # an explicit choice wins
 
 
 def test_welt_der_aufgabe_gilt_auch_ohne_auto():
@@ -192,11 +192,11 @@ def test_welt_der_aufgabe_gilt_auch_ohne_auto():
 
 
 def test_simlauf_haelt_die_Roboterliste_aktuell():
-    """/sim/robots ist die einzige Quelle des Bewerters für mission_state und distance.
+    """/sim/robots is the grader's only source for mission_state and distance.
 
-    Die Engine stösst die Liste nur bei spawn und reset. Wer sie im Lauf nicht nachlegt,
-    bewertet eine Fahrt, deren Weg für die ganze Aufgabe 0 bleibt — und merkt nicht einmal,
-    dass die Mission der Studierenden längst vorbei ist.
+    The engine only pushes the list on spawn and reset. A run that never refreshes it
+    grades a drive whose path stays 0 for the whole task — and does not even notice that
+    the students' mission finished long ago.
     """
     from mecanum_lab import node, worlds
     from mecanum_lab.engine import SimEngine

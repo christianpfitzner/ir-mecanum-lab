@@ -1,9 +1,9 @@
-"""Der ament_python-Bau darf nicht an `data_files` zerbrechen.
+"""The ament_python build must not break on `data_files`.
 
-colcon bricht mit „'data_files' must be relative“ ab, sobald eine Quelle absolut ist
-(früher: glob über den absoluten Paketpfad). Ausserdem kann setuptools nur Dateien
-kopieren, keine Ordner — `docs/praktikum/` oder `__pycache__/` als Quelle würden erst
-beim Installieren knallen. Dieser Test deckt beides ab, ohne ROS, colcon oder Netz.
+colcon aborts with "'data_files' must be relative" as soon as a source is absolute
+(earlier: a glob over the absolute package path). setuptools can also only copy
+files, not directories — `docs/praktikum/` or `__pycache__/` as a source would only
+fail at install time. This test covers both, without ROS, colcon or network.
 """
 import os
 import runpy
@@ -15,7 +15,7 @@ WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _data_files():
-    """setup.py ausführen, aber nur die Argumente von setup() abgreifen."""
+    """Run setup.py but capture only the arguments passed to setup()."""
     gefangen = {}
 
     def fange(**kwargs):
@@ -28,24 +28,24 @@ def _data_files():
 
 def test_quellen_sind_relativ():
     for ziel, quellen in _data_files():
-        assert not os.path.isabs(ziel), f"Ziel absolut: {ziel}"
+        assert not os.path.isabs(ziel), f"target is absolute: {ziel}"
         for quelle in quellen:
-            assert not os.path.isabs(quelle), f"Quelle absolut: {quelle}"
+            assert not os.path.isabs(quelle), f"source is absolute: {quelle}"
 
 
 def test_quellen_sind_dateien():
     for ziel, quellen in _data_files():
         for quelle in quellen:
-            assert os.path.isfile(os.path.join(WURZEL, quelle)), f"kein File: {quelle}"
+            assert os.path.isfile(os.path.join(WURZEL, quelle)), f"not a file: {quelle}"
 
 
 def test_laufzeitdaten_landen_im_share_baum():
-    """node/launch brauchen config, worlds und launch unter share/mecanum_lab/."""
+    """node/launch need config, worlds and launch under share/mecanum_lab/."""
     anteile = {ziel: quellen for ziel, quellen in _data_files()}
     for ordner, datei in (("config", "default.json"), ("worlds", "arena.txt"),
                           ("launch", "lab.launch.py"), ("student", "solution.py")):
         quellen = anteile.get(os.path.join("share", "mecanum_lab", ordner), [])
-        assert any(os.path.basename(q) == datei for q in quellen), f"{ordner}/{datei} fehlt"
+        assert any(os.path.basename(q) == datei for q in quellen), f"{ordner}/{datei} missing"
     assert any(q == "package.xml" for q in anteile["share/mecanum_lab"])
 
 

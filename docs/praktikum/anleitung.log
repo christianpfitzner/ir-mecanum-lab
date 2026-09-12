@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.9)  12 SEP 2026 01:08
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.9)  12 SEP 2026 17:57
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -147,18 +147,18 @@ Package: babel 2024/01/07 v24.1 The Babel package
 \bbl@readstream=\read2
 \bbl@dirlevel=\count197
 
-(/usr/share/texlive/texmf-dist/tex/generic/babel-german/ngerman.ldf
-Language: ngerman 2024/01/19 v2.14 German support for babel (post-1996 orthogra
-phy)
-
-(/usr/share/texlive/texmf-dist/tex/generic/babel-german/ngermanb.ldf
-Language: ngermanb 2024/01/19 v2.14 German support for babel (post-1996 orthogr
-aphy)
-Package babel Info: Making " an active character on input line 122.
-)))
-(/usr/share/texlive/texmf-dist/tex/generic/babel/locale/de/babel-ngerman.tex
-Package babel Info: Importing font and identification data for ngerman
-(babel)             from babel-de.ini. Reported on input line 11.
+(/usr/share/texlive/texmf-dist/tex/generic/babel-english/english.ldf
+Language: english 2017/06/06 v3.3r English support from the babel system
+Package babel Info: Hyphen rules for 'canadian' set to \l@english
+(babel)             (\language0). Reported on input line 102.
+Package babel Info: Hyphen rules for 'australian' set to \l@ukenglish
+(babel)             (\language24). Reported on input line 105.
+Package babel Info: Hyphen rules for 'newzealand' set to \l@ukenglish
+(babel)             (\language24). Reported on input line 108.
+))
+(/usr/share/texlive/texmf-dist/tex/generic/babel/locale/en/babel-english.tex
+Package babel Info: Importing font and identification data for english
+(babel)             from babel-en.ini. Reported on input line 11.
 )
 (/usr/share/texlive/texmf-dist/tex/latex/base/fontenc.sty
 Package: fontenc 2021/04/29 v2.0v Standard LaTeX package
@@ -722,28 +722,14 @@ Package caption Info: KOMA-Script document class detected.
 File: caption-koma.sto 2023/09/08 v2.0e Adaption of the caption package to the 
 KOMA-Script document classes (AR)
 ))
-
-! Package caption Error: skipt undefined.
-
-See the caption package documentation for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.172 \caption@ProcessOptions*{caption}
-                                       
-If you do not understand this error, please take a closer look
-at the documentation of the `caption' package, especially the
-section about errors.
-Try typing  <return>  to proceed.
-If that doesn't work, type  X <return>  to quit.
-
 \c@caption@flags=\count313
 \c@continuedfloat=\count314
 Package caption Info: listings package is loaded.
 Package caption Info: KOMA-Script scrextend package detected.
 \caption@addmargin@hsize=\dimen298
 \caption@addmargin@linewidth=\dimen299
-) (/usr/share/texlive/texmf-dist/tex/latex/enumitem/enumitem.sty
+)
+(/usr/share/texlive/texmf-dist/tex/latex/enumitem/enumitem.sty
 Package: enumitem 2019/06/20 v3.9 Customized lists
 \labelindent=\skip70
 \enit@outerparindent=\dimen300
@@ -965,6 +951,15 @@ LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 43.
 LaTeX Font Info:    ... okay on input line 43.
 LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 43.
 LaTeX Font Info:    ... okay on input line 43.
+Package scrbase Info: activating english \abstractname on input line 43.
+Package scrbase Info: activating english \partname on input line 43.
+Package scrbase Info: activating english \figurename on input line 43.
+Package scrbase Info: activating english \tablename on input line 43.
+Package scrbase Info: activating english \contentsname on input line 43.
+Package scrbase Info: activating english \listfigurename on input line 43.
+Package scrbase Info: activating english \listtablename on input line 43.
+Package scrbase Info: activating english \refname on input line 43.
+Package scrbase Info: activating english \indexname on input line 43.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -1048,6 +1043,7 @@ File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman
 (RS)
 )
 Package hyperref Info: Link coloring ON on input line 43.
+ (./anleitung.out) (./anleitung.out)
 \@outlinefile=\write4
 \openout4 = `anleitung.out'.
 
@@ -1127,18 +1123,23 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <8> on input line 50.
+(Font)              <8> on input line 49.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <6> on input line 50.
+(Font)              <6> on input line 49.
 Package tocbasic Info: character protrusion at toc deactivated on input line 57
 .
+ (./anleitung.toc [1
 
-No file anleitung.toc.
+
+{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf/fonts/enc/
+dvips/lm/lm-ec.enc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-rm.enc}{/usr/share/t
+exmf/fonts/enc/dvips/lm/lm-mathit.enc}])
 \tf@toc=\write5
 \openout5 = `anleitung.toc'.
 
 LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 6
 4.
+
 (/usr/share/texmf/tex/latex/lm/ts1lmr.fd
 File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
@@ -1152,135 +1153,29 @@ Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `lmtt' (encoding: T1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
-
-
-LaTeX Warning: Reference `tab:parameter' on page 1 undefined on input line 77.
-
-
-LaTeX Warning: Reference `sec:loesungen' on page 1 undefined on input line 80.
-
-[1
-
-
-{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf/fonts/enc/
-dvips/lm/lm-ec.enc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-rm.enc}{/usr/share/t
-exmf/fonts/enc/dvips/lm/lm-mathit.enc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-t
-s1.enc}]
-
-LaTeX Warning: Reference `fig:mecanum' on page 2 undefined on input line 106.
-
-(./figures/mecanum.tikz
+ [2{/usr/share/texmf/fonts/enc/dvips/lm/lm-ts1.enc}] (./figures/mecanum.tikz
 LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <5> on input line 41.
 LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <7> on input line 50.
-
-
-! Package pgf Error: Unknown arrow tip kind 'Stealth[length=1.5mm]-{Stealth[len
-gth=1.5mm]}'.
-
-See the pgf package documentation for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.55 \draw[dim]
-                (-\lx,-\ly-0.78) -- (-\lx,-\ly-0.18);
-This error message was generated by an \errmessage
-command, so I can't give any explicit help.
-Pretend that you're Hercule Poirot: Examine all clues,
-and deduce the truth by order and method.
-
-Missing character: There is no p in font nullfont!
-Missing character: There is no g in font nullfont!
-Missing character: There is no f in font nullfont!
-Missing character: There is no @ in font nullfont!
-Missing character: There is no s in font nullfont!
-Missing character: There is no t in font nullfont!
-Missing character: There is no o in font nullfont!
-Missing character: There is no p in font nullfont!
-
-! Package pgf Error: Unknown arrow tip kind 'Stealth[length=1.5mm]-{Stealth[len
-gth=1.5mm]}'.
-
-See the pgf package documentation for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.56 \draw[dim]
-                ( \lx,-\ly-0.78) -- ( \lx,-\ly-0.18);
-(That was another \errmessage.)
-
-Missing character: There is no p in font nullfont!
-Missing character: There is no g in font nullfont!
-Missing character: There is no f in font nullfont!
-Missing character: There is no @ in font nullfont!
-Missing character: There is no s in font nullfont!
-Missing character: There is no t in font nullfont!
-Missing character: There is no o in font nullfont!
-Missing character: There is no p in font nullfont!
-
-! Package pgf Error: Unknown arrow tip kind 'Stealth[length=1.5mm]-{Stealth[len
-gth=1.5mm]}'.
-
-See the pgf package documentation for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.57 \draw[dim]
-                (-\lx,-\ly-0.62) -- ( \lx,-\ly-0.62) node[midway, above=1pt]...
-(That was another \errmessage.)
-
-Missing character: There is no p in font nullfont!
-Missing character: There is no g in font nullfont!
-Missing character: There is no f in font nullfont!
-Missing character: There is no @ in font nullfont!
-Missing character: There is no s in font nullfont!
-Missing character: There is no t in font nullfont!
-Missing character: There is no o in font nullfont!
-Missing character: There is no p in font nullfont!
 LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <10.95> on input line 57.
-
-! Package pgf Error: Unknown arrow tip kind 'Stealth[length=1.5mm]-{Stealth[len
-gth=1.5mm]}'.
-
-See the pgf package documentation for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.58 \draw[dim]
-                (\lx+0.72,-\ly) -- (\lx+0.72,\ly);
-(That was another \errmessage.)
-
-Missing character: There is no p in font nullfont!
-Missing character: There is no g in font nullfont!
-Missing character: There is no f in font nullfont!
-Missing character: There is no @ in font nullfont!
-Missing character: There is no s in font nullfont!
-Missing character: There is no t in font nullfont!
-Missing character: There is no o in font nullfont!
-Missing character: There is no p in font nullfont!
 )
 LaTeX Font Info:    Trying to load font information for OT1+lmss on input line 
 119.
- (/usr/share/texmf/tex/latex/lm/ot1lmss.fd
+
+(/usr/share/texmf/tex/latex/lm/ot1lmss.fd
 File: ot1lmss.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `lmss' (encoding: OT1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
- [2]
-
-LaTeX Warning: Reference `fig:mecanum' on page 1 undefined on input line 128.
-
-
-LaTeX Warning: Reference `eq:fk' on page 1 undefined on input line 172.
-
-(./figures/architektur.tikz) [3{/usr/share/texmf/fonts/enc/dvips/lm/lm-mathsy.e
-nc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-mathex.enc}]
+ [3{/usr/share/texmf/fonts/enc/dvips/lm/lm-mathsy.enc}{/usr/share/texmf/fonts/e
+nc/dvips/lm/lm-mathex.enc}]
+(./figures/architektur.tikz)
 Underfull \hbox (badness 10000) in paragraph at lines 210--211
-[]|\T1/lmr/m/n/10.95 (+20) Soll-Körpergeschwindigkeit;
+[]|\T1/lmr/m/n/10.95 (+20) commanded body ve-loc-ity;
  []
 
 
@@ -1299,23 +1194,18 @@ Overfull \hbox (27.29495pt too wide) in paragraph at lines 218--219
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 219--220
-[]|\T1/lmr/m/n/10.95 (+20) globale Po-si-ti-on
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 219--220
-\T1/lmr/m/n/10.95 (+20) (UWB/MoCap-Charakter),
- []
-
-
 Overfull \hbox (27.29495pt too wide) in paragraph at lines 220--221
 []|\T1/lmtt/m/n/10.95 geometry_msgs/msg/PoseStamped| 
  []
 
 
-Underfull \hbox (badness 3354) in paragraph at lines 221--222
-[]|\T1/lmr/m/n/10.95 (+20) exakte Po-se ^^V nur, wenn
+Underfull \hbox (badness 10000) in paragraph at lines 221--222
+[]|\T1/lmr/m/n/10.95 (+20) exact pose ^^V only if
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 221--222
+\T1/lmtt/m/n/10.95 debug_truth \T1/lmr/m/n/10.95 (+20) is switched
  []
 
 
@@ -1335,74 +1225,43 @@ Underfull \hbox (badness 10000) in paragraph at lines 226--227
  []
 
 
-LaTeX Warning: Reference `sec:service' on page 1 undefined on input line 230.
-
-
-LaTeX Warning: Reference `sec:service' on page 1 undefined on input line 232.
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 235--236
-[]|\T1/lmr/m/n/10.95 (+20) Simulationszeit
+Underfull \hbox (badness 4595) in paragraph at lines 227--228
+\T1/lmr/m/n/10.95 (+20) poses % TODO(integrator):
  []
 
 
-LaTeX Warning: Reference `eq:fk' on page 1 undefined on input line 267.
+Underfull \hbox (badness 10000) in paragraph at lines 235--236
+[]|\T1/lmr/m/n/10.95 (+20) simulation time
+ []
 
-(/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
+[4] (/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
 )
 (/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
-) [4]
+)
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <10.95> not available
 (Font)              Font shape `T1/lmtt/b/n' tried instead on input line 284.
- [5]
-[6]
-Overfull \hbox (52.22983pt too wide) in paragraph at lines 329--332
-[]\T1/lmr/bx/n/12 (-20) JSON-Fallback oh-ne Interface-Bau\T1/lmr/m/n/12 (-20) :
- Hands-ha-ke über The-men, \T1/lmtt/m/n/12 /sim/spawn_robot/request
+ [5] [6]
+Overfull \hbox (89.68149pt too wide) in paragraph at lines 329--332
+[]\T1/lmr/bx/n/12 (-20) JSON fall-back with-out build-ing an in-ter-face\T1/lmr
+/m/n/12 (-20) : hand-shake over top-ics, \T1/lmtt/m/n/12 /sim/spawn_robot/reque
+st
  []
 
-
-! LaTeX Error: Unicode character â‰  (U+2260)
-               not set up for use with LaTeX.
-
-See the LaTeX manual or LaTeX Companion for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.345 ... am Roboternamen, \thema{/alice/odom} â‰ 
-                                                  
-You may provide a definition with
-\DeclareUnicodeCharacter 
-
-
-LaTeX Warning: Reference `tab:aufgaben' on page 1 undefined on input line 355.
-
-
+[7]
 Overfull \hbox (13.32721pt too wide) in paragraph at lines 364--364
 []|\T1/lmtt/m/n/10.95 kinematik| 
  []
 
 
-Overfull \hbox (16.26172pt too wide) in paragraph at lines 366--368
+Overfull \hbox (44.73154pt too wide) in paragraph at lines 366--368
 []|[]| 
  []
 
 
 Overfull \hbox (1.82974pt too wide) in paragraph at lines 369--369
 []|\T1/lmtt/m/n/10.95 quadrat| 
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 370--371
-[]|\T1/lmr/m/n/10.95 (+20) Abschluss
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 370--371
-\OML/lmm/m/it/10.95 < \OT1/lmr/m/n/10.95 (+20) 0[]20 m$\T1/lmr/m/n/10.95 (+20) 
-,
  []
 
 
@@ -1413,12 +1272,18 @@ Underfull \hbox (badness 4940) in paragraph at lines 370--371
 
 
 Underfull \hbox (badness 10000) in paragraph at lines 370--371
-\T1/lmr/m/n/10.95 (+20) Weg
+\T1/lmr/m/n/10.95 (+20) path length
  []
 
 
 Underfull \hbox (badness 10000) in paragraph at lines 370--371
-\T1/lmr/m/n/10.95 (+20) Be-rüh-run-gen,
+\OT1/lmr/m/n/10.95 (+20) 3\OML/lmm/m/it/10.95 :\OT1/lmr/m/n/10.95 (+20) 2 [] 9\
+OML/lmm/m/it/10.95 :\OT1/lmr/m/n/10.95 (+20) 0 m$\T1/lmr/m/n/10.95 (+20) ,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 370--371
+\T1/lmr/m/n/10.95 (+20) 0 con-tacts,
  []
 
 
@@ -1428,33 +1293,23 @@ Overfull \hbox (7.57848pt too wide) in paragraph at lines 372--372
 
 
 Underfull \hbox (badness 10000) in paragraph at lines 373--374
-[]|\T1/lmr/m/n/10.95 (+20) Zielfehler
+[]|\T1/lmr/m/n/10.95 (+20) target er-ror
  []
 
 
-Underfull \hbox (badness 2205) in paragraph at lines 373--374
-\OML/lmm/m/it/10.95 < \OT1/lmr/m/n/10.95 (+20) 0[]25 m$\T1/lmr/m/n/10.95 (+20) 
-, 0
+Underfull \hbox (badness 1681) in paragraph at lines 373--374
+\OML/lmm/m/it/10.95 < \OT1/lmr/m/n/10.95 (+20) 0\OML/lmm/m/it/10.95 :\OT1/lmr/m
+/n/10.95 (+20) 25 m$\T1/lmr/m/n/10.95 (+20) , 0
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 373--374
-\T1/lmr/m/n/10.95 (+20) Be-rüh-run-gen,
+Underfull \hbox (badness 2326) in paragraph at lines 373--374
+\T1/lmr/m/n/10.95 (+20) con-tacts, lat-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 373--374
-\T1/lmr/m/n/10.95 (+20) seit-li-cher
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 373--374
-\T1/lmr/m/n/10.95 (+20) Ab-stand
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 373--374
-\T1/lmr/m/n/10.95 (+20) Ge-rad-aus
+Underfull \hbox (badness 3219) in paragraph at lines 373--374
+\T1/lmr/m/n/10.95 (+20) straight runs
  []
 
 
@@ -1463,103 +1318,48 @@ Overfull \hbox (24.82468pt too wide) in paragraph at lines 375--375
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 376--376
-[]|\T1/lmr/m/n/10.95 (+20) Fehler
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 376--376
-\OML/lmm/m/it/10.95 < \OT1/lmr/m/n/10.95 (+20) 0[]25 m$\T1/lmr/m/n/10.95 (+20) 
-,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 376--376
-\T1/lmr/m/n/10.95 (+20) 0 Be-rüh-run-
- []
-
-
 Overfull \hbox (8.96994pt too wide) in paragraph at lines 360--379
  [][] 
  []
 
-
-! LaTeX Error: Invalid UTF-8 byte sequence (â\lst@EC€\lst@EC”).
-
-See the LaTeX manual or LaTeX Companion for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.386     """[VL, VR, HL, HR] in rad/s â€” 
-                                           Konvention aus Abschnitt 2."""
-The document does not appear to be in UTF-8 encoding.
-Try adding \UseRawInputEncoding as the first line of the file
-or specify an encoding such as \usepackage [latin1]{inputenc}
-in the document preamble.
-Alternatively, save the file in UTF-8 using your editor or another tool
-
-[7] [8]
-
-LaTeX Warning: Reference `tab:aufgaben' on page 1 undefined on input line 443.
-
-
-Overfull \hbox (86.45105pt too wide) in paragraph at lines 446--449
-[]\T1/lmr/m/n/12 (-20) Selbsttest vor der Ab-ga-be: \T1/lmtt/m/n/12 ./lab run -
--robot test --controller student/<name>_controller.py
+[8]
+Overfull \hbox (53.4376pt too wide) in paragraph at lines 441--444
+[]\T1/lmr/m/n/12 (-20) The au-to-grader is de-ci-sive: \T1/lmtt/m/n/12 ./lab gr
+ade --robot <name> --task alle --json ergebnis.json\T1/lmr/m/n/12 (-20) .
  []
 
-[9]
+
+Overfull \hbox (90.59215pt too wide) in paragraph at lines 446--449
+[]\T1/lmr/m/n/12 (-20) Self-test be-fore hand-ing in: \T1/lmtt/m/n/12 ./lab run
+ --robot test --controller student/<name>_controller.py
+ []
+
+[9] [10]
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <14.4> not available
 (Font)              Font shape `T1/lmtt/b/n' tried instead on input line 513.
- [10]
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <12> not available
 (Font)              Font shape `T1/lmtt/b/n' tried instead on input line 525.
 
-Overfull \hbox (250.65623pt too wide) detected at line 545
+Overfull \hbox (230.0141pt too wide) detected at line 545
 []
  []
-
-
-LaTeX Warning: Reference `eq:rr' on page 1 undefined on input line 556.
-
-
-LaTeX Warning: Reference `eq:rl' on page 1 undefined on input line 556.
-
-
-LaTeX Warning: Reference `eq:fr' on page 1 undefined on input line 556.
-
-
-LaTeX Warning: Reference `eq:fl' on page 1 undefined on input line 556.
 
 [11] [12] (./anleitung.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
  ***********
-
-
-LaTeX Warning: There were undefined references.
-
-
-LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
-
-
-Package rerunfilecheck Warning: File `anleitung.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `anleitung.out':
-(rerunfilecheck)             Before: <no file>
-(rerunfilecheck)             After:  D41D8CD98F00B204E9800998ECF8427E;0.
+Package rerunfilecheck Info: File `anleitung.out' has not changed.
+(rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 34608 strings out of 474222
- 656426 string characters out of 5748734
- 2144975 words of memory out of 5000000
- 55879 multiletter control sequences out of 15000+600000
- 698653 words of font info for 265 fonts, out of 8000000 for 9000
+ 34526 strings out of 474222
+ 655244 string characters out of 5748734
+ 2269975 words of memory out of 5000000
+ 55810 multiletter control sequences out of 15000+600000
+ 698049 words of font info for 257 fonts, out of 8000000 for 9000
  1143 hyphenation exceptions out of 8191
- 108i,22n,107p,10931b,2074s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 108i,22n,107p,10931b,2065s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texmf/fonts/type1/public/lm/lmbx10.pfb></usr/share/texmf/fonts/ty
 pe1/public/lm/lmbx12.pfb></usr/share/texmf/fonts/type1/public/lm/lmex10.pfb></u
 sr/share/texmf/fonts/type1/public/lm/lmmi10.pfb></usr/share/texmf/fonts/type1/p
@@ -1577,10 +1377,10 @@ mf/fonts/type1/public/lm/lmsy8.pfb></usr/share/texmf/fonts/type1/public/lm/lmtk
 10.pfb></usr/share/texmf/fonts/type1/public/lm/lmtt10.pfb></usr/share/texmf/fon
 ts/type1/public/lm/lmtt12.pfb></usr/share/texmf/fonts/type1/public/lm/lmtt8.pfb
 ></usr/share/texmf/fonts/type1/public/lm/lmtti10.pfb>
-Output written on anleitung.pdf (12 pages, 544302 bytes).
+Output written on anleitung.pdf (12 pages, 539886 bytes).
 PDF statistics:
- 458 PDF objects out of 1000 (max. 8388607)
- 383 compressed objects within 4 object streams
+ 494 PDF objects out of 1000 (max. 8388607)
+ 418 compressed objects within 5 object streams
  154 named destinations out of 1000 (max. 500000)
  82117 words of extra memory for PDF output out of 89155 (max. 10000000)
 

@@ -1,104 +1,129 @@
-# Mecanum-Labor — zwei Versuche in einem 2D-Simulator
+# Mecanum lab — two experiments in one 2D simulator
 
-Ein Python-Simulator für das Praktikum: **Versuch 1** lehrt Mecanum-Kinematik (der
-Studierende fährt Aufgaben), **Versuch 2** lehrt Zustandsschätzung (der Simulator fährt, der
-Studierende schätzt mit Kalman-Filter). Beides läuft headless, ohne ROS 2 und ohne numpy —
-ROS 2 ist eine optionale Schicht, keine Voraussetzung.
+A Python simulator for the lab course: **Experiment 1** teaches mecanum kinematics (the
+student drives the tasks), **Experiment 2** teaches state estimation (the simulator drives,
+the student estimates with a Kalman filter). Both run headless, without ROS 2 and without
+numpy — ROS 2 is an optional layer, not a requirement.
 
-## Installation in einem Befehl
-
-```bash
-./install.sh              # prüft python/pygame/pytest/ROS und bietet an, was fehlt
-./install.sh --check      # nur berichten, nichts installieren
-./install.sh --mit-tests  # dazu ein kurzer Selbsttest (Simulation + Unit-Tests, headless)
-```
-
-`./install.sh` schreibt nichts ins Home-Verzeichnis und braucht kein sudo. Ohne
-Internetzugang: `sudo apt install python3-pygame` (oder `./install.sh --user`).
-
-## Erste Schritte — Versuch 1 (Kinematik)
+## Install in one command
 
 ```bash
-./lab run --robot alice --controller student/controller_template.py   # Fenster, selbst fahren
-./lab grade --task v1 --controller student/solution.py               # alle Aufgaben bewerten
+./install.sh              # checks python/pygame/pytest/ROS, offers to install what is missing
+./install.sh --check      # report only, install nothing
+./install.sh --mit-tests  # plus a short self test (simulation + unit tests, headless)
 ```
 
-## Erste Schritte — Versuch 2 (Zustandsschätzung)
+`./install.sh` writes nothing into your home directory and needs no sudo. Without an
+internet connection: `sudo apt install python3-pygame` (or `./install.sh --user`).
 
-Die Simulation fährt; der Knoten misst nur und meldet seine Schätzung auf
-`/<robot>/kf/pose` — Position **und** die eigene 1σ, denn die Note hängt an der Unsicherheit.
+## First steps — Experiment 1 (kinematics)
+
+```bash
+./lab run --robot alice --controller student/controller_template.py   # window, drive yourself
+./lab grade --task v1 --controller student/solution.py               # grade all tasks
+```
+
+## First steps — Experiment 2 (state estimation)
+
+The simulation drives; your node only measures and reports its estimate on
+`/<robot>/kf/pose` — position **and** its own 1σ, because the grade hangs on the uncertainty.
 
 ```bash
 ./lab run --task kf_gps --robot alice --controller student/kf_template.py --truth
 ./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv
-python3 tools/kfplot.py messung.csv       # Zahlen + ASCII-Diagramm, ohne matplotlib
+python3 tools/kfplot.py messung.csv       # numbers + ASCII plot, no matplotlib
 ```
 
-Vier Aufgaben: `kf_gps` (CV-Modell, nur GPS) → `kf_fusion` (GPS + Odometrie + IMU durch ein
-8-s-Funkloch) → `kf_kovarianz` (die angegebene σ muss zum Fehler passen, NEES) →
-`kf_dynamik` (schnell, 200 Hz IMU). Arbeitsblatt: `docs/praktikum/kalman.tex` (`make kalman`).
+Four tasks: `kf_gps` (CV model, GPS only) → `kf_fusion` (GPS + odometry + IMU through an
+8 s GPS outage) → `kf_kovarianz` (the stated σ must match the error, NEES) → `kf_dynamik`
+(fast, 200 Hz IMU). Handout: `docs/praktikum/kalman.tex` (`make kalman`).
 
-## Mit ROS 2 (Kilted oder neuer)
+## With ROS 2 (Kilted or newer)
 
 ```bash
 source /opt/ros/kilted/setup.bash
-./lab sim --robots alice,bob                      # Simulator als echter ROS-Knoten
-./lab spawn --name carlo                          # Roboter zu einer laufenden Sim hinzugesetzt
-ros2 launch launch/kf.launch.py                   # Versuch 2, alles konfigurierbar
+./lab sim --robots alice,bob                      # simulator as a real ROS node
+./lab spawn --name carlo                          # add a robot to a running sim
+ros2 launch launch/kf.launch.py                   # Experiment 2, everything configurable
 ros2 launch launch/kf.launch.py bewerten:=kf_alle controller:=student/kf_solution.py
-ros2 launch launch/sim.launch.py robots:=alice,bob  # Versuch 1
-ros2 topic echo /alice/imu --once                 # az in Ruhe ≈ +9,81 — das ist richtig
+ros2 launch launch/sim.launch.py robots:=alice,bob  # Experiment 1
+ros2 topic echo /alice/imu --once                 # az at rest ≈ +9.81 — that is correct
+ros2 topic echo /tf --once                        # map → alice/odom → alice/base_link → laser
+rviz2 -d rviz/kf.rviz                             # Fixed Frame `map` works: the sim publishes TF
 ```
 
-Wer den In-Prozess-Bus auch mit ROS will: `MECANUM_ROS=stub ./lab sim --headless`.
+To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless`.
 
-## Auftrag und Halle gehören zusammen
+## The simulator window (what you hide is not what is published)
 
-`--task` nimmt Auftrags-IDs, Gruppen oder eine Kommaliste: `v1` und `alle` (Versuch 1),
-`kf_alle`/`v2` (Versuch 2), `beide` (wirklich alle). Jede Aufgabe nennt in
-`config/tasks.json` ihre Halle (`"welt"`); `./lab` und `tools/fastgrade.py` folgen dieser
-Angabe, `--world` überschreibt sie. Wer in der falschen Halle bewertet, bekommt
-Wandkontakte statt Noten.
+| input | what it does |
+|---|---|
+| mouse wheel | zoom **to the cursor** · `+`/`-` zoom to the middle · `f` shows the whole world |
+| drag with the left button | pan (the map follows the mouse) · right button centres again |
+| `1`…`9` / `0` | follow one robot / show everything · window resizable, the camera keeps up |
+| `SPACE` pause · `q` quit | as before |
+| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines |
+| `l t g k w v d z h` | switch a single layer — the same as clicking its row |
 
-## Wo konfiguriert wird
+The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu` and your `kf/pose`
+keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
+is deliberate: hide the dots, keep the data, and see which layer belongs to which topic.
 
-| Schicht | Datei / Option | Hinweis |
+## Task and arena belong together
+
+`--task` takes task ids, groups or a comma list: `v1` and `alle` (Experiment 1),
+`kf_alle`/`v2` (Experiment 2), `beide` (really all). Every task names its arena in
+`config/tasks.json` (`"welt"`); `./lab` and `tools/fastgrade.py` follow that setting,
+`--world` overrides it. Grading in the wrong arena gets you wall contacts
+instead of points.
+
+## Where configuration lives
+
+| Layer | File / option | Note |
 |---|---|---|
-| Vorgaben | `mecanum_lab/types.py` → `DEFAULT_CONFIG` | jede Sensorzahl beider Versuche |
-| Standort | `config/default.json` | überschreibt die Vorgaben |
-| Auftragsprofil | `config/tasks.json` → `sim` | die gemessene Sensorik je Aufgabe (GPS-Rate, σ, Funkloch, IMU) |
-| Kommandozeile | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | gewinnt immer |
-| Launch-Datei | `ros2 launch launch/kf.launch.py --show-args` | 46 Argumente, alle auf `--set` abgebildet |
+| Defaults | `mecanum_lab/types.py` → `DEFAULT_CONFIG` | every sensor number of both experiments |
+| Site | `config/default.json` | overrides the defaults |
+| Task profile | `config/tasks.json` → `sim` | measured sensing per task (GPS rate, σ, outage, IMU) |
+| Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
+| Launch file | `ros2 launch launch/kf.launch.py --show-args` | 46 arguments, all mapped onto `--set` |
 
-Hallen: `arena` (offen, Versuch 2), `production`, `maze`, `track` — oder eine eigene
-`worlds/name.txt` (`python3 tools/worldcheck.py --welt name` prüft sie).
+Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track` — or your own
+`worlds/name.txt` (`python3 tools/worldcheck.py --welt name` checks it, including that the
+world is closed). One grid cell is 0.5 m; `"worlds": {"cell_by_world": {"maze": 1.0}}` in
+`config/default.json` makes a single world coarser without touching the robot — that is why the
+maze has room to drive in while the graded arenas stay as they are.
 
-## Nützliche Befehle
+## Useful commands
 
 ```bash
-./lab docs                # Themen, Aufgaben, Beispiele
-./lab robots              # wer fährt gerade?
+./lab docs                # topics, tasks, examples
+./lab robots              # who is driving right now?
 ./lab grade --task kf_gps --controller student/kf_solution.py --json bericht.json
-tools/check.sh            # Barriere der Betreuung (Tests, Bewertung, Budgets)
+tools/check.sh            # teaching team's gate (tests, grading, budgets)
 python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --speed 25
 ```
 
-## Wenn etwas nicht läuft
+## When something does not work
 
-* **`pygame fehlt`** → `./install.sh`, oder alles mit `--headless` laufen lassen.
-* **Kein Display / SSH** → `--headless` (oder `SDL_VIDEODRIVER=dummy`).
-* **`ros2: command not found`** → `/opt/ros/<distro>/setup.bash` sourcen; alles außer
-  `ros2 …` geht auch ohne.
-* **Bewertung meldet „keine Messpaare"** → der Knoten muss `/<robot>/kf/pose` senden, und
-  die Sim muss die Wahrheit senden (`--truth`, bei `./lab grade` automatisch).
-* **Schätzung hängt hinter den Messungen her** → Wanduhr benutzt. Es zählen die
-  Messstempel (`fix.t`, `odom.t`), nie `time.time()`.
-* **Zweiter Auftrag startet weit weg** → Messungen des vorigen Auftrags verwerfen
-  (`fix.t >= Missionsbeginn`), siehe Arbeitsblatt, „Drei Regeln".
-* **Listen** → `./lab docs`.
+* **`pygame is missing`** → `./install.sh`, or run everything with `--headless`.
+* **No display / SSH** → `--headless` (or `SDL_VIDEODRIVER=dummy`).
+* **`ros2: command not found`** → source `/opt/ros/<distro>/setup.bash`; everything except
+  `ros2 …` works without it too.
+* **Grading reports `no measurement pairs`** → your node must publish `/<robot>/kf/pose`,
+  and the sim must publish truth (`--truth`, automatic under `./lab grade`).
+* **Estimate lags behind the measurements** → you used the wall clock. What counts are the
+  message stamps (`fix.t`, `odom.t`), never `time.time()`.
+* **Second task starts far away** → discard the previous task's measurements
+  (`fix.t >= mission start`), see the handout, section "Three rules".
+* **Lists** → `./lab docs`.
 
-## Regeln dieses Codebases
+## Rules of this codebase
 
-Stdlib + pygame (kein numpy/scipy/yaml im Simulator und in den Studierendendateien),
-Kommentare und Oberfläche deutsch, Bezeichner englisch, deterministisch aus `--seed`,
-headless-fähig. Details: `docs/CONTRACT.md` (Versuch 1), `docs/CONTRACT-KF.md` (Versuch 2).
+Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), **all written
+prose and all UI text in English** — comments, docstrings, report text, handouts,
+`config/tasks.json`. That is checked: `python3 tools/langcheck.py` (also a step in
+`tools/check.sh`). Identifiers are English too, except the ones that are API and would break
+handouts and student code: the launch arguments (`sekunden`, `aufgabe`, `bewerten`, `wahrheit`,
+`protokoll`, `aufzeichnung`), ROS topic names, JSON keys and the wheel names `VL/VR/HL/HR`.
+Deterministic from `--seed`, headless-capable.
+Details: `docs/CONTRACT.md` (Experiment 1), `docs/CONTRACT-KF.md` (Experiment 2).

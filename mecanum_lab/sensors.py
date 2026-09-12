@@ -1,18 +1,18 @@
-"""Sensoren: Odometrie (Dead Reckoning), 2D-LIDAR, globale Position, trägeheits-IMU.
+"""Sensors: odometry (dead reckoning), 2D LIDAR, global position, inertial IMU.
 
-Alle rechnen gegen die Wahrheit aus physics.py, geben aber nur zurück, was ein echter
-Sensor liefern würde — deshalb ist Odometrie Drift, GPS Rauschen und die IMU ein
-Bias-Sumpf.
+All of them compute against the truth from physics.py, but return only what a real
+sensor would deliver — which is why odometry drifts, why GPS is noisy and why the IMU
+is a bias swamp.
 
-Rauschmodell der Odometrie (bewusst einfach gehalten, damit es erklärbar bleibt):
-* `sigma_wheel`    Rauschen auf jeder gemessenen Radgeschwindigkeit — wird **integriert**,
-                   daraus entsteht die eigentliche Drift (ZufallsSpaziergang).
-* `bias_omega`     systematischer Drehratenfehler, wächst linear mit der Zeit.
-* `sigma_xy`/`sigma_theta` Messrauschen auf das **ausgegebene** Ergebnis; es wird nicht
-                   zurückgekoppelt, die Schätzung bleibt also frei von Treppchen.
+Odometry noise model (kept deliberately simple, so it stays explainable):
+* `sigma_wheel`    noise on every measured wheel speed — it is **integrated**,
+                   which is where the actual drift comes from (random walk).
+* `bias_omega`     systematic turn-rate error, grows linearly with time.
+* `sigma_xy`/`sigma_theta` measurement noise on the **output** result; it is not fed
+                   back, so the estimate stays free of stairsteps.
 
-Rauschen der IMU (Versuch 2) wird als **Dichte** pro √Hz angegeben und auf die
-Samplingrate umgerechnet — siehe `ImuSensor`, dort steht auch, warum der Bias gewinnt.
+IMU noise (experiment 2) is given as a **density** per √Hz and converted to the
+sampling rate — see `ImuSensor`, which also explains why the bias wins.
 """
 import math
 import random
@@ -22,7 +22,7 @@ from .types import Gps, Imu, Odom, Pose, Scan, wrap_angle
 
 
 class Noise:
-    """Ein einziger Zufallsstrom für die ganze Simulation — gleiches Seed, gleiches Bild."""
+    """One single random stream for the whole simulation — same seed, same picture."""
 
     def __init__(self, seed: int | None = None):
         self.rng = random.Random(seed)
@@ -35,7 +35,7 @@ class Noise:
 
 
 class OdometrySensor:
-    """Integriert ausschließlich die übergebenen Radgeschwindigkeiten, nie die Wahrheit."""
+    """Integrates only the wheel speeds it is given, never the truth."""
 
     def __init__(self, g: physics.Geometry, noise: Noise, cfg: dict | None = None):
         cfg = cfg or {}
@@ -46,16 +46,16 @@ class OdometrySensor:
         self.bias_omega = cfg.get("bias_omega", 0.0)
         self.pose = Pose()
         self.t = 0.0
-        self.t_offset = 0.0                      # Engine haengt diese Uhr an die Simulationszeit
+        self.t_offset = 0.0                      # the engine hooks this clock to simulation time
         self.twist = (0.0, 0.0, 0.0)
 
     def reset(self, pose) -> None:
-        """Odometrie-Ursprung ist die Spawn-Pose; von da an wird nur noch addiert."""
+        """The odometry origin is the spawn pose; from there on it only adds."""
         self.pose = Pose(pose.x, pose.y, pose.theta)
         self.t, self.twist = 0.0, (0.0, 0.0, 0.0)
 
     def update(self, wheels, dt: float) -> Odom:
-        """Einintegrationsschritt; liefert die aktuelle (verrauschte) Schätzung."""
+        """One integration step; returns the current (noisy) estimate."""
         measured = [w + self.noise.gauss(self.sigma_wheel) for w in wheels]
         vx, vy, omega = physics.forward_kinematics(self.g, measured)
         omega += self.bias_omega
@@ -73,11 +73,11 @@ class OdometrySensor:
 
 
 class Lidar:
-    """360 Strahlen gleichmäßig über 2*pi; Strahl 0 zeigt in Fahrtrichtung, CCW weiter.
+    """360 beams evenly over 2*pi; beam 0 points forward, then counter-clockwise.
 
-    Trefferentfernung im Weltframe per Strahl/Rechteck-Slab-Test gegen die Wände der
-    Welt. Andere Roboter werden in Versuch 1 nicht gesehen. Kein Treffer -> `inf`
-    (die ROS-Bridge macht daraus `range_max`, siehe CONTRACT §6.4).
+    Hit distance in the world frame via a ray/rectangle slab test against the walls of
+    the world. Other robots are not seen in experiment 1. No hit -> `inf` (the ROS
+    bridge turns that into `range_max`, see CONTRACT §6.4).
     """
 
     def __init__(self, world, noise: Noise, cfg: dict | None = None):
@@ -92,12 +92,12 @@ class Lidar:
         self.increment = step
 
     def scan(self, pose) -> Scan:
-        """Eine Vollkreismessung von `pose` aus."""
+        """One full-circle measurement starting from `pose`."""
         cands = [w for w in self.world.walls if self._near(pose, w)]
         cos_t, sin_t = math.cos(pose.theta), math.sin(pose.theta)
         ranges = []
         for i, (bx, by) in enumerate(self.dirs):
-            dx = bx * cos_t - by * sin_t                 # Strahlrichtung im Weltframe
+            dx = bx * cos_t - by * sin_t                 # beam direction in the world frame
             dy = bx * sin_t + by * cos_t
             hit = self.range_max
             for w in cands:
@@ -110,14 +110,14 @@ class Lidar:
                     range_min=self.range_min, range_max=self.range_max, ranges=ranges)
 
     def _near(self, pose, w) -> bool:
-        """Vorfilter: Rechteck, das weiter als range_max entfernt liegt, kann kein Treffer."""
+        """Pre-filter: a rectangle farther away than range_max can never be a hit."""
         dx = max(w.x0 - pose.x, 0.0, pose.x - w.x1)
         dy = max(w.y0 - pose.y, 0.0, pose.y - w.y1)
         return dx * dx + dy * dy <= self.range_max * self.range_max
 
 
 def _ray_rect(px: float, py: float, dx: float, dy: float, w) -> float | None:
-    """Entfernung zum Eintritt in ein achsenparalleles Rechteck, sonst None (Slab-Test)."""
+    """Distance to entering an axis-aligned rectangle, else None (slab test)."""
     lo, hi = 0.0, float("inf")
     for o, d, a, b in ((px, dx, w.x0, w.x1), (py, dy, w.y0, w.y1)):
         if abs(d) < 1e-12:
@@ -134,15 +134,15 @@ def _ray_rect(px: float, py: float, dx: float, dy: float, w) -> float | None:
 
 
 class GpsSensor:
-    """Globale Position (UWB/MoCap): konstanter Bias plus gaußsches Messrauschen.
+    """Global position (UWB/MoCap): constant bias plus Gaussian measurement noise.
 
-    Heisst GpsSensor (nicht Gps), weil types.Gps die Nachricht ist — dieser Sensor
-    erzeugt sie. Dieselbe Begründung wie bei OdometrySensor und Lidar.
+    Named GpsSensor (not Gps) because types.Gps is the message — this sensor produces
+    it. Same reasoning as for OdometrySensor and Lidar.
 
-    Zwei Eingriffe machen die Kalman-Filter-Aufträge erst interessant:
-    `gap` unterdrückt für `gap[1]` Sekunden ab `gap[0]` jeden Fix (Funkloch in der
-    Halle), `bias_step` legt für dieselbe Zeit einen zusätzlichen Versatz obendrauf
-    (Multi-Path — der absolute Klassiker im Innenhof).
+    Two interventions are what make the Kalman filter tasks interesting: `gap`
+    suppresses every fix for `gap[1]` seconds from `gap[0]` on (GPS outage in the
+    arena), `bias_step` adds an extra offset on top for the same time (multi-path — the
+    absolute classic indoors).
     """
 
     def __init__(self, noise: Noise, cfg: dict | None = None):
@@ -153,15 +153,15 @@ class GpsSensor:
         self.bias = cfg.get("bias_xy") or (0.0, 0.0)
         self.gap = _fenster(cfg.get("gap"), 2)
         self.step = _fenster(cfg.get("bias_step"), 4)
-        self.t0 = 0.0                                # Zeitbezug der Fenster (siehe set_task)
+        self.t0 = 0.0                                # time reference of the windows (see set_task)
 
     def fix(self, pose, t: float = 0.0) -> Gps | None:
-        """Eine Messung zur Simulationszeit `t`; None heisst 'kein Fix' (Antenne weg).
+        """One measurement at simulation time `t`; None means 'no fix' (antenna gone).
 
-        `gap` und `bias_step` werden **relativ zum Auftragsbeginn** gelesen — die Engine
-        setzt `t0` in `set_task`. Sonst hänge vom Startknopf ab, wann das Funkloch kommt.
+        `gap` and `bias_step` are read **relative to task start** — the engine sets `t0` in
+        `set_task`. Otherwise the start button decides when the GPS outage hits.
         """
-        auf_t = t - self.t0                      # Zeit seit Auftragsbeginn
+        auf_t = t - self.t0                      # time since task start
         if self.gap and self.gap[0] <= auf_t < self.gap[0] + self.gap[1]:
             return None
         dx = dy = 0.0
@@ -173,32 +173,32 @@ class GpsSensor:
 
 
 def _fenster(wert, n: int) -> list | None:
-    """Konfiguration `[start, dauer, …]` prüfen; Unsinn abschalten statt Absturz."""
+    """Check a `[start, duration, …]` config; disable nonsense instead of crashing."""
     if not isinstance(wert, (list, tuple)) or len(wert) != n or float(wert[1]) <= 0:
         return None
     return [float(v) for v in wert]
 
 
 class ImuSensor:
-    """6-DOF-IMU im Körperframe — so kaputt wie ein gutes MEMS-Modul aus dem Bausatz.
+    """6-DOF IMU in the body frame — as broken as a good MEMS module from a kit.
 
-    Der Reihe nach, vom größten zum kleinsten Fehler:
+    In order, from the largest error to the smallest:
 
-    1. **Bias** `accel_bias`/`gyro_bias`: fester Versatz je Achse und Roboter (Ziehung
-       aus dem Seed). Doppelintegriert über 10 s werden aus 0,05 m/s² gut 2 m — der
-       Grund, warum man eine IMU nie offen integriert, sondern nur als Bewegungmodell
-       mit kleinem Beitrag benutzt.
-    2. **Bias-Random-Walk** `*_bias_walk` (Einheit/√s): der Bias bleibt nicht, wo er war.
-    3. **Neigung**: Federung wackelt (Ornstein-Uhlenbeck mit `tilt_sigma`/`tilt_tau`),
-       damit kippt die Schwerkraft in die Horizontalachsen: `dx_ax = -g·pitch`.
-    4. **Vibration** `vibration` bei `vibration_hz`: Fahrwerk/Motor, mittelbar.
-    5. **Weißes Rauschen** als Dichte pro √Hz — pro Stichprobe `dichte·√(rate/2)`.
-    6. **Skalenfehler** (relativ, je Roboter fest): verschwindet nicht durch Mitteln.
-    7. **Einschwingen**: die ersten `startup` Sekunden zusätzlich `startup_bias` drauf.
+    1. **Bias** `accel_bias`/`gyro_bias`: fixed offset per axis and robot (a draw from
+       the seed). Double-integrated over 10 s, 0.05 m/s² becomes some 2 m — the reason
+       you never integrate an IMU openly, but only use it as a motion model with a
+       small contribution.
+    2. **Bias random walk** `*_bias_walk` (unit/√s): the bias does not stay where it was.
+    3. **Tilt**: the suspension wobbles (Ornstein-Uhlenbeck with `tilt_sigma`/`tilt_tau`),
+       which tips gravity into the horizontal axes: `dx_ax = -g·pitch`.
+    4. **Vibration** `vibration` at `vibration_hz`: chassis/motor, indirect.
+    5. **White noise** as a density per √Hz — per sample `density·√(rate/2)`.
+    6. **Scale error** (relative, fixed per robot): averaging does not make it vanish.
+    7. **Settling**: the first `startup` seconds carry `startup_bias` on top.
 
-    `az` enthält — wie bei einer echten IMU — die Specific Force: im Stand `+9,81`.
-    Die Neigung wird mit ausgegeben, weil ein IMU-Treiber sie aus der Schwerkraft-
-    richtung schätzt und Studierende das Entneigen sonst raten müssen.
+    `az` contains — like a real IMU — the specific force: at rest `+9.81`.
+    The tilt is reported as well, because an IMU driver estimates it from the gravity
+    direction and students would otherwise have to guess how to de-tilt it.
     """
 
     def __init__(self, noise: Noise, cfg: dict | None = None, robot: str = ""):
@@ -214,7 +214,7 @@ class ImuSensor:
         self.k_a = 1.0 + noise.uniform(float(cfg["accel_scale"]))
         self.b_g = [noise.gauss(float(cfg["gyro_bias"])) for _ in range(3)]
         self.b_a = [noise.gauss(float(cfg["accel_bias"])) for _ in range(3)]
-        self.t_offset = 0.0                      # Engine haengt diese Uhr an die Simulationszeit
+        self.t_offset = 0.0                      # the engine hooks this clock to simulation time
         self.tilt_sigma = float(cfg["tilt_sigma"])
         self.tilt_tau = max(float(cfg["tilt_tau"]), 1e-3)
         self.vib = float(cfg["vibration"])
@@ -224,27 +224,27 @@ class ImuSensor:
         self.reset()
 
     def reset(self, pose=None) -> None:
-        """Neu hochfahren: Zeit, Puffer und Neigung zurück; der Bias bleibt (er ist ja echt).
+        """Restart: time, buffer and tilt go back; the bias stays (it is the real one).
 
-        `t_offset` bleibt, wie es ist — die Engine setzt es beim Umhaengen an die
-        Simulationszeit ohnehin neu.
+        `t_offset` stays as it is — the engine sets it again anyway when hooking it to
+        simulation time.
         """
         self.t, self.buf, self.phase = 0.0, 0.0, self.noise.uniform(math.tau)
         self.tilt = [0.0, 0.0]                       # (roll, pitch)
         self.tilt_rate = [0.0, 0.0]
-        self.vel = (0.0, 0.0)                        # Weltgeschwindigkeit der letzten Stichprobe
+        self.vel = (0.0, 0.0)                        # world velocity of the previous sample
 
     def sample(self, pose, twist, dt: float) -> list:
-        """Null bis mehrere IMU-Stichproben für einen Physikschritt von `dt` Sekunden.
+        """Zero to several IMU samples for one physics step of `dt` seconds.
 
-        Die Wahrheit ist nur mit Physikrate bekannt (hier 50 Hz), die IMU tickt schneller
-        (Standard 100 Hz): Zwischenwerte halten die Beschleunigung konstant — gemessen
-        wird sie trotzdem mit ihrer eigenen Rate verrauscht und integriert.
+        The truth is only known at the physics rate (50 Hz here), the IMU ticks faster
+        (100 Hz by default): intermediate values hold the acceleration constant — it is
+        still noised and integrated at the IMU's own measurement rate.
         """
         c, s = math.cos(pose.theta), math.sin(pose.theta)
         vel = (twist.vx * c - twist.vy * s, twist.vx * s + twist.vy * c)
         if self.t <= 0.0:
-            self.vel = vel                           # erster Stich: keine Sprung-Ableitung
+            self.vel = vel                           # first sample: no step derivative
         a_welt = ((vel[0] - self.vel[0]) / max(dt, 1e-6), (vel[1] - self.vel[1]) / max(dt, 1e-6))
         self.vel = vel
         a_body = (a_welt[0] * c + a_welt[1] * s, -a_welt[0] * s + a_welt[1] * c)
@@ -258,8 +258,8 @@ class ImuSensor:
         return raus
 
     def _stichprobe(self, a_body, twist, dt: float) -> Imu:
-        """Eine Stichprobe: Neigung bewegen, Bias wandern lassen, Rauschen draufpacken."""
-        for i in range(3):            # Bias-Random-Walk: der Bias bleibt nicht, wo er war
+        """One sample: move the tilt, let the bias walk, put noise on top."""
+        for i in range(3):            # bias random walk: the bias does not stay where it was
             self.b_a[i] += self.noise.gauss(self.w_a)
             self.b_g[i] += self.noise.gauss(self.w_g)
         rauschung = math.sqrt(2.0 * dt / self.tilt_tau) * self.tilt_sigma
@@ -276,7 +276,7 @@ class ImuSensor:
                + schwing + self.noise.gauss(self.s_a),
             ay=self.k_a * a_body[1] + self.g * roll + self.b_a[1] + 0.7 * warm
                - 0.6 * schwing + self.noise.gauss(self.s_a),
-            # Specific Force: nach oben positiv, im Stand +g — kein Mesfehler, so tickt der Chip
+            # Specific force: positive upward, +g at rest — no flaw, that is how the chip ticks
             az=self.g + self.b_a[2] + self.noise.gauss(self.s_a),
             gx=self.k_g * self.tilt_rate[0] + self.b_g[0] + self.noise.gauss(self.s_g),
             gy=self.k_g * self.tilt_rate[1] + self.b_g[1] + self.noise.gauss(self.s_g),

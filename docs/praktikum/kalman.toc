@@ -1,24 +1,24 @@
-\babel@toc {ngerman}{}\relax 
-\contentsline {section}{\numberline {1}Versuchsziel und Vorfragen}{2}{section.1}%
-\contentsline {subsection}{\numberline {1.1}Ziel}{2}{subsection.1.1}%
-\contentsline {subsection}{\numberline {1.2}Vorfragen (vor dem Praktikumsstermin rechnen)}{2}{subsection.1.2}%
-\contentsline {section}{\numberline {2}Theorie: prädizieren, messen, abwägen}{3}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Zustand, Prädiktion, Update, Kovarianz}{3}{subsection.2.1}%
-\contentsline {subsection}{\numberline {2.2}Das CV-Modell in Matrizen}{4}{subsection.2.2}%
-\contentsline {subsection}{\numberline {2.3}Warum die Gyro kurzfristig und die Odometrie langfristig hilft}{4}{subsection.2.3}%
-\contentsline {subsection}{\numberline {2.4}GPS: Rauschen, Bias, Funkloch, Modellfehler}{4}{subsection.2.4}%
-\contentsline {section}{\numberline {3}Der Simulator}{6}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Neue Themen und was sie enthalten}{6}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Das IMU-Modell und seine Zahlen}{6}{subsection.3.2}%
-\contentsline {subsection}{\numberline {3.3}Auswertung in der GUI}{7}{subsection.3.3}%
-\contentsline {section}{\numberline {4}Inbetriebnahme}{8}{section.4}%
+\babel@toc {english}{}\relax 
+\contentsline {section}{\numberline {1}Experiment goal and prelab questions}{2}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Goal}{2}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Prelab questions (compute these before the lab session)}{2}{subsection.1.2}%
+\contentsline {section}{\numberline {2}Theory: predict, measure, weigh}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}State, prediction, update, covariance}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}The CV model in matrices}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Why the gyro helps short-term and odometry long-term}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}GPS: noise, bias, GPS outage, model error}{4}{subsection.2.4}%
+\contentsline {section}{\numberline {3}The simulator}{6}{section.3}%
+\contentsline {subsection}{\numberline {3.1}New topics and what they carry}{6}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}The IMU model and its numbers}{6}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Evaluation in the GUI}{7}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Getting started}{8}{section.4}%
 \contentsline {subsection}{\numberline {4.1}Installation}{8}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Werkstatt: den eigenen Filter fahren}{8}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}ROS-2-Betrieb mit dem Launch-File}{8}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Drei Regeln, die den Lauf retten}{9}{subsection.4.4}%
-\contentsline {section}{\numberline {5}Aufgaben K1 bis K4}{10}{section.5}%
-\contentsline {section}{\numberline {6}Auswertung und Bericht}{11}{section.6}%
-\contentsline {section}{\numberline {A}Formelsammlung}{12}{appendix.A}%
-\contentsline {section}{\numberline {B}Lösungen der Vorfragen}{12}{appendix.B}%
-\contentsline {section}{\numberline {C}Themen- und API-Übersicht}{13}{appendix.C}%
+\contentsline {subsection}{\numberline {4.2}Workshop: running your own filter}{8}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Running under ROS 2 with the launch file}{8}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Three rules that save the run}{9}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Tasks K1 to K4}{10}{section.5}%
+\contentsline {section}{\numberline {6}Evaluation and lab report}{11}{section.6}%
+\contentsline {section}{\numberline {A}Formula sheet}{12}{appendix.A}%
+\contentsline {section}{\numberline {B}Solutions to the prelab questions}{12}{appendix.B}%
+\contentsline {section}{\numberline {C}Topic and API overview}{13}{appendix.C}%
 \providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file 

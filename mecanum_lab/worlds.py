@@ -1,32 +1,32 @@
-"""Umgebungen aus ASCII-Grids — eine Karte ist ein Textfile, kein Binärformat.
+"""Environments from ASCII grids — a map is a text file, not a binary format.
 
-Zeichen (CONTRACT §6.2):  `#` Wand · `.` oder Leerschlag frei · `S` erster Start ·
-`2`..`9` weitere Starts · `G` Ziel · `-` und `|` reine Bodenmarkierung (nur Ansicht,
-keine Kollision). Der Parser kennt keine Kommentare: eine Zeile, die mit `#` anfängt,
-ist eine Wandzeile.
+Characters (CONTRACT §6.2):  `#` wall · `.` or space free · `S` first spawn ·
+`2`..`9` further spawns · `G` goal · `-` and `|` floor marking only (view only,
+no collision). The parser has no comments: a line that starts with `#` is a wall
+line.
 
-Zeile 0 des Textes ist die Oberkante. Der Weltursprung liegt unten links, jede Pose
-in der Mitte ihrer Zelle, die Blickrichtung folgt der Startnummer (0, 90, 180, 270 Grad).
+Line 0 of the text is the top edge. The world origin sits at the bottom left, every pose
+in the center of its cell, the heading follows the spawn number (0, 90, 180, 270 degrees).
 """
 import logging
 import math
 import os
 
-from .types import ROOT, Pose, Rect, World
+from .types import ROOT, Pose, Rect, World, cfg_get
 
-CELL = 0.5                                       # Kantenlänge einer Gridzelle in Metern
+CELL = 0.5                                       # edge length of a grid cell in meters
 THETA = (0.0, math.pi / 2, math.pi, -math.pi / 2)
 _cache: dict = {}
 log = logging.getLogger("mecanum.worlds")
 
 
 def parse_grid(text: str, cell: float = CELL, name: str = "?") -> World:
-    """Gridtext -> World mit verschmolzenen Wänden, Startposes, Ziel und Markierungen."""
+    """Grid text -> World with merged walls, spawn poses, goal and floor markings."""
     rows = text.split("\n")
     while rows and not rows[-1].strip():
         rows.pop()
     if not rows:
-        raise ValueError(f"Welt '{name}' ist leer.")
+        raise ValueError(f"World '{name}' is empty.")
     rows = [r.ljust(max(len(x) for x in rows)) for r in rows]
     top, wide = len(rows), max(len(r) for r in rows)
     center = lambda r, c: ((c + 0.5) * cell, (top - 1 - r + 0.5) * cell)
@@ -47,28 +47,28 @@ def parse_grid(text: str, cell: float = CELL, name: str = "?") -> World:
             elif ch in "-|":
                 marks[ch].add((r, c))
             else:
-                raise ValueError(f"Welt '{name}': unbekanntes Zeichen '{ch}' in "
-                                 f"Zeile {r + 1}, Spalte {c + 1} (nur #. SG2-9 -| erlaubt)")
+                raise ValueError(f"World '{name}': unknown character '{ch}' in "
+                                 f"line {r + 1}, column {c + 1} (only #. SG2-9 -| allowed)")
     world = World(name=name, cell=cell, walls=_rects(wall_cells, top, wide, cell),
                   spawns=[spawns[k] for k in sorted(spawns)], goal=goal,
                   size=(wide * cell, top * cell))
-    for glyph, (dr, dc) in (("-", (0, 1)), ("|", (1, 0))):   # Zuge statt Einzelstriche
+    for glyph, (dr, dc) in (("-", (0, 1)), ("|", (1, 0))):   # runs, not single strokes
         cells = marks[glyph]
         for r, c in sorted(cells):
-            if (r - dr, c - dc) in cells:          # nur der Anfang eines Zugs zaehlt
+            if (r - dr, c - dc) in cells:          # only the start of a run counts
                 continue
             n = 1
             while (r + n * dr, c + n * dc) in cells:
                 n += 1
             world.markings.append((*center(r, c), *center(r + (n - 1) * dr, c + (n - 1) * dc)))
     if not world.spawns:
-        log.warning("Welt '%s' hat keine Startpose (S fehlt).", name)
+        log.warning("World '%s' has no spawn pose (S missing).", name)
     return world
 
 
 def _rects(cells: set, nrows: int, ncols: int, cell: float) -> list:
-    """Wandzellen in zwei Daemen zu möglichst wenigen großen Rechtecken verschmelzen."""
-    spans = {}                                    # (c0, c1) -> [Zeilen aufsteigend]
+    """Merge wall cells in two passes into as few large rectangles as possible."""
+    spans = {}                                    # (c0, c1) -> [rows ascending]
     for r in range(nrows):
         c = 0
         while c < ncols:
@@ -86,7 +86,7 @@ def _rects(cells: set, nrows: int, ncols: int, cell: float) -> list:
             if r is not None and r == prev + 1:
                 prev = r
                 continue
-            # Welt-Y: Zeile r liegt oben, also y0 unter der untersten Zeile der Folge
+            # World Y: row r sits at the top, so y0 is below the lowest row of the run
             rects.append(Rect(c0 * cell, (nrows - 1 - prev) * cell,
                               (c1 + 1) * cell, (nrows - start) * cell))
             if r is not None:
@@ -94,16 +94,34 @@ def _rects(cells: set, nrows: int, ncols: int, cell: float) -> list:
     return rects
 
 
-def load_world(name: str, path: str | None = None) -> World:
-    """worlds/<name>.txt einlesen (Pfad relativ zum Projekt, nicht zur cwd) und cachen."""
-    if name not in _cache or path:
+def zell(cfg: dict | None, name: str, default: float = CELL) -> float:
+    """Edge length of one grid cell for this world.
+
+    `worlds.cell_by_world.<name>` wins over `worlds.cell` over the built-in CELL. That is how
+    the maze can be built on a 0.6 m grid while the graded halls stay on 0.5 m — the robot is
+    the same size everywhere, the world decides how much room it has.
+    """
+    cfg = cfg or {}
+    pro_welt = cfg_get(cfg, "worlds.cell_by_world") or {}
+    wert = pro_welt.get(name, cfg_get(cfg, "worlds.cell", default))
+    return float(wert)
+
+
+def load_world(name: str, path: str | None = None, cfg: dict | None = None) -> World:
+    """Read worlds/<name>.txt (path relative to the project, not to the cwd) and cache it.
+
+    Cached per cell size: the same file can be read as a 0.5 m and as a 0.6 m world.
+    """
+    zellen = zell(cfg, name)
+    schluessel = (name, zellen)
+    if schluessel not in _cache or path:
         p = path or os.path.join(ROOT, "worlds", f"{name}.txt")
         with open(p, encoding="utf-8") as fh:
-            _cache[name] = parse_grid(fh.read(), CELL, name)
-    return _cache[name]
+            _cache[schluessel] = parse_grid(fh.read(), zellen, name)
+    return _cache[schluessel]
 
 
 def list_worlds() -> list:
-    """Namen aller verfügbaren Umgebungen, sortiert."""
+    """Names of all available environments, sorted."""
     folder = os.path.join(ROOT, "worlds")
     return sorted(f[:-4] for f in os.listdir(folder) if f.endswith(".txt"))

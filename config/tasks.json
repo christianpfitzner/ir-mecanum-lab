@@ -1,5 +1,5 @@
 {
- "_comment": "Auftraege beider Versuche — einzige Quelle fuer Schwellen UND Arbeitsblatttexte. Der Bewerter (mecanum_lab/grade.py) liest dieselbe Datei wie die LaTeX-Anleitungen: Schwellen aendern ist ein JSON-Edit, kein Code-Wechsel. Auftraege mit 'versuch': 2 gehoeren zum Kalman-Filter-Versuch ('--task kf_alle'); ein 'sim'-Block ist das Pruefprofil, das node.py vor der Bewertung als Sensorik einstellt.",
+ "_comment": "Tasks for both experiments — the single source of truth for thresholds AND worksheet text. The grader (mecanum_lab/grade.py) reads the same file the LaTeX handouts read: changing a threshold is a JSON edit, not a change of code. Tasks with 'versuch': 2 belong to the Kalman-filter experiment ('--task kf_alle'); a 'sim' block is the test profile that node.py applies as the sensor setup before grading.",
  "bestanden_ab": 50,
  "reihenfolge": [
   "kinematik",
@@ -14,23 +14,23 @@
  "tasks": [
   {
    "id": "kinematik",
-   "titel": "T1 — Inverse Kinematik der vier Mecanum-Raeder",
+   "titel": "T1 — Inverse kinematics of the four Mecanum wheels",
    "punkte": 30,
    "welt": "production",
    "haltezeit": 1.2,
-   "text": "Dein Knoten erhaelt eine Koerpergeschwindigkeit als Twist (vx vorwaerts, vy seitlich nach links, omega gegen den Uhrzeigersinn) und daraus vier Radgeschwindigkeiten in rad/s — genau die vier Zeilen, die spaeter auf dem echten Roboter die Motorregler bekommen. Der Bewerter schickt drei Messfahrten (vor, seitlich links, drehen) und misst an der Odometrie, wohin der Roboter wirklich faehrt: Vorzeichenfehler und vertauschte Raeder fallen sofort auf, korrekte Zahlen bestehen knapp. Es zaehlt Verhalten, nicht dein Code.",
+   "text": "Your node receives a body velocity as a Twist (vx forward, vy sideways to the left, omega counter-clockwise) and makes four wheel speeds in rad/s out of it — exactly the four lines that later drive the motor controllers on the real robot. The grader sends three test drives (forward, sideways left, rotate) and reads the odometry to see where the robot actually goes: sign errors and swapped wheels show up at once, correct numbers pass closely. What counts is behaviour, not your code.",
    "prueft": [
-    "Betrag und Vorzeichen aller vier Radgleichungen",
-    "Radzuordnung VL/VR/HL/HR (Index 0..3 auf wheel_speeds)",
-    "Einheit rad/s (nicht U/min, nicht Prozent)"
+    "Magnitude and sign of all four wheel equations",
+    "Wheel assignment VL/VR/HL/HR (index 0..3 on wheel_speeds)",
+    "Unit rad/s (not rpm, not percent)"
    ],
    "hilfen": [
-    "Rollachsen des Mecanum-Rads zeigen bei der X-Anordnung nach vorn-innen: einpositives vy bedeutet links, also muss VL langsamer (bzw. negativ) laufen als VR.",
-    "Setze zum Testen nur omega=0 und vy=0: dann muessen alle vier Raeder gleich schnell positiv laufen.",
-    "Hebelarm a = lx + ly; der Gieranteil ist +/- a*omega. Vorzeichenprobe: omega > 0 -> VL und HL rueckwaerts, VR und RR vorwaerts.",
-    "Sieh in der GUI den Name-Farbpunkt und die Radstriche: dort siehst du die Drehrichtung jedes Rads."
+    "The roll axes of the Mecanum wheel point forward-inward in the X layout: a positive vy means left, so VL has to run slower (or negative) than VR.",
+    "To test, set only omega=0 and vy=0: then all four wheels must run at the same positive speed.",
+    "Lever arm a = lx + ly; the yaw term is +/- a*omega. Sign check: omega > 0 -> VL and HL backwards, VR and RR forwards.",
+    "Watch the name colour dot and the wheel ticks in the GUI: that is where you see each wheel's direction."
    ],
-   "abgabe": "Nach drei Messfahrten von je 3 s zeigt der Bewerter drei gruene Haken: dx > 0.35 m, dy > 0.35 m, dtheta > 1.2 rad — jeweils mit kleinem Restfehler in den anderen Achsen.",
+   "abgabe": "After three test drives of 3 s each the grader shows three green ticks: dx > 0.35 m, dy > 0.35 m, dtheta > 1.2 rad — each with a small residual error on the other axes.",
    "phasen": [
     {
      "id": "vx",
@@ -75,7 +75,7 @@
   },
   {
    "id": "quadrat",
-   "titel": "T2 — Quadratfahrt nur mit Odometrie",
+   "titel": "T2 — Square drive on odometry only",
    "punkte": 30,
    "welt": "production",
    "timeout": 90,
@@ -85,24 +85,24 @@
    "weg_min": 3.0,
    "weg_max": 12.0,
    "kontakte_max": 0,
-   "text": "Vier Seiten zu je einem Meter, jede Kurve 90 Grad gegen den Uhrzeigersinn, am Ende zurueck zur Startpose — alles allein aus der Odometrie, ohne LIDAR und ohne GPS. Die Odometrie kommt aus den gemessenen Radgeschwindigkeiten und drifft deshalb: Wer offen integriert (nur Geschwindigkeit mal Zeit), landet nicht wieder am Start. Der Auftrag zeigt, warum man die Pose nachfuehrt und gezielt nachregelt.",
+   "text": "Four sides of one metre each, every corner 90 degrees counter-clockwise, back at the start pose in the end — all of it from odometry alone, without LIDAR and without GPS. The odometry comes from the measured wheel speeds and therefore drifts: anyone integrating open-loop (just velocity times time) does not land back at the start. This task shows why you keep tracking the pose and correct on purpose.",
    "prueft": [
-    "Zielen auf feste Pose-Zwischenziele (Seite laenger, dann Drehung um 90 Grad)",
-    "Umgang mit Drift und Motor-Zaeger: nachregeln statt nachlaufen",
-    "Endbedingung: Abschlussfehler und Drehfehler am Startpunkt"
+    "Aiming at fixed intermediate pose waypoints (side length first, then a 90 degree turn)",
+    "Dealing with drift and motor lag: correcting instead of chasing",
+    "Final condition: position error and heading error at the start point"
    ],
    "hilfen": [
-    "Ein P-Regler pro Achse reicht: vx = kp*(ziel_x - x) mit Begrenzung, omega = kp_w*winkeilfehler; beide durch vx_max begrenzen.",
-    "Rechne im Start-Koerpersystem (Startpose invertieren), sonst wandert dein Quadrat mit der Drift davon.",
-    "Formuliere die vier Ecken als Pose-Liste [(x, y, theta), ...] und fahre sie der Reihe nach an; erst wenn eine Ecke auf wenigen Zentimetern sitzt, drehen.",
-    "Der Auftrag gilt als erfuellt bei Abschlussfehler < 0.25 m und Drehfehler < 20 Grad."
+    "One P controller per axis is enough: vx = kp*(ziel_x - x) with a clamp, omega = kp_w*heading error; limit both by vx_max.",
+    "Compute in the start body frame (invert the start pose), otherwise your square drifts off with the drift.",
+    "Write the four corners as a pose list [(x, y, theta), ...] and drive them in order; only turn once a corner sits within a few centimetres.",
+    "The task counts as met at a final error < 0.25 m and a heading error < 20 degrees."
    ],
-   "abgabe": "Roboter steht wieder an seinem Startpunkt (Abschlussfehler < 0.25 m, < 20 Grad), hat 3-12 m zurueckgelegt und keine Wand beruehrt.",
+   "abgabe": "Robot stands again at its start point (final error < 0.25 m, < 20 degrees), has covered 3-12 m and touched no wall.",
    "ziel": "keins"
   },
   {
    "id": "korridor",
-   "titel": "T3 — Zum Tor fahren, der LIDAR hueuetet die Waende",
+   "titel": "T3 — Drive to the gate, the LIDAR guards the walls",
    "punkte": 30,
    "welt": "production",
    "timeout": 120,
@@ -114,24 +114,24 @@
    "weg_max": 40.0,
    "abstand_min": 0.16,
    "geradeaus_omega_max": 0.25,
-   "text": "Vom Start zum Ziel 'Tor' dieser Welt. Die Richtung darfst du aus der Odometrie nehmen, aber der LIDAR muss die Arbeit an den Waenden machen: vor Tueren, Tischen und dem Nachbarn bremsen oder ausweichen, ohne jede Beruehrung. Der LIDAR liefert 360 Strahlen (Scan.ranges, inf = kein Treffer); der geradeaus-Sektor ist dein Bremsstrahl, die seitlichen Strahlen halten den Abstand zur Wand.",
+   "text": "From the start to this world's goal 'gate'. You may take the direction from odometry, but the LIDAR has to do the work at the walls: brake or give way at doors, tables and the neighbouring robot, without any contact. The LIDAR delivers 360 rays (Scan.ranges, inf = no hit); the straight-ahead sector is your brake beam, the side rays hold the distance to the wall.",
    "prueft": [
-    "Strahlen zu Sektoren zusammenfassen (vor / links / rechts) statt Einzelwerte zu raten",
-    "Vorwaertssahrt bremsen, bevor es knallt — und wieder anfahren, wenn frei ist",
-    "Ziel-Erkennung und sauberes Endsignal 'done'"
+    "Grouping rays into sectors (ahead / left / right) instead of guessing single values",
+    "Braking on the forward drive before it crashes — and starting again once the way is clear",
+    "Goal detection and a clean final 'done' signal"
    ],
    "hilfen": [
-    "Index zu einem Winkel: i = round(winkel/scan.angle_increment); vorn ist 0, links steht bei +90 Grad (Index N/4), rechts bei -90 Grad.",
-    "inf bedeutet 'kein Treffer weit und breit' — vor einer Rechnung immer mit range_max deckeln, sonst rechnet dein Regler mit Unendlich.",
-    "Bremsen: kleinster Wert im Sektor +/-30 Grad; unter 0.5 m steht der Roboter, unter 0.3 m nur noch seitlich oder drehend weiter.",
-    "Bewertet wird seitlicher Abstand nur bei Geradausfahrt (|omega| klein), weil Kurven unvermeidlich Ecken schneiden."
+    "Index for an angle: i = round(angle/scan.angle_increment); forward is 0, left sits at +90 degrees (index N/4), right at -90 degrees.",
+    "inf means 'no hit anywhere near' — always cap it with range_max before computing, otherwise your controller computes with infinity.",
+    "Braking: smallest value in the +/-30 degree sector; below 0.5 m the robot stands still, below 0.3 m continue only sideways or while turning.",
+    "Sideways distance is only graded on straight driving (|omega| small), because corners inevitably cut the corners."
    ],
-   "abgabe": "Roboter steht innerhalb 0.3 m am Tor, hatte null Wandberuehrungen und ist seitlich nie naeher als 0.16 m an etwas vorbei.",
+   "abgabe": "Robot stands within 0.3 m of the gate, had zero wall contacts and never passed anything closer than 0.16 m sideways.",
    "zeit_max": 120
   },
   {
    "id": "gps_anfahrt",
-   "titel": "T4 (Bonus) — Ladeplatz anfahren mit GPS",
+   "titel": "T4 (bonus) — Drive to the loading spot using GPS",
    "punkte": 10,
    "welt": "production",
    "timeout": 90,
@@ -142,24 +142,24 @@
    "kontakte_max": 0,
    "weg_min": 0.5,
    "weg_max": 40.0,
-   "text": "Rueckfahrt zum Ladeplatz — das ist das letzte Ziel dieser Welt, ausdruücklich NICHT die eigene Startpose, damit T4 nicht erfuellt ist, weil man schon dort stand. Gefuehrt wird mit GPS (PoseStamped, verrauscht, 5 Hz), nicht mit Odometrie. Ein P-Regler auf verrauschter Position laeuft sonst um das Ziel herum: eine Totzone im Zielkreis und ein gedaempfter Drehsatz sind der eigentliche Lernpunkt.",
+   "text": "Return drive to the loading spot — that is the last goal of this world, deliberately NOT your own start pose, so that T4 is not satisfied just because you were already standing there. You are guided by GPS (PoseStamped, noisy, 5 Hz), not by odometry. A P controller on a noisy position otherwise circles the goal: a dead zone inside the goal circle and a damped turn rate are the actual learning point.",
    "prueft": [
-    "Andere Sensorquelle: GPS statt Odometrie (und damit ohne kumulierte Drift)",
-    "Totzone und Hysterese gegen Sensorrauschen",
-    "Zieldefinition aus der Welt (Letztes spawns-Ziel) statt hartkodiierter Zahlen"
+    "A different sensor source: GPS instead of odometry (and hence no accumulated drift)",
+    "Dead zone and hysteresis against sensor noise",
+    "Goal definition taken from the world (last spawns goal) instead of hard-coded numbers"
    ],
    "hilfen": [
-    "GPS kam bisher mit ~5 Hz — regle langsam genug (Hz des Reglers < Sensorrate) und halte den Satz klein.",
-    "Totzone: innerhalb 0.1-0.15 m Zielabstand gar nichts mehr kommandieren, sonst pendelt der Regler ums Ziel.",
-    "Winkeilfehler immer mit types.wrap_angle() bilden, sonst dreht der Roboter 350 Grad um das Ziel.",
-    "Der Ladeplatz ist world()['spawns'][-1]; das Tor von T3 ist world()['goal']."
+    "GPS has been arriving at ~5 Hz so far — regulate slowly enough (controller Hz < sensor rate) and keep the setpoint small.",
+    "Dead zone: inside 0.1-0.15 m of the goal distance command nothing at all, otherwise the controller swings around the goal.",
+    "Always form the heading error with types.wrap_angle(), otherwise the robot turns 350 degrees around the goal.",
+    "The loading spot is world()['spawns'][-1]; T3's gate is world()['goal']."
    ],
-   "abgabe": "Roboter steht innerhalb 0.3 m am Ladeplatz (letztes Ziel der Welt), null Beruehrungen, Ziel nicht schon vorher erreicht gewesen.",
+   "abgabe": "Robot stands within 0.3 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand.",
    "zeit_max": 90
   },
   {
    "id": "kf_gps",
-   "titel": "K1 — Positionsschätzung aus GPS allein (Kalman-Filter)",
+   "titel": "K1 — Position estimate from GPS alone (Kalman filter)",
    "punkte": 30,
    "versuch": 2,
    "art": "kf",
@@ -222,25 +222,25 @@
    "max_fehler_max": 1.25,
    "rate_min": 5.0,
    "kontakte_max": 0,
-   "text": "Der Bewerter fährt deinen Roboter durch die Arena — du steuerst nichts, du schätzt nur. In dieser Teilaufgabe hast du ausschließlich das GPS (2 Hz, gut 0,5 m Streuen); Odometrie und IMU liegen an den Themen an, bleiben aber außen vor. Aus zwei verrauschten Zahlen pro Sekunde wirst du mit einem linearen Filter besser als der Rohsensor: ein Zustandsvektor aus Position und Geschwindigkeit, eine Prädiktion mit konstanter Geschwindigkeit (CV-Modell) und ein Update, das jede Messung mit ihrer eigenen Unsicherheit gewichtet. Deine Schätzung gehört auf /<robot>/kf/pose — samt Standardabweichung.",
+   "text": "The grader drives your robot through the arena — you command nothing, you only estimate. In this subtask you have the GPS only (2 Hz, a good 0.5 m of scatter); odometry and IMU sit on their topics but stay out of it. From two noisy numbers per second a linear filter makes you better than the raw sensor: a state vector of position and velocity, a constant-velocity prediction (CV model) and an update that weights every measurement by its own uncertainty. Your estimate belongs on /<robot>/kf/pose — standard deviation included.",
    "prueft": [
-    "Zustandsvektor (x, y, vx, vy) und Übergangsmatrix des CV-Modells",
-    "Prädiktion mit der echten Zeitdifferenz dt, nicht mit einem gemittelten Fixwert",
-    "Kalman-Verstärkung aus Prognose- und Messunsicherheit statt aus dem Bauch",
-    "Regelmäßiges Publizieren von kf/pose inklusive sx/sy"
+    "State vector (x, y, vx, vy) and transition matrix of the CV model",
+    "Prediction with the real time difference dt, not with an averaged fixed value",
+    "Kalman gain from prediction and measurement uncertainty instead of gut feeling",
+    "Publishing kf/pose regularly, including sx/sy"
    ],
    "hilfen": [
-    "Rechne in Weltmetern, nicht im Körperframe — sonst wandert dein Filter mit der Drift davon, die du gerade loswerden willst.",
-    "Das CV-Modell ist 4×4: F = [[1,0,dt,0],[0,1,0,dt],[0,0,1,0],[0,0,0,1]]. Ohne numpy reichen vier handschriftliche Zeilen Matrizenmultiplikation.",
-    "Messunsicherheit R = diag(σ², σ²) mit σ aus rob.config('gps.sigma_xy') — die Zahl steht im Sensorprofil unter /sim/config, raten ist unnötig.",
-    "Prozessrausch Q aus einer angenommenen Beschleunigungsunsicherheit q je Achse: Q = q·[[dt⁴/4, dt³/2],[dt³/2, dt²]]; q in m²/s³, brauchbarer Start 0,3 … 1,0.",
-    "Wenn die Schätzung der Messung hinterherläuft: Das ist kein Fehler des Filters, sondern zu kleines Q oder ein Messzeitpunkt, der zu weit zurueckliegt."
+    "Compute in world metres, not in the body frame — otherwise your filter drifts off with the very drift you are trying to shake off.",
+    "The CV model is 4×4: F = [[1,0,dt,0],[0,1,0,dt],[0,0,1,0],[0,0,0,1]]. Without numpy, four handwritten lines of matrix multiplication are enough.",
+    "Measurement uncertainty R = diag(σ², σ²) with σ from rob.config('gps.sigma_xy') — the number is in the sensor profile on /sim/config, guessing is unnecessary.",
+    "Process noise Q from an assumed acceleration uncertainty q per axis: Q = q·[[dt⁴/4, dt³/2],[dt³/2, dt²]]; q in m²/s³, a usable start is 0.3 … 1.0.",
+    "If the estimate trails the measurement: that is no fault of the filter, but a Q that is too small or a measurement timestamp lying too far back."
    ],
-   "abgabe": "RMSE der eigenen Schätzung gegen die exakte Pose unter 0,42 m und mindestens 1,6-mal besser als das rohe GPS; Rate von kf/pose mindestens 5 Hz."
+   "abgabe": "RMSE of your own estimate against the exact pose below 0.42 m and at least 1.6 times better than the raw GPS; kf/pose rate at least 5 Hz."
   },
   {
    "id": "kf_fusion",
-   "titel": "K2 — GPS, Odometrie und IMU verschmelzen (mit Funkloch)",
+   "titel": "K2 — Fusing GPS, odometry and IMU (with a GPS outage)",
    "punkte": 30,
    "versuch": 2,
    "art": "kf",
@@ -299,26 +299,26 @@
    "verbesserung_min": 2.5,
    "rate_min": 5.0,
    "kontakte_max": 0,
-   "text": "Dasselbe Spiel, aber die Halle ist jetzt ehrlich: Das GPS liefert nur noch 1 Hz mit 0,8 m Streuen und fällt in der Mitte der Fahrt für zehn Sekunden ganz aus (Funkloch hinter der Hallenecke — die Simulation unterdrückt die Fixe wirklich, es kommt keine Meldung). Ohne Gegenmaßnahmen läuft deine Schätzung während der Lücke weg, weil ein CV-Modell keine Beschleunigung kennt. Deshalb kommen die beiden anderen Sensorquellen ins Spiel: Odometrie als billiges Bewegungsmodell (sie liefert vx, vy und ω direkt aus den Rädern) und die IMU als kurzfristig saubere Drehrate und Beschleunigung. Die IMU darf niemals offen integriert werden — ihr Bias von einigen Hundertstel m/s² wird doppelt integriert zu Metern.",
+   "text": "The same game, but the hall is honest now: the GPS only delivers 1 Hz with 0.8 m of scatter and drops out completely for ten seconds in the middle of the drive (a GPS outage behind the hall corner — the simulation really suppresses the fixes, no message arrives). Without countermeasures your estimate runs away during the gap, because a CV model knows no acceleration. So the other two sensor sources come into play: odometry as a cheap motion model (it supplies vx, vy and ω straight from the wheels) and the IMU as a short-term clean yaw rate and acceleration. The IMU must never be integrated open-loop — its bias of a few hundredths of m/s² becomes metres when integrated twice.",
    "prueft": [
-    "Zwei Arten von Information in einem Filter: Positions-Update (GPS) und Bewegungs-Update (Odometrie/IMU) — oder ein Bewegungsmodell mit gemessenem v und ω",
-    "Umgang mit Auslassungen: Prädiktion läuft weiter, wenn kein Fix kommt",
-    "Drift der Odometrie als korreliert erkennen, nicht als weißes Rauschen",
-    "Wissen, was eine IMU kann (Sekundenbruchteile) und was nicht (zehn Sekunden)"
+    "Two kinds of information in one filter: position update (GPS) and motion update (odometry/IMU) — or a motion model using measured v and ω",
+    "Dealing with dropouts: the prediction keeps running when no fix arrives",
+    "Recognising odometry drift as correlated, not as white noise",
+    "Knowing what an IMU can do (fractions of a second) and what it cannot (ten seconds)"
    ],
    "hilfen": [
-    "Der gangbarste Weg: Zustand (x, y, vx, vy) im Weltframe, Prädiktion mit der *gemessenen* Körpergeschwindigkeit (Twist aus der Odometrie, in die Welt gedreht) statt mit der eigenen Schätzung, Gierrate aus dem Gyro.",
-    "IMU-Achsen sind Specific Force: az enthält +g. Für die Ebene brauchst du ax und ay — und die sind verrauscht und verbiasst, also nur kurzfristig brauchbar.",
-    "Bias-Trick für wenig Geld: IMU im Stillstand mitteln (vor der Fahrt oder in jeder Pause) und das Mittel abziehen — genau so steht die Kalibrierung später auf dem echten Roboter.",
-    "Wenn du die Odometrie-Pose direkt als Messung nimmst: Ihre Unsicherheit wächst mit der Zeit, also darf R für die Odometrie nicht konstant bleiben.",
-    "Faustregel für die Lücke: Ohne Fix wächst der Fehler mit der verstrichenen Zeit. Mit gutem Bewegungsmodell bleiben die zehn Sekunden unter 1,8 m.",
-    "Die absolute RMSE haengt bei 1 Hz GPS stark an der Rauschrealisierung — die Verbesserung gegenueber dem Rohsensor ist die stabile Groesse."
+    "The most workable route: state (x, y, vx, vy) in the world frame, predict with the *measured* body velocity (Twist from the odometry, rotated into the world) instead of your own estimate, yaw rate from the gyro.",
+    "The IMU axes are specific force: az contains +g. For the plane you need ax and ay — and those are noisy and biased, so only usable short-term.",
+    "Bias trick for little money: average the IMU while standing still (before the drive or in every pause) and subtract the mean — that is exactly how the calibration is done later on the real robot.",
+    "If you take the odometry pose directly as a measurement: its uncertainty grows with time, so R for the odometry must not stay constant.",
+    "Rule of thumb for the gap: without a fix the error grows with elapsed time. With a good motion model the ten seconds stay under 1.8 m.",
+    "At 1 Hz GPS the absolute RMSE hangs strongly on the noise realisation — the improvement over the raw sensor is the stable quantity."
    ],
-   "abgabe": "RMSE unter 0,80 m und mindestens 2,5-mal besser als das Roh-GPS — bei 1 Hz GPS mit 0,8 m Streuung ist der absolute Fehler rauschbegrenzt, gemessen wird deshalb vor allem der Gewinn. Und im Funkloch (der Bewerter misst das an ausbleibenden Fixes) darf die Schätzung nie über 1,8 m davonlaufen."
+   "abgabe": "RMSE below 0.80 m and at least 2.5 times better than the raw GPS — with 1 Hz GPS at 0.8 m scatter the absolute error is noise-bound, so what is measured is mainly the gain. And inside the GPS outage (the grader measures it by missing fixes) the estimate may never run more than 1.8 m away."
   },
   {
    "id": "kf_kovarianz",
-   "titel": "K3 — Nicht nur schätzen, sondern auch wissen, wie gut (Kovarianz)",
+   "titel": "K3 — Not only estimate, but also know how good it is (covariance)",
    "punkte": 20,
    "versuch": 2,
    "art": "kf",
@@ -383,25 +383,25 @@
    "rmse_max": 0.42,
    "rate_min": 5.0,
    "kontakte_max": 0,
-   "text": "Ein Filter ohne ehrliche Kovarianz ist eine Kurbel: Die Werte stimmen vielleicht, die Unsicherheit stimmt nie. Hier wird deshalb fast ausschließlich deine angegebene Standardabweichung bewertet — mit dem normierten Fehlerquadratmittel (NEES: Mittel von (Fehler/σ)² über beide Achsen). Liegt es bei etwa 1, weißt du genau, was du tust; 0,2 heißt 'Ich gebe mich zu selbstsicher', 5 heißt 'keine Ahnung'. Nimm K1 oder K2 als Grundlage und stimme Q und R so ab, dass die Kovarianz den tatsächlichen Fehler beschreibt.",
+   "text": "A filter without an honest covariance is a crank: the values may be right, the uncertainty never is. So here almost exclusively your announced standard deviation is graded — with the normalised error squared mean (NEES: mean of (error/σ)² over both axes). Around 1 means you know exactly what you are doing; 0.2 means 'I report myself far too confident', 5 means 'no idea'. Take K1 or K2 as your base and tune Q and R so that the covariance describes the actual error.",
    "prueft": [
-    "Unterschied zwischen Prozessrausch Q (Was fehlt dem Modell?) und Messrausch R (Was fehlt dem Sensor?) — und wie beide die Kovarianz wachsen oder schrumpfen lassen",
-    "NEES als Prüfgröße für die selbst angegebene Unsicherheit",
-    "Konsistenz über die ganze Fahrt, nicht nur in einer ruhigen Phase"
+    "Difference between process noise Q (what the model lacks) and measurement noise R (what the sensor lacks) — and how both make the covariance grow or shrink",
+    "NEES as the test quantity for the uncertainty you announce yourself",
+    "Consistency over the whole drive, not just in a quiet phase"
    ],
    "hilfen": [
-    "NEES = (ex²/sx² + ey²/sy²)/2 — bei zwei Freiheitsgraden ist der Erwartungswert 1, ein Einzelwert bis etwa 5,99 ist noch unauffällig (χ², 95 %).",
-    "Größeres Q → Kovarianz wächst schneller → NEES sinkt, aber der Fehler steigt. Das ist der eigentliche Zielkonflikt, nicht 'schönere Zahlen'.",
-    "Prüfe deine Rechnung, indem du sx und sy testweise mit 1,1 skalierst: Bewegt sich das NEES dadurch stark, rechnest du an der falschen Stelle.",
-    "Die GPS-Streuung ist vorgegeben (0,5 m): R = diag(0,25; 0,25) m² — mehr ist geraten."
+    "NEES = (ex²/sx² + ey²/sy²)/2 — with two degrees of freedom the expected value is 1, a single value up to about 5.99 is still unremarkable (χ², 95 %).",
+    "Larger Q → covariance grows faster → NEES falls, but the error rises. That is the real trade-off, not 'prettier numbers'.",
+    "Check your arithmetic by scaling sx and sy by 1.1 as a test: if that moves the NEES a lot, you are computing in the wrong place.",
+    "The GPS scatter is given (0.5 m): R = diag(0.25; 0.25) m² — anything more is guesswork."
    ],
-   "abgabe": "Mittleres NEES zwischen 0,15 und 3,5 bei einer RMSE unter 0,42 m — die angegebene Unsicherheit muss zum tatsächlichen Fehler passen (1 = genau richtig, 0,15 = 2,6-mal zu vorsichtig, 3,5 = 1,9-mal zu selbstsicher). Nach oben ist die Grenze eng: wer zu sicher schätzt, lügt.",
+   "abgabe": "Mean NEES between 0.15 and 3.5 with an RMSE below 0.42 m — the announced uncertainty has to fit the actual error (1 = exactly right, 0.15 = 2.6 times too cautious, 3.5 = 1.9 times too confident). The upper bound is tight: anyone who under-reports is lying.",
    "verbesserung_min": 1.0,
    "max_fehler_max": 1.25
   },
   {
    "id": "kf_dynamik",
-   "titel": "K4 (Bonus) — Schnelle Fahrt, treue Schätzung",
+   "titel": "K4 (bonus) — Fast drive, faithful estimate",
    "punkte": 10,
    "versuch": 2,
    "art": "kf",
@@ -448,18 +448,18 @@
    "max_fehler_max": 0.9,
    "rate_min": 10.0,
    "kontakte_max": 0,
-   "text": "Bonus für sauber abgestimmte Filter: 0,85 m/s, engere Kurve, eine überlagerte Schwingung im Kurs und eine IMU mit 200 Hz. Ein reines CV-Modell läuft hier systematisch hinter der Kurve her — Abhilfe schafft ein Zustandsvektor mit Gierrate (oder ein CV-Modell mit deutlich größerem Q, das den Zielkonflikt bezahlt). Das GPS kommt oft (5 Hz), aber mit 0,6 m Streuen: Wer nur mittelt, bleibt unter der zweifachen Verbesserung.",
+   "text": "Bonus for cleanly tuned filters: 0.85 m/s, a tighter curve, an oscillation superimposed on the path and an IMU at 200 Hz. A pure CV model systematically trails the corner here — the remedy is a state vector with yaw rate (or a CV model with a much larger Q, which pays for the trade-off). The GPS arrives often (5 Hz), but with 0.6 m of scatter: anyone who only averages stays below the twofold improvement.",
    "prueft": [
-    "Modellfehler versus Messrauschen: Wer eine Kurve mit geradliniger Prädiktion mitnimmt, bezahlt mit systematischem Folgefehler",
-    "Rate von kf/pose (mindestens 10 Hz) — wer nur zu Messzeiten publiziert, verliert gegen die Latenz",
-    "Nutzen der hohen IMU-Rate für die Kurzzeitprädiktion"
+    "Model error versus measurement noise: anyone riding a corner with a straight-line prediction pays with a systematic following error",
+    "Rate of kf/pose (at least 10 Hz) — anyone publishing only at measurement times loses to the latency",
+    "Using the high IMU rate for short-term prediction"
    ],
    "hilfen": [
-    "Zustand (x, y, vx, vy, ω) oder (x, y, θ, v): beides linearisiert sauber, wenn du die Kurvenrate aus dem Gyro nimmst.",
-    "Prädiktion bis zum *Messzeitpunkt* der eintreffenden Messung, dann Update — bei 5 Hz GPS und 0,85 m/s sind 100 ms Rückstand 8,5 cm.",
-    "Nur Q und R nachstimmen reicht selten; die Modellordnung ist die eigentliche Frage hinter dieser Aufgabe."
+    "State (x, y, vx, vy, ω) or (x, y, θ, v): both linearise cleanly if you take the curve rate from the gyro.",
+    "Predict up to the *measurement timestamp* of the incoming measurement, then update — at 5 Hz GPS and 0.85 m/s, 100 ms of lag is 8.5 cm.",
+    "Retuning only Q and R is rarely enough; the model order is the real question behind this task."
    ],
-   "abgabe": "RMSE unter 0,35 m, mindestens 1,8-mal besser als das Roh-GPS, Maximalfehler unter 0,9 m und kf/pose mit mindestens 10 Hz."
+   "abgabe": "RMSE below 0.35 m, at least 1.8 times better than the raw GPS, maximum error below 0.9 m and kf/pose at at least 10 Hz."
   }
  ]
 }

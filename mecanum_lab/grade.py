@@ -1,18 +1,18 @@
-"""Bewertung beider Versuche: ein Zustandsautomat, den der Simulations-Takt antreibt.
+"""Grading for both experiments: a state machine that the simulation tick drives.
 
-Der Grader ist bewusst kein eigener Prozess und kein ROS-Knoten: `tick(dt)` wird vom
-Simulationslauf (node.py) aufgerufen, alles Weitere läuft über Themen. Dadurch ist der
-Bewerter im Stub-Lauf (ein Prozess, kein ROS) exakt so blind oder scharf wie später in
-ROS — er sieht Odometrie, GPS, LIDAR, IMU, /sim/robots und /sim/task, aber niemals die
-Welt des Roboters von innen. Bewertung heißt hier: Kommandos geben und Verhalten messen.
+The grader is deliberately neither its own process nor a ROS node: the simulation run
+(node.py) calls `tick(dt)`, everything else runs over topics. That makes the grader in a
+stub run (one process, no ROS) exactly as blind or as sharp as later in ROS — it sees
+odometry, GPS, LIDAR, IMU, /sim/robots and /sim/task, but never the robot's world from the
+inside. Grading here means: give commands and measure behaviour.
 
-Versuch 1 (`art` fehlt): die Studierenden fahren, der Bewerter misst Wegänderungen.
-Versuch 2 (`art: "kf"`): der **Bewerter** fährt die in der Aufgabe stehende Kommandosequenz
-(pass-through-Modus), die Studierenden schätzen nur und melden `kf/pose`. Gemessen werden
-RMSE gegen `truth`, Verbesserung gegenüber dem Rohsensor, Maximalfehler im GPS-Funkloch
-und die Konsistenz der angegebenen Standardabweichung (NEES).
+Experiment 1 (`art` missing): the students drive, the grader measures path changes.
+Experiment 2 (`art: "kf"`): the **grader** drives the command sequence written in the task
+(pass-through mode), the students only estimate and report `kf/pose`. Measured: RMSE
+against `truth`, improvement over the raw sensor, maximum error during the GPS outage and
+the consistency of the stated standard deviation (NEES).
 
-Nutzung in node.py:
+Use in node.py:
     g = Grader("alice", "alle", bus, tasks.load_tasks()).start()
     while not g.tick(dt): engine.step(dt); bus-publish(engine.drain())
     print(format_report(g.report()))
@@ -30,7 +30,7 @@ log = logging.getLogger("mecanum.grade")
 
 
 class Grader:
-    """Ein Auftrag nach dem anderen, in Schritten zerlegt; jeder Schritt misst und urteilt."""
+    """One task after another, split into steps; each step measures and reaches a verdict."""
 
     def __init__(self, robot: str, ids, bus, cfg_tasks: dict, world_info: dict | None = None):
         self.name = robot
@@ -41,42 +41,42 @@ class Grader:
         self.plan, self.i, self.fertig = [], 0, False
         self.erg = {}
         self._step_t, self._marke, self._saw_running, self._abstand = 0.0, None, False, None
-        self._mission_marke = None      # Baseline beim START des Auftrags, nicht beim Ende
+        self._mission_marke = None      # baseline at task START, not at the end
         self._grund = ""
         self._cmd = self.bus.pub("twist", self.name)
-        self._serie = []                                 # (t, e_kf, e_gps, nees) je Stichprobe
-        self._kf_seen = 0                                # angekommene kf/pose-Meldungen
-        self._kf_letzte, self._kf_stempel = None, None   # davon zaehlt jede nur einmal
+        self._serie = []                                 # (t, e_kf, e_gps, nees) per sample
+        self._kf_seen = 0                                # kf/pose messages that arrived
+        self._kf_letzte, self._kf_stempel = None, None   # of those each one counts once
         self._luecke, self._gps_stempel, self._info_start = [], None, {}
         self._probe_t = -1e9
         bus.sub("kf", self.name, lambda msg, *_: self._kf_saehen(msg))
 
     def _kf_saehen(self, msg) -> None:
-        """Zaehlt nur wirkliche Meldungen — der Bus ruft einen Callback bei jedem spin() erneut.
+        """Counts real messages only — the bus calls a callback again on every spin().
 
-        Ohne diese Pruefung waere die gemessene Rate die Pollrate des Bewerters, und ein Knoten,
-        der gar nichts sendet, kaeme auf 38 Hz.
+        Without this check the measured rate would be the grader's poll rate, and a node that
+        sends nothing at all would reach 38 Hz.
         """
         stempel = getattr(msg, "t", None)
         if msg is self._kf_letzte or (stempel is not None and stempel == self._kf_stempel):
             return
         self._kf_letzte, self._kf_stempel, self._kf_seen = msg, stempel, self._kf_seen + 1
 
-    # ------------------------------------------------------------------ Zustandshandling
+    # ------------------------------------------------------------------ state handling
 
     def start(self):
         self.plan, self.i, self.t, self.fertig, self.erg = self._plan(), 0, 0.0, False, {}
         self._grund, self._saw_running, self._abstand, self._mission_marke = "", False, None, None
         for a in self.aufgaben:
             self.erg[a["id"]] = {"id": a["id"], "titel": a["titel"], "max_punkte": a["punkte"],
-                                 "punkte": 0.0, "bestanden": False, "begruendung": "nicht geprüft",
+                                 "punkte": 0.0, "bestanden": False, "begruendung": "not evaluated",
                                  "messwerte": {}, "phasen": {}}
         if self.plan:
             self._oeffne(self.plan[0])
         else:
             self.fertig = True
-        log.info("Bewertung für '%s' gestartet: %s", self.name,
-                 ", ".join(a["id"] for a in self.aufgaben) or "nichts")
+        log.info("grading started for '%s': %s", self.name,
+                 ", ".join(a["id"] for a in self.aufgaben) or "none")
         return self
 
     def _plan(self) -> list:
@@ -87,7 +87,7 @@ class Grader:
                 for ph in a["phasen"]:
                     plan.append({"a": a, "art": "phase", "dauer": float(ph["dauer"]), "ph": ph})
                     plan.append({"a": a, "art": "pause", "dauer": float(a.get("haltezeit", 1.0))})
-            elif a.get("art") == "kf":                   # Versuch 2: der BEWERTER fährt
+            elif a.get("art") == "kf":                   # experiment 2: the GRADER drives
                 plan.append({"a": a, "art": "mission_start", "dauer": 1.5})
                 plan.append({"a": a, "art": "kf_fahrt", "dauer": float(a["timeout"])})
                 plan.append({"a": a, "art": "kf_ende", "dauer": 0.3})
@@ -98,7 +98,7 @@ class Grader:
         return plan
 
     def tick(self, dt: float) -> bool:
-        """Ein Simulationsschritt weiter; True, wenn die Bewertung fertig ist."""
+        """Advance one simulation step; True when the grading is done."""
         if self.fertig:
             return True
         self.t += dt
@@ -123,11 +123,11 @@ class Grader:
                        "kf": self.bus.last("kf", self.name)[0],
                        "robot": robot_io.robot_info(self.bus, self.name), "t": self.t}
         if s["art"] == "mission_start":
-            self._saw_running, self._grund = False, ""   # Grund des Vor-Auftrags ist keiner
-            self.bus.publish(topic("task"), s["a"]["id"])      # Studierende schalten um
-            self.bus.publish(topic("mission", self.name), "")  # alten "done" entwerten
+            self._saw_running, self._grund = False, ""   # the previous task's reason is none
+            self.bus.publish(topic("task"), s["a"]["id"])      # students switch over
+            self.bus.publish(topic("mission", self.name), "")  # invalidate the old "done"
         if s["art"] == "mission":
-            self._mission_marke = dict(self._marke)   # diese Baseline gilt bis zum Ende
+            self._mission_marke = dict(self._marke)   # this baseline holds until the end
         if s["art"] == "kf_fahrt":
             self._serie, self._kf_seen, self._probe_t = [], 0, -1e9
             self._kf_letzte, self._kf_stempel = None, None
@@ -135,10 +135,10 @@ class Grader:
             self._info_start = dict(self._marke["robot"] or {})
 
     def _wirke(self, s, dt: float) -> None:
-        """Nur während der Kinematik-Phasen Kommandos senden — sonst den Studierenden gewähren.
+        """Send commands only during the kinematics phases — otherwise leave the students alone.
 
-        Ausnahme Versuch 2 (`kf_fahrt`): hier fährt der Bewerter die Fahrt selbst vor
-        (pass-through-Modus) und sammelt parallel Messpaare truth ↔ Schätzung.
+        Exception experiment 2 (`kf_fahrt`): here the grader drives the run itself
+        (pass-through mode) and collects measurement pairs truth ↔ estimate in parallel.
         """
         art = s["art"]
         if art == "phase":
@@ -168,20 +168,20 @@ class Grader:
             return True
         if state == "done":
             if not self._saw_running and self._step_t < 3.0:
-                return False                             # "done" kann noch vom vorigen Auftrag stammen
+                return False                             # "done" may still come from the last task
             return True
         return False
 
     def _fahrt_vorbei(self, s) -> bool:
-        """KF-Fahrt ist vorbei, wenn die Kommandosequenz durchgefahren ist (plus 1 s Ruhe)."""
+        """The KF run is over once the command sequence has been driven (plus 1 s of quiet)."""
         return (s["art"] == "kf_fahrt"
                 and self._step_t >= fahrt_dauer(s["a"]) + 1.0)
 
     def _probe(self, s) -> None:
-        """Ein Messpaar: letzte Wahrheit, letzte Schätzung, letzter Rohsensor — ab in die Serie.
+        """One measurement pair: last truth, last estimate, last raw sensor — into the series.
 
-        Nebenbei wird das Funkloch protokolliert: bleibt der Stempel des Rohsensors gleich,
-        ist keine neue Messung angekommen — genau dann, wenn die Halle eine Bogenkante hat.
+        The GPS outage is logged on the side: if the raw sensor stamp stays the same, no new
+        measurement arrived — which is what happens at an arc edge of the arena.
         """
         a = s["a"]
         wenn = self._step_t
@@ -203,11 +203,11 @@ class Grader:
         self._funkloch(wenn, wahr, roh, e_kf)
 
     def _funkloch(self, wenn: float, wahr, roh, fehler: float) -> None:
-        """Kein frischer Rohsensor-Fix? Dann laeuft die Schätzung auf Vorrat — das messen wir.
+        """No fresh raw sensor fix? Then the estimate runs on reserves — we measure that.
 
-        Der Vergleich laeuert ueber die **Messstempel** (Simulationszeit), nicht ueber die
-        Wanduhr: in tools/fastgrade.py laufen 25 Simulationssekunden pro Sekunde, und ein
-        wanduhr-getakter Test wuerde ein Funkloch uebersehen, das alle sehen.
+        The comparison runs over the **message stamps** (simulation time), not over the wall
+        clock: tools/fastgrade.py runs 25 simulation seconds per second, and a wall-clock
+        test would miss a GPS outage that everyone else can see.
         """
         if roh is None:
             self._luecke.append((wenn, fehler))
@@ -219,7 +219,7 @@ class Grader:
         if als_zeit - stempel > 2.0:
             self._luecke.append((wenn, fehler))
 
-    # ------------------------------------------------------------------------ Auswertung
+    # ------------------------------------------------------------------------ evaluation
 
     def _schliessen(self, s) -> None:
         if s["art"] == "phase":
@@ -233,7 +233,7 @@ class Grader:
         ph, now = s["ph"], self.bus.last("odom", self.name)[0]
         ergebnis, start = self.erg[s["a"]["id"]], self._marke["odom"]
         if now is None or start is None:
-            phasen_ok, mess, gruende = False, {}, "keine Odometrie erhalten"
+            phasen_ok, mess, gruende = False, {}, "no odometry received"
         else:
             mess = _delta(start, now)
             gruende = _pruefe(ph.get("erwarte", {}), mess)
@@ -243,20 +243,20 @@ class Grader:
                                         "begruendung": "; ".join(gruende)}
         je = s["a"]["punkte"] / len(s["a"]["phasen"])
         ergebnis["punkte"] = round(ergebnis["punkte"] + (je if phasen_ok else 0.0), 1)
-        log.info("Phase %-6s %s  %s", ph["id"], "ok" if phasen_ok else "FAIL", mess)
+        log.info("phase %-6s %s  %s", ph["id"], "ok" if phasen_ok else "FAIL", mess)
 
     def _werteMission(self, s) -> None:
         a, m = s["a"], self.erg[s["a"]["id"]]
         now_robot = robot_io.robot_info(self.bus, self.name)
         messung = a.get("messung", "odom")
-        basis = self._mission_marke or self._marke      # NICHT _marke: die wird beim
-        start = basis[messung]                          # mission_ende-Schritt neu gesetzt
+        basis = self._mission_marke or self._marke      # NOT _marke: that one gets a new
+        start = basis[messung]                          # value in the mission_ende step
         now = self.bus.last(messung, self.name)[0]
         info_start = (self._mission_marke or self._marke)["robot"] or {}
-        grund = [] if not self._grund else [f"Studierender meldet: {self._grund}"]
+        grund = [] if not self._grund else [f"student reports: {self._grund}"]
         mess = {}
         if now is None or start is None:
-            grund.append(f"keine {messung.upper()}-Daten")
+            grund.append(f"no {messung.upper()} data")
         else:
             mess["zeit"] = round(self.t - basis["t"], 1)
             mess["weg"] = round(float(now_robot.get("distance", 0)) - float(info_start.get("distance", 0)), 2)
@@ -269,34 +269,34 @@ class Grader:
                 mess["abschluss"] = round(T.pos_fehler(start, now), 3)
                 mess["winkel_deg"] = round(math.degrees(T.winkel_fehler(start, now)), 1)
                 if mess["abschluss"] > a["abschluss_max"]:
-                    grund.append(f"Abschlussfehler {mess['abschluss']} m > {a['abschluss_max']}")
+                    grund.append(f"completion error {mess['abschluss']} m > {a['abschluss_max']}")
                 if mess["winkel_deg"] > a["winkel_max_deg"]:
-                    grund.append(f"Drehfehler {mess['winkel_deg']}° > {a['winkel_max_deg']}°")
+                    grund.append(f"heading error {mess['winkel_deg']}° > {a['winkel_max_deg']}°")
             else:
                 ziel = self._ziel(a, now_robot)
                 if ziel is None:
-                    grund.append("Welt-Ziel unbekannt (world-Topic leer?)")
+                    grund.append("world goal unknown (is the world topic empty?)")
                 else:
                     mess["zielfehler"] = round(T.pos_fehler(ziel, now), 3)
                     mess["ziel"] = [round(v, 2) for v in ziel[:2]]
                     if mess["zielfehler"] > a["ziel_max"]:
-                        grund.append(f"Ziel verfehlt: {mess['zielfehler']} m > {a['ziel_max']} m")
+                        grund.append(f"target missed: {mess['zielfehler']} m > {a['ziel_max']} m")
             if mess.get("weg", 0) < a.get("weg_min", 0):
-                grund.append(f"weg {mess['weg']} m unter {a['weg_min']} m — kaum bewegt?")
+                grund.append(f"path {mess['weg']} m below {a['weg_min']} m — barely moved?")
             if mess.get("weg", 0) > a.get("weg_max", 1e9):
-                grund.append(f"weg {mess['weg']} m über {a['weg_max']} m — Umwegen?")
+                grund.append(f"path {mess['weg']} m above {a['weg_max']} m — a detour?")
             if mess.get("kontakte", 0) > a.get("kontakte_max", 0):
-                grund.append(f"{mess['kontakte']} Wandberührungen (erlaubt {a['kontakte_max']})")
+                grund.append(f"{mess['kontakte']} wall contacts (allowed {a['kontakte_max']})")
             if self._abstand is not None and a.get("abstand_min") and self._abstand < a["abstand_min"]:
-                grund.append(f"seitlich {round(self._abstand, 2)} m unter {a['abstand_min']} m")
+                grund.append(f"lateral {round(self._abstand, 2)} m below {a['abstand_min']} m")
             if mess.get("zeit", 0) > a["timeout"]:
-                grund.append(f"Zeit {mess['zeit']} s über Limit {a['timeout']} s")
-        m["messwerte"], m["begruendung"] = mess, ("; ".join(grund) or "erfüllt")
+                grund.append(f"time {mess['zeit']} s above limit {a['timeout']} s")
+        m["messwerte"], m["begruendung"] = mess, ("; ".join(grund) or "meets requirements")
         m["bestanden"] = not grund
         m["punkte"] = a["punkte"] if m["bestanden"] else 0.0
 
     def _ziel(self, a: dict, robot_info: dict):
-        """Ziel der Welt: T3 das Tor (goal), T4 ein spawns-Eintrag — bewusst ein anderes Ziel."""
+        """World goal: T3 the gate (goal), T4 a spawns entry — deliberately another target."""
         welt = self.welt or json.loads(self.bus.last("world")[0] or "{}")
         if a.get("ziel") == "spawn":
             starts = welt.get("spawns") or []
@@ -309,31 +309,31 @@ class Grader:
         return welt.get("goal")
 
     def _luecke_dauer(self) -> float:
-        """Wie lange während der Fahrt kein frischer Rohsensor-Fix ankam (in s)."""
+        """How long no fresh raw sensor fix arrived during the run (in s)."""
         if not self._luecke:
             return 0.0
         probe = (self._serie[-1][0] - self._serie[0][0]) / max(len(self._serie) - 1, 1)
         return len(self._luecke) * probe
 
     def _werteKf(self, s) -> None:
-        """Versuch 2: RMSE, Verbesserung, Maximalfehler, Konsistenz — alles gegen `truth`."""
+        """Experiment 2: RMSE, improvement, maximum error, consistency — all against `truth`."""
         a, m = s["a"], self.erg[s["a"]["id"]]
         serie, grund, mess = self._serie, [], {}
         info = robot_io.robot_info(self.bus, self.name) or {}
         if self._grund:
-            grund.append(f"Studierender meldet: {self._grund}")
+            grund.append(f"student reports: {self._grund}")
         if len(serie) < 10:
             mess["stichproben"] = len(serie)
-            grund.append("keine Messpaare — publiziert dein Knoten auf /<robot>/kf/pose? Und "
-                         "sendet die Sim die Wahrheit auf /<robot>/truth? (bei ./lab grade "
-                         "automatisch, sonst --truth)")
+            grund.append("no measurement pairs — is your node publishing /<robot>/kf/pose? Is "
+                         "the sim publishing truth on /<robot>/truth? (automatic under ./lab "
+                         "grade, otherwise pass --truth)")
         else:
             dauer = max(serie[-1][0] - serie[0][0], 1.0)
             quad = lambda i: math.sqrt(sum(x[i] ** 2 for x in serie) / len(serie))  # noqa: E731
             rmse, rmse_roh = quad(1), quad(2)
             mess["stichproben"] = len(serie)
             mess["zeit"] = round(dauer, 1)
-            mess["rmse"] = round(min(rmse, 999.0), 3)     # 1e9 = nie eine Schaetzung: lesbar melden
+            mess["rmse"] = round(min(rmse, 999.0), 3)     # 1e9 = never an estimate: say so readably
             mess[f"rmse_{a.get('sensor', 'gps')}"] = round(rmse_roh, 3)
             mess["verbesserung"] = round(rmse_roh / rmse, 2) if rmse > 1e-9 else 0.0
             mess["max_fehler"] = round(min(max(x[1] for x in serie), 999.0), 3)
@@ -346,11 +346,11 @@ class Grader:
             else:
                 mess["nees"] = None
                 if not self._kf_seen:
-                    grund.append("gar keine kf/pose-Meldung empfangen — laeuft dein Knoten unter "
-                                 "demselben Roboternamen, und ruft er rob.send_kf(x, y, theta, "
-                                 "sx, sy, sth) auf?")
+                    grund.append("no kf/pose message received at all — is your node running "
+                                 "under the same robot name, and does it call rob.send_kf(x, y, "
+                                 "theta, sx, sy, sth)?")
                 else:
-                    grund.append("keine Standardabweichungen in kf/pose (sx/sy sind Pflicht)")
+                    grund.append("no standard deviations in kf/pose (sx/sy are mandatory)")
             grund += _pruefe_kf(a, mess)
             luecke = a.get("luecke")
             if luecke:
@@ -359,19 +359,19 @@ class Grader:
                 mess["luecke_max"] = (round(max(e for _, e in self._luecke), 3)
                                       if self._luecke else None)
                 if dauer < float(luecke.get("dauer_min", 1.0)):
-                    grund.append(f"kein Funkloch messbar ({dauer:.1f} s ohne Fix, erwartet "
-                                 f"ab {luecke['dauer_min']} s) — Profil nicht gefahren?")
+                    grund.append(f"no GPS outage measurable ({dauer:.1f} s without a fix, "
+                                 f"expected from {luecke['dauer_min']} s) — profile not driven?")
                 elif mess["luecke_max"] > float(luecke["fehler_max"]):
-                    grund.append(f"im GPS-Funkloch {mess['luecke_max']} m > "
+                    grund.append(f"during the GPS outage {mess['luecke_max']} m > "
                                  f"{luecke['fehler_max']} m")
             grund += _profil_pruefen(a, self.bus)
-        m["messwerte"], m["begruendung"] = mess, ("; ".join(grund) or "erfüllt")
+        m["messwerte"], m["begruendung"] = mess, ("; ".join(grund) or "meets requirements")
         m["bestanden"] = not grund
         m["punkte"] = a["punkte"] if m["bestanden"] else 0.0
         log.info("KF %-14s %s  rmse=%s verb=%s", a["id"], "ok" if m["bestanden"] else "FAIL",
                  mess.get("rmse"), mess.get("verbesserung"))
 
-    # --------------------------------------------------------------------------- Ergebnis
+    # --------------------------------------------------------------------------- result
 
     def report(self) -> dict:
         ein = list(self.erg.values())
@@ -381,7 +381,7 @@ class Grader:
                 e["bestanden"] = ok and e["punkte"] >= e["max_punkte"] - 0.05
                 e["begruendung"] = "; ".join(
                     f'{pid}: {p["begruendung"]}' for pid, p in e["phasen"].items() if not p["ok"]
-                ) or f"alle {len(e['phasen'])} Phasen erfüllt"
+                ) or f"all {len(e['phasen'])} phases meet requirements"
         return {"robot": self.name, "zeit": round(self.t, 1), "tasks": ein,
                 "punkte": round(sum(e["punkte"] for e in ein), 1),
                 "max_punkte": sum(e["max_punkte"] for e in ein),
@@ -389,12 +389,12 @@ class Grader:
 
 
 def fahrt_segmente(a: dict) -> list:
-    """Die Kommandosegmente einer Bewertungsfahrt (Versuch 2) — leer, wenn Aufgabe frei fährt."""
+    """Command segments of a grading run (experiment 2) — empty if the task drives freely."""
     return a.get("fahrt") or []
 
 
 def fahrt_dauer(a: dict) -> float:
-    """Wie lange die Kommandosequenz dauert; ohne Segmente: Timeout minus 1 s Ruhephase."""
+    """How long the command sequence takes; without segments: timeout minus 1 s of quiet time."""
     seg = fahrt_segmente(a)
     if not seg:
         return max(float(a.get("timeout", 30.0)) - 1.0, 1.0)
@@ -402,11 +402,11 @@ def fahrt_dauer(a: dict) -> float:
 
 
 def kommando_fahrt(a: dict, t: float) -> Twist:
-    """Kommando zur Fahrtzeit `t`: Segmente mit Grundwert, optional überlagertem Sinus.
+    """Command at run time `t`: segments with a base value, optionally a superposed sine.
 
-    `sinus` überlagert der Gierrate einen Anteil `sinus·sin(2π·frequenz·t)` — damit wird
-    aus einer Geraden eine fahrende Kurve, ohne dass die Aufgabenstellung geheime
-    Wegpunkte enthält. Nach dem letzten Segment wird stehengehalten.
+    `sinus` superposes `sinus·sin(2π·frequenz·t)` on the yaw rate — that turns a straight
+    line into a driven curve, without the task text containing secret waypoints. After the
+    last segment the robot holds still.
     """
     seg = fahrt_segmente(a)
     if not seg:
@@ -427,12 +427,12 @@ def kommando_fahrt(a: dict, t: float) -> Twist:
 
 
 def _pruefe_kf(a: dict, mess: dict) -> list:
-    """Schwellen eines KF-Auftrags anwenden — die Meldung nennt immer die gemessene Zahl."""
+    """Apply the thresholds of a KF task — the message always names the measured number."""
     grund = []
-    pruefe = [("rmse", "rmse_max", "Genauigkeit"), ("max_fehler", "max_fehler_max", "Maximalfehler"),
-              ("verbesserung", "verbesserung_min", "Verbesserung ggü. Rohsensor"),
-              ("rate_hz", "rate_min", "Rate von kf/pose"),
-              ("kontakte", "kontakte_max", "Wandberührungen")]
+    pruefe = [("rmse", "rmse_max", "accuracy"), ("max_fehler", "max_fehler_max", "max error"),
+              ("verbesserung", "verbesserung_min", "improvement over raw sensor"),
+              ("rate_hz", "rate_min", "rate of kf/pose"),
+              ("kontakte", "kontakte_max", "wall contacts")]
     for wert, schluessel, name in pruefe:
         grenze = a.get(schluessel)
         if grenze is None or mess.get(wert) is None:
@@ -440,17 +440,17 @@ def _pruefe_kf(a: dict, mess: dict) -> list:
         zu_wenig = schluessel.endswith("_min") and mess[wert] < grenze
         zu_viel = schluessel.endswith("_max") and mess[wert] > grenze
         if zu_wenig or zu_viel:
-            grund.append(f"{name} {mess[wert]} verletzt {schluessel}={grenze}")
+            grund.append(f"{name} {mess[wert]} violates {schluessel}={grenze}")
     if a.get("nees") and mess.get("nees") is not None:
         lo, hi = [float(v) for v in a["nees"]]
         if not lo <= mess["nees"] <= hi:
-            grund.append(f"NEES {mess['nees']} außerhalb [{lo}, {hi}] — angegebene "
-                         "Standardabweichung passt nicht zum tatsächlichen Fehler")
+            grund.append(f"NEES {mess['nees']} outside [{lo}, {hi}] — the stated standard "
+                         "deviation does not match the actual error")
     return grund
 
 
 def _profil_pruefen(a: dict, bus) -> list:
-    """Wurde wirklich gegen das Prüfprofil des Auftrags gefahren? (sonst sind Zahlen müßig)"""
+    """Was the run really driven against the task's test profile? (otherwise the numbers are moot)"""
     soll, fahr = a.get("sim") or {}, {}
     try:
         fahr = json.loads(bus.last("config")[0] or "{}")
@@ -465,13 +465,13 @@ def _profil_pruefen(a: dict, bus) -> list:
                 continue
             verhaeltnis = hier / wert
             if verhaeltnis < 0.67 or verhaeltnis > 1.5:
-                grund.append(f"Prüfprofil nicht gefahren: {bereich}.{schluessel} = {hier} "
-                             f"statt {wert} (Start mit ./lab grade … oder kf.launch.py)")
+                grund.append(f"test profile not driven: {bereich}.{schluessel} = {hier} "
+                             f"instead of {wert} (start with ./lab grade … or kf.launch.py)")
     return grund
 
 
 def _delta(start, now) -> dict:
-    """Wegänderung im Start-Körpersystem: unabhängig davon, wie der Roboter anfing."""
+    """Path change in the start body frame: independent of how the robot began."""
     dx, dy = now.x - start.x, now.y - start.y
     c, s = math.cos(start.theta), math.sin(start.theta)
     return {"dx": c * dx + s * dy, "dy": -s * dx + c * dy,
@@ -479,7 +479,7 @@ def _delta(start, now) -> dict:
 
 
 def _pruefe(soll: dict, mess: dict) -> list:
-    """Schwellen aus tasks.json anwenden: dx_min, dy_betrag_max, winkel_min, …"""
+    """Apply the thresholds from tasks.json: dx_min, dy_betrag_max, winkel_min, …"""
     gruende = []
     for schluessel, grenze in soll.items():
         art, richtung = schluessel.split("_", 1)
@@ -488,35 +488,35 @@ def _pruefe(soll: dict, mess: dict) -> list:
             continue
         fehler = (wert < grenze) if richtung == "min" else (abs(wert) > grenze)
         if fehler:
-            gruende.append(f"{art}={wert:+.2f} verletzt {schluessel}={grenze}")
+            gruende.append(f"{art}={wert:+.2f} violates {schluessel}={grenze}")
     return gruende
 
 
 def format_report(rep: dict) -> str:
-    """Texttabelle für die Konsole — dieselbe Sicht, die die Studierenden bekommen."""
-    zeilen = [f"Bewertung Roboter '{rep['robot']}'  ({rep['zeit']} s)",
+    """Text table for the console — the same view the students get."""
+    zeilen = [f"grading robot '{rep['robot']}'  ({rep['zeit']} s)",
               "-" * 66]
     for e in rep["tasks"]:
-        zeilen.append(f"{'BESTANDEN' if e['bestanden'] else 'NICHT  '}  {e['punkte']:5.1f}/"
-                      f"{e['max_punkte']:3d} P  {e['titel']}")
+        zeilen.append(f"{'PASS' if e['bestanden'] else 'FAIL'}  {e['punkte']:5.1f}/"
+                      f"{e['max_punkte']:3d} pts  {e['titel']}")
         for pid, p in e["phasen"].items():
             zeilen.append(f"   {'ok ' if p['ok'] else 'FAIL'}  {pid:7s} "
                           f"{p['messwerte']} {'' if p['ok'] else p['begruendung']}")
         if e["messwerte"]:
-            zeilen.append(f"        messbar: {e['messwerte']}")
-        zeilen.append(f"        Urteil: {e['begruendung']}")
+            zeilen.append(f"        measured: {e['messwerte']}")
+        zeilen.append(f"        verdict: {e['begruendung']}")
     zeilen += ["-" * 66,
-               f"Erreichte Punkte: {rep['punkte']} / {rep['max_punkte']}"
-               f"  ->  {'alle Aufträge erfüllt' if rep['bestanden'] else 'Nachbessern'}"]
+               f"Points reached: {rep['punkte']} / {rep['max_punkte']}"
+               f"  ->  {'all tasks meet requirements' if rep['bestanden'] else 'needs rework'}"]
     return "\n".join(zeilen)
 
 
 class FakeRoboter:
-    """Hilfsobjekt für Tests und den Selbsttest: ein Roboter, der Kommandos idealisiert fährt.
+    """Helper object for tests and the self test: a robot that drives commands ideally.
 
-    `vy_hebel = -1` simuliert den klassischen Vorzeichenfehler (seitlich nach rechts statt
-    links) — genau so muss T1 dann durchfallen. Missionen fährt er als geradlinige
-    Etappenliste, ohne Regler; er stellt also das *Ergebnis* einer Lösung dar, nicht ihre Art.
+    `vy_hebel = -1` simulates the classic sign error (lateral to the right instead of the
+    left) — that is exactly how T1 has to fail. It drives missions as a straight-leg waypoint
+    list, without a controller; it therefore shows the *result* of a solution, not its style.
     """
 
     def __init__(self, bus, name: str = "alice", vy_hebel: float = 1.0, welt: dict | None = None):
@@ -536,7 +536,7 @@ class FakeRoboter:
     def _auftrag(self, name) -> None:
         name = str(name or "")
         if name == self.task:
-            return                                         # Task wurde nur wiederholt
+            return                                         # the task was only repeated
         self.task = name
         if name in ("", "kinematik"):
             self.mission, self.weg, self.befehl = "idle", [], Twist()
@@ -544,14 +544,14 @@ class FakeRoboter:
             self.start, self.weg, self.mission = (self.x, self.y, self.th), self._wege(name), "running"
 
     def _wege(self, auftrag: str) -> list:
-        """Etappen für einen Auftrag — Quadrat von der Startpose aus, sonst das Weltziel."""
+        """Legs of a task — a square from the start pose, otherwise the world goal."""
         if auftrag == "quadrat":
             x, y, th = self.start
             c, s = math.cos(th), math.sin(th)
             rand = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
             return [(x + a * c - b * s, y + a * s + b * c) for a, b in rand]
         if auftrag == "gps_anfahrt":
-            return [self.welt["spawns"][-1][:2]]          # Ladeplatz = letzter spawns-Eintrag
+            return [self.welt["spawns"][-1][:2]]          # loading bay = last spawns entry
         return [self.welt["goal"][:2]] if self.welt.get("goal") else []
 
     def melde(self) -> None:
@@ -565,7 +565,7 @@ class FakeRoboter:
             self._mission()
         vx, vy, om = self.befehl.vx, self.befehl.vy * self.vy_hebel, self.befehl.omega
         c, s = math.cos(self.th), math.sin(self.th)
-        dx, dy = (vx * c - vy * s) * dt, (vx * s + vy * c) * dt      # Körper- ins Weltframe
+        dx, dy = (vx * c - vy * s) * dt, (vx * s + vy * c) * dt      # body into world frame
         self.x, self.y, self.th = self.x + dx, self.y + dy, self.th + om * dt
         self.vx, self.vy, self.om, self.befehl = vx, vy, om, Twist()
         self.distance += math.hypot(dx, dy)
@@ -578,7 +578,7 @@ class FakeRoboter:
         return m
 
     def _mission(self, v: float = 0.4) -> None:
-        """Eine Etappe nach der anderen anfahren — die Musterlösung macht das Umwegiger."""
+        """Drive one leg after the other — the reference solution does it with more detours."""
         while self.weg and math.hypot(self.weg[0][0] - self.x, self.weg[0][1] - self.y) < 0.06:
             self.weg.pop(0)
         if not self.weg:
@@ -590,12 +590,12 @@ class FakeRoboter:
 
 
 def main(argv=None) -> int:
-    """Bewertung gegen einen Fake-Roboter (ohne Simulator) — der echte Lauf sitzt in node.py."""
+    """Grading against a fake robot (no simulator) — the real run lives in node.py."""
     from . import stub
-    ap = argparse.ArgumentParser(description="Grader-Lauf mit Fake-Roboter (Selbsttest)")
+    ap = argparse.ArgumentParser(description="grader run with a fake robot (self test)")
     ap.add_argument("--robot", default="alice")
-    ap.add_argument("--task", default="alle", help="Auftrag oder 'alle'")
-    ap.add_argument("--json", help="Bericht als JSON dorthin schreiben")
+    ap.add_argument("--task", default="alle", help="task id or 'alle'")
+    ap.add_argument("--json", help="write the report as JSON to this path")
     args = ap.parse_args(argv)
     fake = FakeRoboter(stub.get_bus(), args.robot)
     gr = Grader(args.robot, args.task, fake.bus, T.load_tasks()).start()

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.9)  12 SEP 2026 13:14
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.9)  12 SEP 2026 17:57
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -147,18 +147,18 @@ Package: babel 2024/01/07 v24.1 The Babel package
 \bbl@readstream=\read2
 \bbl@dirlevel=\count197
 
-(/usr/share/texlive/texmf-dist/tex/generic/babel-german/ngerman.ldf
-Language: ngerman 2024/01/19 v2.14 German support for babel (post-1996 orthogra
-phy)
-
-(/usr/share/texlive/texmf-dist/tex/generic/babel-german/ngermanb.ldf
-Language: ngermanb 2024/01/19 v2.14 German support for babel (post-1996 orthogr
-aphy)
-Package babel Info: Making " an active character on input line 122.
-)))
-(/usr/share/texlive/texmf-dist/tex/generic/babel/locale/de/babel-ngerman.tex
-Package babel Info: Importing font and identification data for ngerman
-(babel)             from babel-de.ini. Reported on input line 11.
+(/usr/share/texlive/texmf-dist/tex/generic/babel-english/english.ldf
+Language: english 2017/06/06 v3.3r English support from the babel system
+Package babel Info: Hyphen rules for 'canadian' set to \l@english
+(babel)             (\language0). Reported on input line 102.
+Package babel Info: Hyphen rules for 'australian' set to \l@ukenglish
+(babel)             (\language24). Reported on input line 105.
+Package babel Info: Hyphen rules for 'newzealand' set to \l@ukenglish
+(babel)             (\language24). Reported on input line 108.
+))
+(/usr/share/texlive/texmf-dist/tex/generic/babel/locale/en/babel-english.tex
+Package babel Info: Importing font and identification data for english
+(babel)             from babel-en.ini. Reported on input line 11.
 )
 (/usr/share/texlive/texmf-dist/tex/latex/base/fontenc.sty
 Package: fontenc 2021/04/29 v2.0v Standard LaTeX package
@@ -934,6 +934,15 @@ LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 44.
 LaTeX Font Info:    ... okay on input line 44.
 LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 44.
 LaTeX Font Info:    ... okay on input line 44.
+Package scrbase Info: activating english \abstractname on input line 44.
+Package scrbase Info: activating english \partname on input line 44.
+Package scrbase Info: activating english \figurename on input line 44.
+Package scrbase Info: activating english \tablename on input line 44.
+Package scrbase Info: activating english \contentsname on input line 44.
+Package scrbase Info: activating english \listfigurename on input line 44.
+Package scrbase Info: activating english \listtablename on input line 44.
+Package scrbase Info: activating english \refname on input line 44.
+Package scrbase Info: activating english \indexname on input line 44.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -1125,127 +1134,89 @@ LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 6
 7.
 (/usr/share/texmf/tex/latex/lm/ts1lmr.fd
 File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
-)
-Overfull \hbox (9.75961pt too wide) in paragraph at lines 76--78
-[]\T1/lmr/m/n/12 (-20) aus ei-nem Mess-pro-to-koll RMSE-Zeitreihen, ei-ne $\OML
-/lmm/m/it/12 Q$\T1/lmr/m/n/12 (-20) /$\OML/lmm/m/it/12 R$\T1/lmr/m/n/12 (-20) -
-Tabelle und ei-ne NEES-Diskussion
- []
-
-
-Overfull \hbox (4.93501pt too wide) in paragraph at lines 90--96
-\T1/lmr/m/n/12 (-20) Verwenden Sie die Si-mu-la-tor-wer-te aus ta-ble [][]2[][]
- (\T1/lmtt/m/n/12 mecanum_lab/types.py\T1/lmr/m/n/12 (-20) : \T1/lmtt/m/n/12 DE
-FAULT_CONFIG\T1/lmr/m/n/12 (-20) )
- []
-
-[2{/usr/share/texmf/fonts/enc/dvips/lm/lm-ts1.enc}{/usr/share/texmf/fonts/enc/d
-vips/lm/lm-rm.enc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-mathit.enc}{/usr/shar
-e/texmf/fonts/enc/dvips/lm/lm-mathsy.enc}{/usr/share/texmf/fonts/enc/dvips/lm/l
-m-mathex.enc}]
+) [2{/usr/share/texmf/fonts/enc/dvips/lm/lm-ts1.enc}{/usr/share/texmf/fonts/enc
+/dvips/lm/lm-rm.enc}{/usr/share/texmf/fonts/enc/dvips/lm/lm-mathit.enc}{/usr/sh
+are/texmf/fonts/enc/dvips/lm/lm-mathsy.enc}{/usr/share/texmf/fonts/enc/dvips/lm
+/lm-mathex.enc}]
 LaTeX Font Info:    Trying to load font information for OT1+lmss on input line 
 106.
- (/usr/share/texmf/tex/latex/lm/ot1lmss.fd
+
+(/usr/share/texmf/tex/latex/lm/ot1lmss.fd
 File: ot1lmss.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `lmss' (encoding: OT1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
- [3]
-Overfull \hbox (53.15129pt too wide) in paragraph at lines 177--189
-\T1/lmr/m/n/12 (-20) ble [][]2[][]). $\OML/lmm/m/it/12 ^^[[]$ \T1/lmr/m/n/12 (-
-20) wird nicht ge-ra-ten, son-dern aus dem Sen-sor-pro-fil ge-le-sen (\T1/lmtt/
-m/n/12 rob.config("gps.sigma_xy",
- []
-
-[4]
+ [3] [4]
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <5> on input line 250.
+(Font)              <5> on input line 249.
 
-Overfull \hbox (76.10619pt too wide) in paragraph at lines 294--297
+Overfull \hbox (74.42574pt too wide) in paragraph at lines 293--296
  [][] 
  []
 
-
-Underfull \hbox (badness 10000) in paragraph at lines 297--297
-[][]|\T1/lmr/m/n/10.95 (+20) Zeit-strahl des Auf-trags \T1/lmtt/m/n/10.95 kf_fu
-sion\T1/lmr/m/n/10.95 (+20) : Kom-man-do-seg-men-te aus
- []
-
-
-Underfull \hbox (badness 2573) in paragraph at lines 297--297
-\T1/lmtt/m/n/10.95 config/tasks.json\T1/lmr/m/n/10.95 (+20) , GPS-Fixe mit Lück
-e von 17s bis 27s, und der
- []
-
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <10.95> on input line 310.
+(Font)              <10.95> on input line 309.
 
-Underfull \hbox (badness 10000) in paragraph at lines 315--317
-[]|\T1/lmr/m/n/10.95 (+20) 100 Hz (ein-stell-bar), Ach-
+Underfull \hbox (badness 10000) in paragraph at lines 314--316
+[]|\T1/lmr/m/n/10.95 (+20) 100 Hz (ad-justable),
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 315--317
-\T1/lmr/m/n/10.95 (+20) sen im Kör-per-f-ra-me,
+Underfull \hbox (badness 10000) in paragraph at lines 314--316
+\T1/lmr/m/n/10.95 (+20) axes in the body frame,
  []
 
 
-Overfull \hbox (105.04831pt too wide) in paragraph at lines 317--318
+Overfull \hbox (105.04831pt too wide) in paragraph at lines 316--317
 []|\T1/lmtt/m/n/10.95 geometry_msgs/msg/PoseWith_Covariance_Stamped| 
  []
 
 
-Overfull \hbox (13.06857pt too wide) in paragraph at lines 321--322
+Underfull \hbox (badness 10000) in paragraph at lines 319--320
+[]|\T1/lmr/m/n/10.95 (+20) diagnostics (run-time, rates,
+ []
+
+
+Overfull \hbox (13.06857pt too wide) in paragraph at lines 320--321
 []|\T1/lmtt/m/n/10.95 geometry_msgs/msg/PoseStamped| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 322--324
-[]|\T1/lmr/m/n/10.95 (+20) exakte Po-se mit ein-stell-ba-
+Underfull \hbox (badness 1824) in paragraph at lines 321--323
+[]|\T1/lmr/m/n/10.95 (+20) exact pose at the ad-justable
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 322--324
-\T1/lmr/m/n/10.95 (+20) rer \T1/lmtt/m/n/10.95 truth.rate\T1/lmr/m/n/10.95 (+20
-) , nur mit
+Underfull \hbox (badness 10000) in paragraph at lines 321--323
+\T1/lmtt/m/n/10.95 truth.rate\T1/lmr/m/n/10.95 (+20) , only with
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 327--327
+Underfull \hbox (badness 10000) in paragraph at lines 326--326
 []|\T1/lmtt/m/n/10.95 <robot>/odom\T1/lmr/m/n/10.95 (+20) ,
  []
 
 
-Overfull \hbox (6.92856pt too wide) in paragraph at lines 310--331
+Overfull \hbox (6.92856pt too wide) in paragraph at lines 309--330
  [][] 
  []
 
 [5]
-Overfull \hbox (28.4202pt too wide) in paragraph at lines 334--339
+Overfull \hbox (45.90805pt too wide) in paragraph at lines 333--338
 \T1/lmtt/m/n/12 mecanum_lab/types.py \T1/lmr/m/n/12 (-20) (\T1/lmtt/m/n/12 DEFA
-ULT_CONFIG\T1/lmr/m/n/12 (-20) ) ist die Quel-le al-ler Zah-len; \T1/lmtt/m/n/1
-2 config/default.json
+ULT_CONFIG\T1/lmr/m/n/12 (-20) ) is the source of ev-ery num-ber; \T1/lmtt/m/n/
+12 config/default.json
  []
 
 
-Underfull \hbox (badness 1881) in paragraph at lines 359--361
-[]|\T1/lmr/m/n/10.95 (+20) Federung wa-ckelt, Schwer-kraft si-ckert in
- []
-
-
-Underfull \hbox (badness 2150) in paragraph at lines 361--363
-[]|\T1/lmr/m/n/10.95 (+20) Fahrwerksschwingung, mit-tel-bar (Tief-pass
- []
-
-
-Overfull \hbox (52.6894pt too wide) in paragraph at lines 343--379
+Overfull \hbox (52.6894pt too wide) in paragraph at lines 342--378
  [][] 
  []
 
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <12> not available
-(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 381.
+(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 380.
 [6] (/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
 )
@@ -1253,87 +1224,82 @@ File: lstlang1.sty 2023/02/27 1.9 listings language file
 File: lstlang1.sty 2023/02/27 1.9 listings language file
 ) [7]
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 436.
+(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 434.
  [8]
-Overfull \hbox (45.42116pt too wide) in paragraph at lines 475--475
+Underfull \hbox (badness 4805) in paragraph at lines 467--467
+[][]|\T1/lmr/m/n/10.95 (+20) The ar-gu-ments this ex-per-i-ment uses (se-lec-ti
+on; full list: \T1/lmtt/m/n/10.95 ros2 launch
+ []
+
+
+Overfull \hbox (45.42116pt too wide) in paragraph at lines 473--473
 []|\T1/lmtt/m/n/10.95 kf_gps$\OMS/lmsy/m/n/10.95 j$\T1/lmtt/m/n/10.95 kf_fusion
 $\OMS/lmsy/m/n/10.95 j$\T1/lmtt/m/n/10.95 kf_kovarianz$\OMS/lmsy/m/n/10.95 j$\T
 1/lmtt/m/n/10.95 kf_dynamik| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 478--478
-[]|\T1/lmr/m/n/10.95 (+20) CSV-Messprotokoll für
+Underfull \hbox (badness 10000) in paragraph at lines 476--476
+[]|\T1/lmr/m/n/10.95 (+20) CSV mea-sure-ment log for
  []
 
 
-Underfull \hbox (badness 5519) in paragraph at lines 481--481
-[]|\T1/lmr/m/n/10.95 (+20) springender Bi-as \T1/lmtt/m/n/10.95 [start, dauer,
+Underfull \hbox (badness 3579) in paragraph at lines 479--479
+[]|\T1/lmr/m/n/10.95 (+20) step bias \T1/lmtt/m/n/10.95 [start, duration, dx,
  []
 
 
-Overfull \hbox (39.23648pt too wide) in paragraph at lines 471--488
+Overfull \hbox (39.23648pt too wide) in paragraph at lines 469--486
  [][] 
  []
 
 [9]
-Underfull \hbox (badness 1286) in paragraph at lines 535--536
+Underfull \hbox (badness 1102) in paragraph at lines 541--542
 []|\T1/lmr/m/n/10.95 (+20) GPS 1 Hz, $\OML/lmm/m/it/10.95 ^^[ \OT1/lmr/m/n/10.9
 5 (+20) =
  []
 
 
-Underfull \hbox (badness 7540) in paragraph at lines 535--536
-\OT1/lmr/m/n/10.95 (+20) 0[]8$ \T1/lmr/m/n/10.95 (+20) m, Funk-loch
- []
-
-
-Underfull \hbox (badness 7433) in paragraph at lines 535--536
-\T1/lmr/m/n/10.95 (+20) 15...23s; Odo-me-
- []
-
-
-Underfull \hbox (badness 1286) in paragraph at lines 539--540
+Underfull \hbox (badness 1102) in paragraph at lines 545--546
 []|\T1/lmr/m/n/10.95 (+20) GPS 5 Hz, $\OML/lmm/m/it/10.95 ^^[ \OT1/lmr/m/n/10.9
 5 (+20) =
  []
 
-
-Underfull \hbox (badness 3088) in paragraph at lines 539--540
-\OT1/lmr/m/n/10.95 (+20) 0[]6$ \T1/lmr/m/n/10.95 (+20) m, IMU 200
- []
-
-
-Underfull \hbox (badness 4217) in paragraph at lines 539--540
-\T1/lmr/m/n/10.95 (+20) Hz, 0,85m/s mit
- []
-
-
-Overfull \hbox (7.7013pt too wide) in paragraph at lines 547--552
-[]\T1/lmr/m/n/12 (-20) Bauen Sie das CV-Modell $[] \OT1/lmr/m/n/12 (-20) = (\OM
-L/lmm/m/it/12 x; y; v[]; v[]\OT1/lmr/m/n/12 (-20) )[]$
- []
-
 [10] [11] [12]
-Underfull \hbox (badness 10000) in paragraph at lines 695--695
+Underfull \hbox (badness 10000) in paragraph at lines 700--700
+[]|\T1/lmtt/m/n/10.95 Gps(t, x, y, theta) \T1/lmr/m/n/10.95 (+20) ^^V slow,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 701--701
 []|\T1/lmtt/m/n/10.95 Odom(t, x, y, theta, vx, vy,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 696--696
+Underfull \hbox (badness 10000) in paragraph at lines 702--702
 []|\T1/lmtt/m/n/10.95 Imu(t, ax, ay, az, gx, gy, gz,
  []
 
 
-Overfull \hbox (60.2961pt too wide) in paragraph at lines 690--709
+Underfull \hbox (badness 1552) in paragraph at lines 703--703
+[]|\T1/lmr/m/n/10.95 (+20) laser ranges (ex-per-i-ment 1, not
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 709--709
+[]|\T1/lmr/m/n/10.95 (+20) process mea-sure-ments with-out
+ []
+
+
+Overfull \hbox (60.2961pt too wide) in paragraph at lines 696--715
  [][] 
  []
 
 
-Overfull \hbox (37.05968pt too wide) in paragraph at lines 711--715
-\T1/lmtt/m/n/12 echo /alice/imu --once\T1/lmr/m/n/12 (-20) , \T1/lmtt/m/n/12 ro
-s2 topic hz /alice/kf/pose\T1/lmr/m/n/12 (-20) , \T1/lmtt/m/n/12 ros2 topic ech
-o /sim/config
+Overfull \hbox (6.08675pt too wide) in paragraph at lines 717--721
+\T1/lmtt/m/n/12 /alice/imu --once\T1/lmr/m/n/12 (-20) , \T1/lmtt/m/n/12 ros2 to
+pic hz /alice/kf/pose\T1/lmr/m/n/12 (-20) , \T1/lmtt/m/n/12 ros2 topic echo /si
+m/config
  []
 
 [13] [14] (./kalman.aux)
@@ -1345,13 +1311,13 @@ Package rerunfilecheck Info: File `kalman.out' has not changed.
 (rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 33628 strings out of 474222
- 634474 string characters out of 5748734
- 2211975 words of memory out of 5000000
- 54940 multiletter control sequences out of 15000+600000
- 686615 words of font info for 277 fonts, out of 8000000 for 9000
- 1144 hyphenation exceptions out of 8191
- 108i,15n,107p,10928b,2056s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 33520 strings out of 474222
+ 632997 string characters out of 5748734
+ 2215975 words of memory out of 5000000
+ 54858 multiletter control sequences out of 15000+600000
+ 685443 words of font info for 266 fonts, out of 8000000 for 9000
+ 1143 hyphenation exceptions out of 8191
+ 108i,15n,107p,10928b,2057s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texmf/fonts/type1/public/lm/lmbx10.pfb></usr/share/texmf/fonts/ty
 pe1/public/lm/lmbx12.pfb></usr/share/texmf/fonts/type1/public/lm/lmex10.pfb></u
 sr/share/texmf/fonts/type1/public/lm/lmmi10.pfb></usr/share/texmf/fonts/type1/p
@@ -1369,7 +1335,7 @@ xmf/fonts/type1/public/lm/lmtk10.pfb></usr/share/texmf/fonts/type1/public/lm/lm
 tt10.pfb></usr/share/texmf/fonts/type1/public/lm/lmtt12.pfb></usr/share/texmf/f
 onts/type1/public/lm/lmtt8.pfb></usr/share/texmf/fonts/type1/public/lm/lmtti10.
 pfb>
-Output written on kalman.pdf (14 pages, 552467 bytes).
+Output written on kalman.pdf (14 pages, 543667 bytes).
 PDF statistics:
  426 PDF objects out of 1000 (max. 8388607)
  349 compressed objects within 4 object streams

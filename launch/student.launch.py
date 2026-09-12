@@ -1,9 +1,9 @@
-"""Einen Studierendenknoten auf einen laufenden Simulator setzen:
+"""Put a student node onto a simulator that is already running:
 
     ros2 launch launch/student.launch.py robot:=alice controller:=student/solution.py
 
-Der Simulator muss schon laufen (launch/sim.launch.py oder ./lab sim). Die Knoten-
-Datei wird relativ zum Quellbaum geloest, absolute Pfade gehen auch.
+The simulator must already run (launch/sim.launch.py or ./lab sim). The node file
+resolves relative to the source tree; absolute paths work too.
 """
 import os
 import sys
@@ -36,11 +36,11 @@ def start(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("robot", default_value="alice",
-                              description="Name deines Roboters (eine Person, ein Roboter)"),
+                              description="Your robot name (one person, one robot)"),
         DeclareLaunchArgument("controller", default_value="student/controller_template.py",
-                              description="Datei mit inverse_kinematics() und mission()"),
-        DeclareLaunchArgument("config", default_value="", description="zusaetzliche JSON-Config"),
+                              description="File with inverse_kinematics() and mission()"),
+        DeclareLaunchArgument("config", default_value="", description="Additional JSON config"),
         DeclareLaunchArgument("use_sim_time", default_value="true",
-                              description="Simulationszeit fuer /clock verwenden"),
+                              description="Use simulation time from /clock"),
         OpaqueFunction(function=start),
     ])

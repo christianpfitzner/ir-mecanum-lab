@@ -1,9 +1,10 @@
-# RViz2-Ansicht für Versuch 2 (Zustandsschätzung) — Roboter "test".
+# RViz2 view for Experiment 2 (state estimation) — robot "test".
 #   rviz2 -d rviz/kf.rviz
 #   ros2 launch launch/kf.launch.py aufgabe:=kf_fusion rviz:=true
 # Andere Roboternamen in den drei Themenfeldern unter Displays anpassen (/test/... -> /name/...).
-# Fixed Frame ist map: dorthin zeigen GPS und die eigene Schätzung, die Odometrie bringt den
-# TF-Zweig odom -> base_link mit. Hintergrund dunkel, damit die Markerfarben klar lesbar sind.
+# Fixed Frame is map: GPS and your own estimate point there, and the simulator publishes the
+# TF branch map -> test/odom -> test/base_link (plus laser and imu_link), so `map` really exists.
+# Dark background so the marker colours stay readable on the dark floor of the simulator view.
 Panels:
   - Class: rviz_common/Displays
     Help Height: 70
@@ -11,7 +12,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Schätzung1
+        - /Estimate1
       Splitter Ratio: 0.5
     Tree Height: 520
   - Class: rviz_common/Views
@@ -58,7 +59,7 @@ Visualization Manager:
       Shape:
         Alpha: 0.6
         Color: 80; 170; 255
-        Offset Frame: base_link
+        Offset Frame: test/base_link
         Shape: Arrow
       Topic:
         Depth: 5
@@ -104,7 +105,7 @@ Visualization Manager:
       Enabled: true
       Head Length: 0.25
       Head Radius: 0.12
-      Name: Schätzung
+      Name: Estimate
       Shaft Length: 0.5
       Shaft Radius: 0.04
       Topic:

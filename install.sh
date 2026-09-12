@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Ein-Kommando-Installation für das Praktikum (Versuch 1 Kinematik, Versuch 2 Zustandsschätzung).
+# One-command installation for the lab course (lab 1 kinematics, lab 2 state estimation).
 #
-#   ./install.sh               Umgebung prüfen, fehlendes pygame besorgen, Interfaces bauen
-#   ./install.sh --check       nur prüfen und erklären, nichts installieren
-#   ./install.sh --without-ros ROS-Zweig bewusst auslassen (der Simulator braucht kein ROS)
-#   ./install.sh --user        pygame/pytest per `pip --user` statt über das Systempaket
-#   ./install.sh --mit-tests   danach Selbsttest: kurze Simulation + Unit-Tests (headless)
+#   ./install.sh               check the environment, get missing pygame, build the interfaces
+#   ./install.sh --check       only check and explain, install nothing
+#   ./install.sh --without-ros skip the ROS branch on purpose (the simulator needs no ROS)
+#   ./install.sh --user        pygame/pytest through `pip --user` instead of the system package
+#   ./install.sh --mit-tests   then a self-test: short simulation + unit tests (headless)
 #
-# Kein sudo, kein Internet nötig: ohne beides sagt das Skript, was fehlt und wer es einsetzen
-# muss — es scheitert laut, nicht still. In Dateien im Home-Verzeichnis schreibt es nichts.
+# No sudo and no internet needed: without either, the script says what is missing and who has
+# to supply it — it fails loudly, not silently. It writes nothing to files in your home folder.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYGAME_HIDE_SUPPORT_PROMPT=1        # pygame bedankt sich sonst laut bei jedem Import
+export PYGAME_HIDE_SUPPORT_PROMPT=1        # pygame otherwise thanks you loudly on every import
 cd "$here"
 
 check_nur=0; ohne_ros=0; mit_pip_user=0; mit_tests=0
@@ -22,57 +22,57 @@ for a in "$@"; do
     --user) mit_pip_user=1 ;;
     --mit-tests) mit_tests=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) echo "unbekannte Option: $a (mit: --check --without-ros --user --mit-tests)" >&2; exit 2 ;;
+    *) echo "unknown option: $a (accepted: --check --without-ros --user --mit-tests)" >&2; exit 2 ;;
   esac
 done
 
 fehler=0; hinweise=()
 ok()   { printf '  \033[32mok\033[0m     %s\n' "$1"; }
-wann () { printf '  \033[33mACHTUNG\033[0m %s\n' "$1"; }
-fehlt(){ printf '  \033[31mFEHLT\033[0m   %s\n' "$1"; fehler=1; }
+wann () { printf '  \033[33mWARNING\033[0m %s\n' "$1"; }
+fehlt(){ printf '  \033[31mMISSING\033[0m %s\n' "$1"; fehler=1; }
 
-echo "Praktikum Mecanum-Simulator — Umgebung"
+echo "Mecanum simulator lab course — environment"
 echo "------------------------------------------------------------------"
 
-# ---------------------------------------------------------------- Python (Pflicht, 3.10+)
+# ---------------------------------------------------------------- Python (required, 3.10+)
 if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
   ok "python3 $(python3 -c 'import platform;print(platform.python_version())')"
 else
-  fehlt "python3 mindestens 3.10 nötig (dataclasses mit slots, Pattern matching)"
+  fehlt "python3 needs to be at least 3.10 (dataclasses with slots, pattern matching)"
 fi
 
-# ---------------------------------------------------------------- pygame (Pflicht für das Fenster)
+# ---------------------------------------------------------------- pygame (required for the window)
 if python3 -c 'import pygame' >/dev/null 2>&1; then
   ok "pygame $(python3 -c 'import pygame;print(pygame.ver)' 2>/dev/null | tail -1)"
 else
-  fehlt "pygame fehlt — ohne pygame läuft der Simulator nur mit --headless"
+  fehlt "pygame is missing — without pygame the simulator only runs with --headless"
   if [[ $check_nur == 0 ]]; then
     if [[ $mit_pip_user == 1 ]]; then
-      echo "        versuche: pip3 install --user pygame"
+      echo "        trying: pip3 install --user pygame"
       python3 -m pip install --user pygame \
         || python3 -m pip install --user --break-system-packages pygame \
-        || echo "        keine Netzwerkverbindung? Dann: sudo apt install python3-pygame"
+        || echo "        no network connection? Then: sudo apt install python3-pygame"
     else
-      hinweise+=("pygame einmal installieren:  sudo apt install python3-pygame   (oder: ./install.sh --user)")
+      hinweise+=("install pygame once:  sudo apt install python3-pygame   (or: ./install.sh --user)")
     fi
-    python3 -c 'import pygame' >/dev/null 2>&1 && fehler=0 && ok "pygame jetzt vorhanden"
+    python3 -c 'import pygame' >/dev/null 2>&1 && fehler=0 && ok "pygame present now"
   fi
 fi
 
-# ---------------------------------------------------------------- Tests (nur für die Qualitätsschranke)
+# ---------------------------------------------------------------- Tests (only for the quality gate)
 if python3 -m pytest --version >/dev/null 2>&1; then
   ok "pytest $(python3 -m pytest --version 2>/dev/null | head -1 | awk '{print $2}')"
 else
-  wann "pytest fehlt — nur tools/check.sh und die Betreuer-Tests brauchen das"
+  wann "pytest is missing — only tools/check.sh and the supervisor's tests need it"
   if [[ $check_nur == 0 && $mit_pip_user == 1 ]]; then
     python3 -m pip install --user pytest \
       || python3 -m pip install --user --break-system-packages pytest || true
   else
-    hinweise+=("für die Unit-Tests:  sudo apt install python3-pytest   (oder: ./install.sh --user)")
+    hinweise+=("for the unit tests:  sudo apt install python3-pytest   (or: ./install.sh --user)")
   fi
 fi
 
-# ---------------------------------------------------------------- ROS 2 (optional, für ros2 launch)
+# ---------------------------------------------------------------- ROS 2 (optional, for ros2 launch)
 ros_setup=""
 if [[ $ohne_ros == 0 ]]; then
   for f in "${ROS_SETUP:-}" "/opt/ros/${ROS_DISTRO:-kilted}/setup.bash" \
@@ -81,54 +81,55 @@ if [[ $ohne_ros == 0 ]]; then
   done
   ros_name="$(basename "$(dirname "$ros_setup")" 2>/dev/null || echo ros)"
   if [[ -n "$ros_setup" ]]; then
-    # set +u ist Pflicht: die ROS-Setup-Skripte lesen AMENT_*-Variablen, die beim ersten
-    # Source noch ungesetzt sind — mit `set -u` stirbt das Skript hier lautlos.
+    # set +u is required: the ROS setup scripts read AMENT_* variables that are unset on
+    # the first source — with `set -u` the script dies silently right here.
     set +u; source "$ros_setup" 2>/dev/null || true; set -u
     if python3 -c 'import rclpy' >/dev/null 2>&1; then
-      ok "ROS 2 (${ROS_DISTRO:-$ros_name}) — ros2 launch und ros2 topic funktionieren"
+      ok "ROS 2 (${ROS_DISTRO:-$ros_name}) — ros2 launch and ros2 topic work"
       if python3 -c 'import mecanum_lab_interfaces' >/dev/null 2>&1; then
-        ok "mecanum_lab_interfaces gebaut (Spawn-Service mit eigenem Typ)"
+        ok "mecanum_lab_interfaces built (spawn service with its own type)"
       elif [[ $check_nur == 1 ]]; then
-        wann "interfaces nicht gebaut — im Praktikumssaal: ./install.sh (dauert ~20 s)"
+        wann "interfaces not built — in the lab room: ./install.sh (takes ~20 s)"
       elif command -v colcon >/dev/null 2>&1; then
-        echo "  baue mecanum_lab_interfaces (colcon, --symlink-install) …"
+        echo "  building mecanum_lab_interfaces (colcon, --symlink-install) …"
         ( cd "$here" && colcon build --paths interfaces/mecanum_lab_interfaces --symlink-install ) \
-          && ok "interfaces gebaut — für neue Shells: source install/setup.bash" \
-          || wann "colcon build fehlgeschlagen — ohne die Interfaces läuft alles über den JSON-Handshake"
+          && ok "interfaces built — for new shells: source install/setup.bash" \
+          || wann "colcon build failed — without the interfaces everything runs over the JSON handshake"
       else
-        wann "colcon fehlt — ohne Gebauten Interfaces antwortet die Sim auf den JSON-Handshake (siehe docs/CONTRACT.md §4)"
+        wann "colcon is missing — without built interfaces the sim answers the JSON handshake (see docs/CONTRACT.md §4)"
       fi
     else
-      wann "ROS 2 ist installiert, aber rclpy nicht importierbar — ROS-Anteile übersprungen"
+      wann "ROS 2 is installed, but rclpy is not importable — ROS parts skipped"
     fi
   else
-    wann "kein ROS 2 gefunden — der Simulator läuft trotzdem (./lab run, ./lab grade, ./lab sim --stub)"
-    hinweise+=("ROS 2 würde ros2 launch und RViz bringen: rosinstall nach docs.ros.org, danach neu starten")
+    wann "no ROS 2 found — the simulator still runs (./lab run, ./lab grade, ./lab sim --stub)"
+    hinweise+=("ROS 2 would bring ros2 launch and RViz: install it per docs.ros.org, then restart")
   fi
 else
-  hinweise+=("dieser Lauf hat ROS 2 absichtlich ausgelassen (--without-ros)")
+  hinweise+=("this run left ROS 2 out on purpose (--without-ros)")
 fi
 
-# ---------------------------------------------------------------- Schluss
+# ---------------------------------------------------------------- Final
+# ---------------------------------------------------------------- Final
 echo "------------------------------------------------------------------"
-for h in "${hinweise[@]:-}"; do [[ -n "$h" ]] && echo "  Hinweis: $h"; done
+for h in "${hinweise[@]:-}"; do [[ -n "$h" ]] && echo "  note: $h"; done
 
 if [[ $mit_tests == 1 ]]; then
-  echo "Selbsttest (ohne Fenster, ohne ROS):"
+  echo "self-test (no window, no ROS):"
   SDL_VIDEODRIVER=dummy MECANUM_ROS=stub ./lab sim --headless --seconds 3 --robot test \
-    && ok "Simulation läuft" || fehlt "Simulation läuft nicht"
+    && ok "simulation runs" || fehlt "simulation does not run"
   SDL_VIDEODRIVER=dummy MECANUM_ROS=stub python3 -m pytest tests -q \
-    && ok "Unit-Tests grün" || fehlt "Unit-Tests nicht grün"
+    && ok "unit tests green" || fehlt "unit tests not green"
 fi
 
 if [[ $fehler == 1 ]]; then
-  echo "Ergebnis: Umgebung unvollständig — siehe FEHLT-Zeilen oben."
+  echo "result: environment incomplete — see the MISSING lines above."
   exit 1
 fi
-echo "Ergebnis: bereit. Weiter im Verzeichnis $here mit"
+echo "result: ready. Continue in directory $here with"
 echo "  ./lab run --robot alice --controller student/controller_template.py"
 echo "  ./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv"
-echo "  ros2 launch launch/kf.launch.py            (mit ROS 2)"
-[[ -n "$ros_setup" ]] && echo "Vor jedem neuen Terminal, falls ROS nicht automatisch kommt:"
+echo "  ros2 launch launch/kf.launch.py            (with ROS 2)"
+[[ -n "$ros_setup" ]] && echo "In every new terminal, if ROS does not come up automatically:"
 echo "  source ${ROS_SETUP:-$ros_setup}"
 exit 0

@@ -1,15 +1,15 @@
-"""Nachrichtenbus im eigenen Prozess — die ROS-schnittstelle ohne ROS.
+"""In-process message bus — the ROS interface without ROS.
 
-Derselbe `Bus`-Vertrag wie `ros_bridge` (CONTRACT §6.7), nur ohne rclpy, ohne
-Daemon, ohne ROS-Installation. Das bringt zwei Dinge:
+The same `Bus` contract as `ros_bridge` (CONTRACT §6.7), only without rclpy, without
+a daemon, without a ROS installation. That brings two things:
 
-* `./lab run` startet Simulator und Studierendenknoten in einem Prozess —
-  Schnelleinstieg ohne ROS, ideal für den ersten Tag im Praktikumsraum.
-* Unit-Tests brauchen keinen ROS-Master und laufen in Millisekunden.
+* `./lab run` starts the simulator and the student node in one process — quick
+  start without ROS, ideal for the first day in the lab.
+* Unit tests need no ROS master and run in milliseconds.
 
-Payloads sind die Dataclasses aus `types.py` (Twist, Scan, Odom, Gps, str, list).
-Ein Bus gilt pro Prozess (`get_bus()`). Zustellung erfolgt synchron im Sender-
-thread; empfangene Werte werden nur gespeichert, deshalb sind die Callbacks billig.
+Payloads are the dataclasses from `types.py` (Twist, Scan, Odom, Gps, str, list).
+One bus per process (`get_bus()`). Delivery runs synchronously in the sender's
+thread; received values are only stored, which keeps the callbacks cheap.
 """
 import os
 import threading
@@ -22,7 +22,7 @@ _BUS = None
 
 
 class StubBus:
-    """Themenname -> Callbacks, plus letzter Wert je Thema (latched) und Services."""
+    """Topic name -> callbacks, plus the last value per topic (latched) and services."""
 
     def __init__(self, name: str = "stub"):
         self.name = name
@@ -31,10 +31,10 @@ class StubBus:
         self._srv: dict[str, object] = {}
         self._ok = True
 
-    # ------------------------------------------------------------------ publisher-seitig
+    # ------------------------------------------------------------------ publisher side
 
     def pub(self, kind: str, robot: str | None = None):
-        """Gibt eine send-Funktion zurück, wie die ROS-Bridge auch."""
+        """Returns a send function, just like the ROS bridge does."""
         name = topic(kind, robot)
 
         def send(payload):
@@ -48,11 +48,11 @@ class StubBus:
         for cb in subs:
             try:
                 cb(payload)
-            except Exception:                        # ein kaputter Knoten bremst den Bus nicht
+            except Exception:                        # a broken node must not block the bus
                 import logging
-                logging.getLogger("mecanum.stub").exception("Subscriber auf %s", name)
+                logging.getLogger("mecanum.stub").exception("Subscriber on %s", name)
 
-    # ------------------------------------------------------------------ subscriber-seitig
+    # ------------------------------------------------------------------ subscriber side
 
     def sub(self, kind: str, robot: str | None, cb) -> None:
         self.sub_topic(topic(kind, robot), cb)
@@ -62,7 +62,7 @@ class StubBus:
             self._subs.setdefault(name, []).append(cb)
 
     def last(self, kind: str, robot: str | None = None) -> tuple:
-        """(letzter Payload oder None, Alter in Sekunden) — wie bei rclpy gequetscht."""
+        """(last payload or None, age in seconds) — squeezed in, as rclpy reports it."""
         got = self._last.get(topic(kind, robot))
         return (got[0], time.monotonic() - got[1]) if got else (None, 1e9)
 
@@ -75,16 +75,16 @@ class StubBus:
     def call(self, name: str, req: dict, timeout: float = 2.0) -> dict:
         handler = self._srv.get(name)
         if handler is None:
-            return {"success": False, "message": f"Service {name} nicht vorhanden"}
+            return {"success": False, "message": f"Service {name} not available"}
         return handler(dict(req or {}))
 
-    # -------------------------------------------------------------------------- lebenszyklus
+    # -------------------------------------------------------------------------- lifecycle
 
     def spin(self, timeout: float = 0.01) -> None:
-        # MECANUM_FAST=1 fuer beschleunigte Laeufe (tools/fastgrade.py): dann wird nicht
-        # geschlafen, sondern so schnell gerechnet wie der Rechner kann.
+        # MECANUM_FAST=1 for accelerated runs (tools/fastgrade.py): then it does not
+        # sleep, it computes as fast as the machine allows.
         if os.environ.get("MECANUM_FAST") != "1":
-            time.sleep(min(max(timeout, 0.0), 0.05))     # Callbacks laufen synchron im Sender
+            time.sleep(min(max(timeout, 0.0), 0.05))     # callbacks run synchronously in the sender
 
     def ok(self) -> bool:
         return self._ok
@@ -97,7 +97,7 @@ class StubBus:
 
 
 def get_bus(create: bool = True) -> StubBus | None:
-    """Der Bus dieses Prozesses; beim ersten Aufruf entsteht er."""
+    """The bus of this process; the first call creates it."""
     global _BUS
     if _BUS is None and create:
         _BUS = StubBus()

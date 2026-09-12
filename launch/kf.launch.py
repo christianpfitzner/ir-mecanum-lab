@@ -1,6 +1,6 @@
-"""Versuch 2 (Zustandsschätzung) — alles Wichtige im Launch-File konfigurieren.
+"""Experiment 2 (state estimation) — configure everything important in the launch file.
 
-    ros2 launch launch/kf.launch.py                                  # K1 mit Musterlösung
+    ros2 launch launch/kf.launch.py                                  # K1 with the reference solution
     ros2 launch launch/kf.launch.py aufgabe:=kf_fusion \
         controller:=student/kf_template.py gps_luecke:=[14,8] gps_sigma:=1.2
     ros2 launch launch/kf.launch.py bewerten:=kf_alle headless:=true \
@@ -8,15 +8,15 @@
     ros2 launch launch/kf.launch.py aufgabe:=kf_dynamik imu_rate:=400 \
         imu_accel_bias:=0.12 rviz:=true
 
-Jedes Sensor-Argument ist dieselbe Einstellung, die man ohne ROS so angibt:
-`./lab sim --set gps.sigma_xy=1.2 --set imu.rate=400` (Tabelle unten in EINSTELLUNGEN,
-auch in der Versuchsanleitung). Ein Argument, das leer bleibt, wird nicht gesetzt — dann
-gewinnt das Prüfprofil des Auftrags aus config/tasks.json; ein gesetztes Argument gewinnt
-immer. `wahrheit:=true` (Standard) veröffentlicht die exakte Pose auf /<robot>/truth:
-die braucht der Bewerter, ohne sie ist keine Bewertung möglich.
+Every sensor argument is the same setting you would give without ROS:
+`./lab sim --set gps.sigma_xy=1.2 --set imu.rate=400` (table below in EINSTELLUNGEN, also in
+the experiment handout). An argument that stays empty is not set — then the test profile of
+the task from config/tasks.json wins; an argument that is set always wins. `wahrheit:=true`
+(default) publishes the exact pose on /<robot>/truth: the grader needs it, without it there
+is no grading.
 
-Gestartet werden zwei Prozesse: Simulator (mit optionalem Bewerter) und dein Knoten;
-dazu optional `ros2 bag record` für die Auswertung zu Hause und `rviz2`.
+Two processes are started: the simulator (with optional grader) and your node; on top of that
+optionally `ros2 bag record` for the evaluation at home and `rviz2`.
 """
 import os
 import sys
@@ -28,67 +28,69 @@ from launch.substitutions import LaunchConfiguration as Halt
 WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WAHR = ("true", "1", "yes", "on")
 
-# Launch-Argument -> Pfad in der Simulator-Konfiguration (types.DEFAULT_CONFIG); leer = nicht setzen
+# launch argument -> path in the simulator config (types.DEFAULT_CONFIG); empty = do not set
 EINSTELLUNGEN = [
-    ("gps_rate", "gps.rate", "GPS-Messungen pro Sekunde"),
-    ("gps_sigma", "gps.sigma_xy", "GPS-Streuung je Achse in m"),
-    ("gps_sigma_theta", "gps.sigma_theta", "GPS-Streuung des Kurses in rad"),
-    ("gps_bias", "gps.bias_xy", "fester GPS-Versatz als [dx,dy] in m"),
-    ("gps_luecke", "gps.gap", "Funkloch als [start, dauer] in s nach Auftragsbeginn"),
-    ("gps_bias_step", "gps.bias_step", "springender Bias [start, dauer, dx, dy]"),
-    ("imu_rate", "imu.rate", "IMU-Stichproben pro Sekunde"),
-    ("imu_gyro_noise", "imu.gyro_noise", "Drehrat-Rauschendichte rad/s/√Hz"),
-    ("imu_gyro_bias", "imu.gyro_bias", "Drehraten-Bias 1σ in rad/s"),
-    ("imu_gyro_walk", "imu.gyro_bias_walk", "Bias-Random-Walk rad/s/√s"),
-    ("imu_accel_noise", "imu.accel_noise", "Beschleunigungs-Rauschendichte m/s²/√Hz"),
-    ("imu_accel_bias", "imu.accel_bias", "Beschleunigungs-Bias 1σ in m/s²"),
-    ("imu_accel_walk", "imu.accel_bias_walk", "Bias-Random-Walk m/s²/√s"),
-    ("imu_skala", "imu.accel_scale", "relativer Skalenfehler der Beschleunigung"),
-    ("imu_neigung", "imu.tilt_sigma", "Neigung der IMU 1σ in rad (Schwerkraft sickert rein)"),
-    ("imu_neigung_tau", "imu.tilt_tau", "Korrelationszeit der Neigung in s"),
-    ("imu_vibration", "imu.vibration", "Amplitude der Fahrwerksschwingung in m/s²"),
-    ("imu_vibration_hz", "imu.vibration_hz", "Frequenz dieser Schwingung in Hz"),
-    ("imu_einschwingen", "imu.startup", "Einschwingzeit nach dem Einschalten in s"),
-    ("imubias_start", "imu.startup_bias", "zusätzlicher Bias während des Einschwingens m/s²"),
-    ("odom_sigma_rad", "odom.sigma_wheel", "Rauschen je gemessener Radgeschwindigkeit"),
-    ("odom_bias_omega", "odom.bias_omega", "systematischer Drehratenfehler rad/s"),
-    ("odom_sigma_xy", "odom.sigma_xy", "Messrauschen der ausgegebenen Odometrie-Pose in m"),
-    ("truth_rate", "truth.rate", "Rate der exakten Pose in Hz (Bewertung)"),
-    ("physik_rate", "rate", "Physikschritte pro Sekunde"),
-    ("gui_rate", "gui_rate", "Bildpunkte pro Sekunde"),
-    ("kf_rate", "kf.rate", "Startempfehlung für deine Filterrate (nur Hinweis)"),
-    ("kf_q", "kf.q_acc", "Startempfehlung für dein Q in m²/s³ (nur Hinweis)"),
-    ("kf_q_gier", "kf.q_turn", "Startempfehlung für dein Gier-Q (nur Hinweis)"),
+    ("gps_rate", "gps.rate", "GPS measurements per second"),
+    ("gps_sigma", "gps.sigma_xy", "GPS scatter per axis in m"),
+    ("gps_sigma_theta", "gps.sigma_theta", "GPS scatter of the heading in rad"),
+    ("gps_bias", "gps.bias_xy", "fixed GPS offset as [dx,dy] in m"),
+    ("gps_luecke", "gps.gap", "GPS outage as [start, duration] in s after the task starts"),
+    ("gps_bias_step", "gps.bias_step", "jumping bias [start, duration, dx, dy]"),
+    ("imu_rate", "imu.rate", "IMU samples per second"),
+    ("imu_gyro_noise", "imu.gyro_noise", "yaw-rate noise density rad/s/√Hz"),
+    ("imu_gyro_bias", "imu.gyro_bias", "yaw-rate bias 1σ in rad/s"),
+    ("imu_gyro_walk", "imu.gyro_bias_walk", "bias random walk rad/s/√s"),
+    ("imu_accel_noise", "imu.accel_noise", "acceleration noise density m/s²/√Hz"),
+    ("imu_accel_bias", "imu.accel_bias", "acceleration bias 1σ in m/s²"),
+    ("imu_accel_walk", "imu.accel_bias_walk", "bias random walk m/s²/√s"),
+    ("imu_skala", "imu.accel_scale", "relative scale error of the acceleration"),
+    ("imu_neigung", "imu.tilt_sigma", "IMU tilt 1σ in rad (gravity leaks into it)"),
+    ("imu_neigung_tau", "imu.tilt_tau", "correlation time of the tilt in s"),
+    ("imu_vibration", "imu.vibration", "amplitude of the chassis oscillation in m/s²"),
+    ("imu_vibration_hz", "imu.vibration_hz", "frequency of that oscillation in Hz"),
+    ("imu_einschwingen", "imu.startup", "settling time after switch-on in s"),
+    ("imubias_start", "imu.startup_bias", "extra bias while settling, in m/s²"),
+    ("odom_sigma_rad", "odom.sigma_wheel", "noise per measured wheel speed"),
+    ("odom_bias_omega", "odom.bias_omega", "systematic yaw-rate error rad/s"),
+    ("odom_sigma_xy", "odom.sigma_xy", "measurement noise of the published odometry pose in m"),
+    ("truth_rate", "truth.rate", "rate of the exact pose in Hz (used for grading)"),
+    ("physik_rate", "rate", "physics steps per second"),
+    ("gui_rate", "gui_rate", "GUI frames per second"),
+    ("kf_rate", "kf.rate", "starting recommendation for your filter rate (hint only)"),
+    ("kf_q", "kf.q_acc", "starting recommendation for your Q in m²/s³ (hint only)"),
+    ("kf_q_gier", "kf.q_turn", "starting recommendation for your yaw Q (hint only)"),
+    ("tf_karten_odom", "tf.map_to_odom",
+     "odom (default: map->base_link is your drifting odometry) | truth (supervisor view)"),
 ]
 
 GRUNDLEGENDES = [
-    ("welt", "arena", "Umgebung — für die KF-Aufträge ist arena gedacht"),
-    ("robot", "alice", "dein Robotername (eine Person, ein Roboter)"),
-    ("robots", "", "Roboter, die beim Start gespawnt werden (leer = nur dein Roboter)"),
-    ("controller", "student/kf_template.py", "dein Filterknoten (Datei relativ zum Quellbaum)"),
-    ("aufgabe", "kf_gps", "kf_gps | kf_fusion | kf_kovarianz | kf_dynamik (leer = frei fahren)"),
-    ("bewerten", "", "Auftrag oder Gruppe zum Bewerten, z. B. kf_alle (leer = nicht bewerten)"),
-    ("sekunden", "0", "nach N Sekunden Simulationszeit enden (0 = bis q/Strg-C)"),
-    ("headless", "false", "ohne Pygame-Fenster (setzt SDL_VIDEODRIVER=dummy)"),
-    ("wahrheit", "true", "exakte Pose auf /<robot>/truth — für die Bewertung nötig"),
-    ("seed", "1", "Rausch-Seed: gleiches Seed, gleiche Messreihe (Nachfahrbarkeit)"),
-    ("config", "", "zusätzliche JSON-Config (überschreibt config/default.json)"),
-    ("protokoll", "", "CSV-Messprotokoll, z. B. messung.csv — damit arbeitet tools/kfplot.py"),
-    ("protokoll_intervall", "0.05", "Abstand der Protokollzeilen in s Simulationszeit"),
-    ("aufzeichnung", "", "ros2-bag-Name, z. B. kf_versuch (leer = keine Aufzeichnung)"),
-    ("rviz", "false", "rviz2 mit rviz/kf.rviz dazustarten, falls vorhanden"),
+    ("welt", "arena", "environment — arena is the world meant for the KF tasks"),
+    ("robot", "alice", "your robot name (one person, one robot)"),
+    ("robots", "", "robots to spawn at start (empty = only your robot)"),
+    ("controller", "student/kf_template.py", "your filter node (file relative to the source tree)"),
+    ("aufgabe", "kf_gps", "kf_gps | kf_fusion | kf_kovarianz | kf_dynamik (empty = free driving)"),
+    ("bewerten", "", "task or group to grade, e.g. kf_alle (empty = do not grade)"),
+    ("sekunden", "0", "end after N seconds of simulation time (0 = until q/ctrl-C)"),
+    ("headless", "false", "without Pygame window (sets SDL_VIDEODRIVER=dummy)"),
+    ("wahrheit", "true", "exact pose on /<robot>/truth — needed for grading"),
+    ("seed", "1", "noise seed: same seed, same measurement series (reproducibility)"),
+    ("config", "", "extra JSON config (overrides config/default.json)"),
+    ("protokoll", "", "CSV measurement log, e.g. measurement.csv — tools/kfplot.py works on it"),
+    ("protokoll_intervall", "0.05", "distance between log lines in s of simulation time"),
+    ("aufzeichnung", "", "ros2 bag name, e.g. kf_experiment (empty = no recording)"),
+    ("rviz", "false", "also start rviz2 with rviz/kf.rviz, if the file exists"),
     ("log_stufe", "info", "info | debug | warning"),
-    ("use_sim_time", "true", "Simulationszeit (/clock) für Zeitstempel verwenden"),
+    ("use_sim_time", "true", "use simulation time (/clock) for timestamps"),
 ]
 
 
 def _pfad(angabe: str) -> str:
-    """Relativ zum Quellbaum, absolut bleibt absolut — die Datei darf von überall kommen."""
+    """Relative to the source tree, absolute stays absolute — the file may come from anywhere."""
     return angabe if os.path.isabs(angabe) else os.path.join(WURZEL, angabe)
 
 
 def aufbau(context, *args, **kwargs):
-    """Aus den Argumenten zwei (bis vier) Prozesse bauen."""
+    """Build two (up to four) processes out of the arguments."""
     hol = lambda name: Halt(name).perform(context)                        # noqa: E731
     kopflos = hol("headless").lower() in WAHR
     umgebung = {"PYTHONPATH": os.pathsep.join([WURZEL, os.environ.get("PYTHONPATH", "")]),
@@ -135,9 +137,9 @@ def aufbau(context, *args, **kwargs):
         teile.append(L.ExecuteProcess(cmd=["rviz2", "-d", rviz_config],
                                       additional_env=umgebung, output="screen", name="rviz"))
     sensorik = "  ".join(f"{name}={hol(name)}" for name, _, _ in EINSTELLUNGEN if hol(name))
-    teile.insert(0, L.LogInfo(msg=f"[kf] Auftrag: {hol('aufgabe') or '—'} · Welt: {hol('welt')} · "
-                                  f"Roboter: {hol('robots') or hol('robot')} · Knoten: "
-                                  f"{hol('controller')} · Sensorik: {sensorik or 'Prüfprofil'}"))
+    teile.insert(0, L.LogInfo(msg=f"[kf] task: {hol('aufgabe') or '—'} · world: {hol('welt')} · "
+                                  f"robot: {hol('robots') or hol('robot')} · node: "
+                                  f"{hol('controller')} · sensors: {sensorik or 'test profile'}"))
     return teile
 
 

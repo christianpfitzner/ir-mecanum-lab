@@ -1,8 +1,8 @@
-"""Aufträge für Versuch 1: ein Lesenzugriff auf config/tasks.json plus Rechentricks.
+"""Tasks for the lab: one read access to config/tasks.json plus small calculations.
 
-Der Bewerter (grade.py) und die Kommandozeile (node.py) holen sich hier alles her;
-die Schwellen stehen **nur** in der JSON-Datei, damit Betreuer sie ohne Code-Änderung
-anpassen können. Keine ROS- und keine Simulator-Abhängigkeit.
+The grader (grade.py) and the command line (node.py) both take everything from here;
+the thresholds live **only** in the JSON file, so the supervisor can adjust them
+without touching code. No ROS and no simulator dependency.
 """
 import json
 import math
@@ -14,14 +14,14 @@ TASKS_PATH = os.path.join(ROOT, "config", "tasks.json")
 
 
 def load_tasks(path: str | None = None) -> dict:
-    """Auftragsdatei lesen; klarer Fehler, wenn sie fehlt (dann ist das Repo unvollständig)."""
+    """Read the task file; a clear error when it is missing (then the repo is incomplete)."""
     way = path or TASKS_PATH
     if not os.path.exists(way):
-        raise FileNotFoundError(f"Auftragsdatei fehlt: {way}")
+        raise FileNotFoundError(f"task file missing: {way}")
     with open(way, encoding="utf-8") as fh:
         cfg = json.load(fh)
     if not cfg.get("tasks"):
-        raise ValueError(f"Keine Aufträge in {way}")
+        raise ValueError(f"no tasks in {way}")
     return cfg
 
 
@@ -34,13 +34,13 @@ def by_id(cfg: dict) -> dict:
 
 
 def resolve(cfg: dict, ids=None) -> list:
-    """Aufträge in Soll-Reihenfolge auswählen: None/"alle"/Liste/"a,b"/Gruppen wie "kf_alle".
+    """Pick tasks in their intended order: None/"alle"/list/"a,b"/groups such as "kf_alle".
 
-    Gruppen (nur Lesehilfe, keine eigene Datei): `kf_alle` bzw. `kf_*` = alle Aufträge
-    mit `kf`-Präfix, `v2`/`versuch2` = alles mit `"versuch": 2`. `alle` meint die Aufgaben
-    von **Versuch 1** — der Name war vor Versuch 2 da, und die Bewertungsläufe von Versuch 1
-    hängen an einer Welt; `beide`/`alle_versuche` nimmt wirklich alle. Unbekannte Namen sind
-    ein Fehler — sonst läuft still eine halbe Bewertung durch.
+    Groups (a reading aid only, no file of their own): `kf_alle` or `kf_*` = every task
+    with the `kf` prefix, `v2`/`versuch2` = everything with `"versuch": 2`. `alle` means the
+    tasks of **Experiment 1** — that name predates Experiment 2, and Experiment 1's grading
+    runs hang on one world; `beide`/`alle_versuche` really takes all of them. Unknown names
+    are an error — otherwise half a grading run goes through in silence.
     """
     order = cfg.get("reihenfolge") or task_ids(cfg)
     known = by_id(cfg)
@@ -69,19 +69,19 @@ def resolve(cfg: dict, ids=None) -> list:
             else:
                 offen.append(w)
         if offen:
-            raise ValueError(f"Unbekannte(r) Auftrag {offen}; es gibt: {', '.join(order)} "
-                             "(Gruppen: alle, kf_alle, v1, v2, beide)")
+            raise ValueError(f"unknown task(s) {offen}; available: {', '.join(order)} "
+                             "(groups: alle, kf_alle, v1, v2, beide)")
     return [known[i] for i in order if i in dict.fromkeys(wanted)]
 
 
 def sim_profil(cfg: dict, ids=None) -> dict:
-    """Startprofil der Simulation: der `sim`-Block des ersten gewählten Auftrags.
+    """Starting simulation profile: the `sim` block of the first selected task.
 
-    Jede Aufgabe darf einen `"sim"`-Block tragen (`gps`, `imu`, `odom`, `debug_truth`, …);
-    node.py wendet ihn vor der Engine an, und je Auftrag setzt der Bewerter sein eigenes
-    Prüfprofil nach. Beim Start darf aber nur *ein* Profil gelten: die Blöcke mehrerer
-    Aufträge zu verschmelzen wäre unsinnig — kf_gps will 5 Hz GPS, kf_fusion 1 Hz mit
-    Funkloch, und am Ende hätte kf_gps still mit 1 Hz und Funkloch messen müssen.
+    Any task may carry a `"sim"` block (`gps`, `imu`, `odom`, `debug_truth`, …); node.py
+    applies it before the engine is built, and per task the grader sets its own test
+    profile afterwards. At start-up only *one* profile may apply: merging the blocks of
+    several tasks would be nonsense — kf_gps wants 5 Hz GPS, kf_fusion 1 Hz with an
+    outage, and in the end kf_gps would silently have to measure at 1 Hz with an outage.
     """
     auftrge = resolve(cfg, ids)
     return dict(auftrge[0].get("sim") or {}) if auftrge else {}
@@ -92,31 +92,31 @@ def titel(cfg: dict, task_id: str) -> str:
 
 
 def short_help(cfg: dict | None = None) -> str:
-    """Einzeiler für --help: 'kinematik (30 P) | quadrat (30 P) | ...'."""
+    """One-liner for --help: 'kinematik (30 P) | quadrat (30 P) | ...'."""
     cfg = cfg or load_tasks()
     return " | ".join(f'{t["id"]} ({t["punkte"]} P)' for t in cfg["tasks"])
 
 
 def welt_fuer(cfg: dict, ids=None, default: str = "production") -> str:
-    """Welche Welt für diese Aufträge passt (häufigste Empfehlung; bei Konflikt die erste)."""
+    """Which world suits these tasks (most frequent recommendation; first one on a tie)."""
     hints = [t.get("welt") for t in resolve(cfg, ids) if t.get("welt")]
     if not hints:
         return default
     return max(set(hints), key=hints.count)
 
 
-# ------------------------------------------------------------------------ Messgrößen
+# ------------------------------------------------------------------------ measurements
 
 
 def pos_fehler(a, b) -> float:
-    """Luftlinie zwischen zwei Posen (a, b mit .x/.y oder [x, y, theta])."""
+    """Air distance between two poses (a, b with .x/.y or [x, y, theta])."""
     ax, ay = _xy(a)
     bx, by = _xy(b)
     return math.hypot(ax - bx, ay - by)
 
 
 def winkel_fehler(a, b) -> float:
-    """Größter Betrag der anzurechnenden Drehung (radiant, vorzeichenbehaftet b-a)."""
+    """Largest magnitude of the rotation to credit (radians, signed b-a)."""
     return wrap_angle(_th(b) - _th(a))
 
 
@@ -125,11 +125,11 @@ def grad(fehlers: float) -> float:
 
 
 def seitlicher_abstand(scan, stichproben: int = 5) -> float | None:
-    """Abstand zur nächstgelegenen Seitenwand, gemessen zwischen 60 und 120 Grad.
+    """Distance to the nearest side wall, measured between 60 and 120 degrees.
 
-    Der LIDAR nummeriert Strahl 0 vorn und dann gegen den Uhrzeigersinn. Zu einem
-    Winkel a gehören die Indizes i und N-i — vorn wie hinten gespiegelt, egal welche
-    Seite näher ist. Strahlen ohne Treffer (inf) zählen nicht mit.
+    The LIDAR numbers beam 0 at the front and then counter-clockwise. To an angle a
+    belong the indices i and N-i — mirrored front and back, whichever side is nearer.
+    Beams without a hit (inf) are not counted.
     """
     if scan is None or not getattr(scan, "ranges", None):
         return None

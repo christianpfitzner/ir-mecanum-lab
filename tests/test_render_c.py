@@ -1,7 +1,7 @@
-"""Tests fuer den Pygame-Renderer — ohne Agent A: Fake-Engine aus SimpleNamespace.
+"""Tests for the Pygame renderer — without agent A: a fake engine from SimpleNamespace.
 
-Damit prueft render.py nur gegen types.py und gegen die im Vertrag zugesagten
-Attribute (engine.world, engine.robots, engine.t, engine.task). Alles headless.
+That way render.py is checked only against types.py and the attributes promised in
+the contract (engine.world, engine.robots, engine.t, engine.task). All of it headless.
 """
 import contextlib
 import math
@@ -32,7 +32,7 @@ def make_world(w=6.0, h=4.0):
 
 def make_scan(beams=360, value=1.2):
     ranges = [value if i % 7 else float("inf") for i in range(beams)]
-    ranges[3] = float("nan")                            # darf den Rahmen nicht verlassen
+    ranges[3] = float("nan")                            # must not escape the ranges
     return Scan(angle_min=0.0, angle_increment=2 * math.pi / beams, range_max=8.0,
                 ranges=ranges)
 
@@ -58,7 +58,7 @@ def make_engine(robots=None, world=None, task="kinematik"):
 
 @contextlib.contextmanager
 def gui(engine=None, cfg=None):
-    """Renderer; Events werden erst nach dem Konstruktor gepostet, der die Warteschlange leert."""
+    """Renderer; events are posted only after the constructor, which drains the queue."""
     rend = render.Renderer(engine or make_engine(), cfg or CFG)
     try:
         yield rend
@@ -67,13 +67,13 @@ def gui(engine=None, cfg=None):
 
 
 def press(key):
-    """KEYDOWN posten. pygame.key.key_code kennt 'space'/'escape', aber kein 'plus'."""
+    """Post a KEYDOWN. pygame.key.key_code knows 'space'/'escape' but not 'plus'."""
     name = {"plus": "+", "minus": "-"}.get(key, key)
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(name),
                                          mod=0, unicode=name))
 
 
-# ------------------------------------------------------------------------ zeichnen
+# ------------------------------------------------------------------------ drawing
 
 
 def test_draw_one_robot_keeps_engine_untouched():
@@ -127,7 +127,7 @@ def test_wheel_phase_follows_sim_time():
     with gui(make_engine({"alice": make_robot(wheels=[6.0, 6.0, 6.0, 6.0])})) as rend:
         rend.draw(cap=False)
         first = list(rend.phase["alice"])
-        rend.engine.t += 0.5                            # nur der Engine-Takt treibt die Rollen
+        rend.engine.t += 0.5                            # only the engine tick drives the rollers
         rend.draw(cap=False)
         assert any(abs(b - a) > 1e-6 for a, b in zip(first, rend.phase["alice"]))
 
@@ -137,7 +137,7 @@ def test_trail_is_capped_at_configured_length():
     bot = engine.robots["alice"]
     with gui(engine) as rend:
         for i in range(80):
-            bot.pose.x = 1.0 + 0.05 * i                 # deutlich mehr als trail_len Punkte
+            bot.pose.x = 1.0 + 0.05 * i                 # far more points than trail_len
             engine.t += 0.1
             rend.draw(cap=False)
         assert len(rend.trails["alice"]) <= rend.trail_len
@@ -157,7 +157,7 @@ def test_frame_time_for_eight_robots_with_lidar():
     bots = {f"bot{i}": make_robot(f"bot{i}", i) for i in range(8)}
     engine = make_engine(bots)
     with gui(engine) as rend:
-        rend.draw(cap=False)                            # erster Frame waermt Fonts/Pfade auf
+        rend.draw(cap=False)                            # first frame warms up fonts and paths
         times = []
         for i in range(60):
             for bot in bots.values():
@@ -167,10 +167,10 @@ def test_frame_time_for_eight_robots_with_lidar():
             rend.draw(cap=False)
             times.append(time.perf_counter() - start)
     median = statistics.median(times) * 1000
-    assert median < 30, f"Framezeit {median:.1f} ms ueber dem Budget von 30 ms"
+    assert median < 30, f"frame time {median:.1f} ms over the 30 ms budget"
 
 
-# ------------------------------------------------------------------- tastatur/zustand
+# ------------------------------------------------------------------- keyboard/state
 
 
 def test_poll_reports_each_key_as_edge_only():
@@ -180,7 +180,7 @@ def test_poll_reports_each_key_as_edge_only():
         flags = rend.poll()
         assert flags["toggle_lidar"] and flags["pause"] and flags["key"] == "space"
         assert rend.paused and not rend.show_scan
-        assert rend.poll()["toggle_lidar"] is False     # keine Flanke ohne neuen Druck
+        assert rend.poll()["toggle_lidar"] is False     # no edge without a new key press
 
 
 def test_toggles_and_zoom_and_grid():
@@ -204,7 +204,7 @@ def test_camera_keys_focus_and_reset():
         assert rend.poll()["camera"] == 2 and rend.focus == 2
         press("0")
         assert rend.poll()["camera"] == 0 and rend.focus is None
-        rend.focus = 1                                  # Fokus darf die Welt nicht verlassen
+        rend.focus = 1                                  # focus must not leave the world
         rend._cam()
         assert 0 <= rend.ox + rend.s * engine.world.size[0] <= rend.size[0]
 
@@ -216,7 +216,7 @@ def test_quit_key_clears_ok_and_close_is_idempotent():
     assert rend.poll()["quit"] is True
     assert rend.ok is False
     rend.close()
-    rend.close()                                        # zweites close ist erlaubt
+    rend.close()                                        # a second close is allowed
     assert rend.ok is False
 
 

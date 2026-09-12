@@ -1,4 +1,4 @@
-# Bau der Praktikumsanleitung. latexmk sorgt dafür, dass Querverweise sitzen.
+# Build the lab handout. latexmk makes the cross-references settle.
 LATEXMK  := latexmk
 SRC      := anleitung.tex figures/mecanum.tikz figures/architektur.tikz
 KSRC     := kalman.tex
@@ -19,10 +19,10 @@ watch:
 	$(LATEXMK) -pdf -pvc anleitung.tex
 
 log:
-	@grep -nE "^!|Overfull \\\\hbox \(([1-9][0-9]|[0-9]+[0-9])pt|Undefined control|LaTeX Warning: (Reference|Citation)" anleitung.log || echo "log sauber"
+	@grep -nE "^!|Overfull \\\\hbox \(([1-9][0-9]|[0-9]+[0-9])pt|Undefined control|LaTeX Warning: (Reference|Citation)" anleitung.log || echo "log clean"
 
 log-kalman:
-	@grep -nE "^!|Overfull \\\\hbox \(([1-9][0-9]|[0-9]+[0-9])pt|Undefined control|LaTeX Warning: (Reference|Citation)" kalman.log || echo "log sauber"
+	@grep -nE "^!|Overfull \\\\hbox \(([1-9][0-9]|[0-9]+[0-9])pt|Undefined control|LaTeX Warning: (Reference|Citation)" kalman.log || echo "log clean"
 
 clean:
 	-$(LATEXMK) -C >/dev/null 2>&1

@@ -1,19 +1,19 @@
-"""Messprotokoll als CSV — die Datenbasis für den Versuchsbericht (Versuch 2).
+"""Measurement log as CSV — the data basis for the lab report (lab 2).
 
-`tap()` hängt am Simulationslauf und bekommt jede Messung mit; geschrieben wird alle
-`intervall` Sekunden **Simulationszeit** je Roboter eine Zeile. Warum Simulationszeit:
-die Auswertung muss hinterher sagen können „bei t = 23 s war der letzte GPS-Fix 0,8 s
-alt" — mit einer Wanduhr in der Spalte würde ein langsamer Rechner andere Kurven malen.
+`tap()` hangs on the simulation run and sees every measurement; one line per robot is
+written every `intervall` seconds of **simulation time**. Why simulation time: the analysis
+must be able to say later "at t = 23 s the last GPS fix was 0.8 s old" — with a wall clock
+in that column a slow computer would draw different curves.
 
-Format: Semikolon-getrennt, Dezimalpunkt, Kopfzeile — damit `csv`, pandas und Excel
-gleichermaßen klarkommen:
+Format: semicolon-separated, decimal point, header row — so that `csv`, pandas and Excel
+all handle it the same way:
 
     import csv
     with open("messung.csv") as fh:
         reihen = list(csv.DictReader(fh, delimiter=";"))
 
-Dazu gehört `tools/kfplot.py`, das dieselbe Datei auswertet (RMSE, Zeitreihen, und ein
-ASCII-Diagramm für Rechner ohne matplotlib).
+`tools/kfplot.py` belongs to it and evaluates the same file (RMSE, time series, and an
+ASCII diagram for computers without matplotlib).
 """
 import csv
 import logging
@@ -27,7 +27,7 @@ SPALTEN = ["t", "robot",
            "x_kf", "y_kf", "th_kf", "sx_kf", "sy_kf", "n_kf",
            "ax_imu", "ay_imu", "gz_imu"]
 
-# Was aus welcher Nachricht in welche Spalte wandert (Feldnamen der Dataclasses, s. types.py)
+# Which field of which message goes into which column (dataclass field names, see types.py)
 FELDER = {"truth": {"x": "x_wahr", "y": "y_wahr", "theta": "th_wahr"},
           "gps": {"x": "x_gps", "y": "y_gps", "theta": "th_gps", "t": "t_gps"},
           "odom": {"x": "x_odom", "y": "y_odom", "theta": "th_odom"},
@@ -36,7 +36,7 @@ FELDER = {"truth": {"x": "x_wahr", "y": "y_wahr", "theta": "th_wahr"},
 
 
 class Logbuch:
-    """Schreibt, was der Roboter gesehen hat — und was er sich daraus zusammengereimt hat."""
+    """Writes what the robot saw — and what it inferred from those readings."""
 
     def __init__(self, engine, pfad: str, intervall: float = 0.05):
         self.eng = engine
@@ -49,7 +49,7 @@ class Logbuch:
         self.pfad = pfad
 
     def tap(self, kind: str, robot: str | None, payload) -> None:
-        """Eine Nachricht aus der Simulations-Outbox; hier wird nur zwischengespeichert."""
+        """One message from the simulation outbox; only buffered here."""
         if robot is None or payload is None:
             return
         w = self.werte.setdefault(robot, {})
@@ -61,7 +61,7 @@ class Logbuch:
             w["n_kf"] = self.n_kf
 
     def tick(self) -> None:
-        """Eine Zeile je Roboter, sobald `intervall` Sekunden Simzeit vergangen sind."""
+        """One line per robot once `intervall` seconds of simulation time have passed."""
         t = float(self.eng.t)
         if t - self.probe_t < self.intervall:
             return
@@ -77,11 +77,11 @@ class Logbuch:
     def close(self) -> None:
         if not self.datei.closed:
             self.datei.close()
-            log.info("Messprotokoll: %d Zeilen -> %s", self.zeilen, self.pfad)
+            log.info("measurement log: %d lines -> %s", self.zeilen, self.pfad)
 
 
 def _zahl(obj, feld: str):
-    """Feldwert aus einer Dataclass — tolerant, ein Protokoll darf nie abbrechen."""
+    """Field value from a dataclass — tolerant, a log must never break the run."""
     try:
         return float(getattr(obj, feld))
     except (TypeError, ValueError):
