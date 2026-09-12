@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: mecanum-lab
+Version: 0.1.0
+Summary: 2D-Mecanum-Simulator (Pygame) mit ROS-2-Anbindung, Versuch 1
+Author: Praktikum Intelligente Robotik
+License: MIT
+Requires-Python: >=3.10
+Provides-Extra: gui

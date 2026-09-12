@@ -1,0 +1,4 @@
+setuptools
+
+[gui]
+pygame>=2.5

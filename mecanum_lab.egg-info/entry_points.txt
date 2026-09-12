@@ -1,0 +1,2 @@
+[console_scripts]
+mecanum-lab = mecanum_lab.node:main
