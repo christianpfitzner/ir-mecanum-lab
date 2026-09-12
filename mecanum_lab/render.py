@@ -202,10 +202,13 @@ class Renderer:
             pygame.draw.line(sc, mix(self.col_floor, (1, 1, 1), .4), self.px(x0, y0),
                              self.px(x1, y1), max(1, int(0.06 * self.s)))
         for wall in w.walls or []:
-            ecke = self.px(wall.x0, wall.y1)
-            pygame.draw.rect(sc, self.col_wall,
-                             pygame.Rect(ecke, (max(1, int((wall.x1 - wall.x0) * self.s)),
-                                                max(1, int((wall.y1 - wall.y0) * self.s)))))
+            # floor/ceil instead of int: neighbouring blocks then touch each other instead of
+            # leaving a 1 px floor seam between them — that seam would read as a thin wall again.
+            oben, unten = self.px(wall.x0, wall.y1), self.px(wall.x1, wall.y0)
+            ecke = (math.floor(oben[0]), math.floor(oben[1]))
+            pygame.draw.rect(sc, self.col_wall, pygame.Rect(
+                ecke, (max(1, math.ceil(unten[0]) - ecke[0]),
+                       max(1, math.ceil(unten[1]) - ecke[1]))))
         pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), feld, 2)   # the world ends here
         if w.goal and self.show_goal:
             centre = self.px(w.goal.x, w.goal.y)

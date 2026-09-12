@@ -49,7 +49,7 @@ ros2 launch launch/kf.launch.py bewerten:=kf_alle controller:=student/kf_solutio
 ros2 launch launch/sim.launch.py robots:=alice,bob  # Experiment 1
 ros2 topic echo /alice/imu --once                 # az at rest ≈ +9.81 — that is correct
 ros2 topic echo /tf --once                        # map → alice/odom → alice/base_link → laser
-rviz2 -d rviz/kf.rviz                             # Fixed Frame `map` works: the sim publishes TF
+rviz2 -d rviz/kf.rviz --ros-args -p use_sim_time:=true   # the sim stamps TF in sim seconds
 ```
 
 To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless`.
@@ -77,6 +77,16 @@ is deliberate: hide the dots, keep the data, and see which layer belongs to whic
 `--world` overrides it. Grading in the wrong arena gets you wall contacts
 instead of points.
 
+![The four arenas of the simulator: arena (24 × 16 m, mostly open, the four state-estimation
+tasks), maze (6.5 × 5.5 m maze), production (20 × 12 m hall with tables, the four kinematics
+and odometry tasks) and track (18 × 11 m ring). Each panel shows walls, floor markings, the
+goal as a bullseye and every spawn as a coloured dot with its heading.](docs/img/worlds.png)
+
+*The four arenas, drawn by `python3 tools/worldpic.py`.* The picture is generated from
+`worlds/*.txt` and from the task titles in `config/tasks.json` — add an arena or move a task
+and the figure follows when you regenerate it (`tools/check.sh` does that as a check, so a
+stale image cannot survive a build).
+
 ## Where configuration lives
 
 | Layer | File / option | Note |
@@ -99,7 +109,7 @@ maze has room to drive in while the graded arenas stay as they are.
 ./lab docs                # topics, tasks, examples
 ./lab robots              # who is driving right now?
 ./lab grade --task kf_gps --controller student/kf_solution.py --json bericht.json
-tools/check.sh            # teaching team's gate (tests, grading, budgets)
+tools/check.sh            # teaching team's gate (tests, grading, budgets, pictures)
 python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --speed 25
 ```
 

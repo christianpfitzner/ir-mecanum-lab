@@ -20,6 +20,10 @@ step "Language (CONTRACT section 1: written prose is English)"
 # Not cosmetics: handouts, comments and report text are what students read, and German creeps
 # back in with every new feature. langcheck reports umlauts anywhere and German words in prose.
 run "python3 tools/langcheck.py --quiet"
+step "Arena picture for the documentation (worlds/*.txt -> docs/img/worlds.png)"
+# Generated, not hand-drawn: this proves every world still draws and that worldpic agrees with
+# worlds/*.txt. It writes to /tmp — docs/img/worlds.png is updated on purpose by the tool.
+run "python3 tools/worldpic.py --out /tmp/worlds_check.png"
 step "Short stub simulation, maze world, with the reference solution"
 run "./lab run --world maze --robot muster --controller student/solution.py --headless --seconds 6"
 step "Grading the reference solution on all tasks (experiment 1)"
@@ -34,16 +38,16 @@ run "python3 tools/worldcheck.py --welt arena"
 run "bash -n install.sh"
 run "./install.sh --check"
 if [[ -f student/kf_solution.py ]]; then
-  step "Lab 2: grading the reference solution (kf_alle)"
+  step "Experiment 2: grading the reference solution (kf_alle)"
   run "./lab grade --robot kf --task kf_alle --controller student/kf_solution.py --json /tmp/kf.json --seconds 230"
-  step "Lab 2: measurement log and evaluation"
+  step "Experiment 2: measurement log and evaluation"
   run "./lab grade --robot kf --task kf_gps --controller student/kf_solution.py --log /tmp/messung.csv --seconds 60"
   run "python3 tools/kfplot.py /tmp/messung.csv"
 else
   echo "  skipped: student/kf_solution.py is not there yet"
 fi
 if [[ -f student/kf_template.py ]]; then
-  step "Lab 2: the template runs without crashing"
+  step "Experiment 2: the template runs without crashing"
   run "./lab run --world arena --task kf_gps --robot tpl --controller student/kf_template.py --headless --seconds 10 --truth"
 else
   echo "  skipped: student/kf_template.py is not there yet"

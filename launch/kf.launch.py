@@ -134,8 +134,13 @@ def aufbau(context, *args, **kwargs):
             additional_env=umgebung, output="screen", name="aufzeichnung"))
     rviz_config = os.path.join(WURZEL, "rviz", "kf.rviz")
     if hol("rviz").lower() in WAHR and os.path.exists(rviz_config):
-        teile.append(L.ExecuteProcess(cmd=["rviz2", "-d", rviz_config],
-                                      additional_env=umgebung, output="screen", name="rviz"))
+        # Without use_sim_time, rviz compares its wall clock with the TF stamps of the sim
+        # (seconds since start) and shows an empty map — the tree is there, just "in the past".
+        befehl = ["rviz2", "-d", rviz_config]
+        if hol("use_sim_time").lower() in WAHR:
+            befehl += ["--ros-args", "-p", "use_sim_time:=true"]
+        teile.append(L.ExecuteProcess(cmd=befehl, additional_env=umgebung, output="screen",
+                                      name="rviz"))
     sensorik = "  ".join(f"{name}={hol(name)}" for name, _, _ in EINSTELLUNGEN if hol(name))
     teile.insert(0, L.LogInfo(msg=f"[kf] task: {hol('aufgabe') or '—'} · world: {hol('welt')} · "
                                   f"robot: {hol('robots') or hol('robot')} · node: "

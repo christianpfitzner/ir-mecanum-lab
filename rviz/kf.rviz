@@ -1,6 +1,6 @@
 # RViz2 view for Experiment 2 (state estimation) — robot "test".
-#   rviz2 -d rviz/kf.rviz
-#   ros2 launch launch/kf.launch.py aufgabe:=kf_fusion rviz:=true
+#   rviz2 -d rviz/kf.rviz --ros-args -p use_sim_time:=true
+#   ros2 launch launch/kf.launch.py aufgabe:=kf_fusion rviz:=true   (starts rviz with that param)
 # Andere Roboternamen in den drei Themenfeldern unter Displays anpassen (/test/... -> /name/...).
 # Fixed Frame is map: GPS and your own estimate point there, and the simulator publishes the
 # TF branch map -> test/odom -> test/base_link (plus laser and imu_link), so `map` really exists.
