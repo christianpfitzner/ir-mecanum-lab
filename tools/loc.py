@@ -53,7 +53,7 @@ BUDGET = {
     "student/kf_template.py": 200, "student/kf_solution.py": 310,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
     "launch/lab.launch.py": 60, "launch/kf.launch.py": 160,
-    "tools/kfplot.py": 250, "tools/fastgrade.py": 140, "tools/worldpic.py": 180,
+    "tools/kfplot.py": 250, "tools/fastgrade.py": 140, "tools/worldpic.py": 240,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
 CORE_TOTAL = 4300

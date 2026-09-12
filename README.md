@@ -77,15 +77,21 @@ is deliberate: hide the dots, keep the data, and see which layer belongs to whic
 `--world` overrides it. Grading in the wrong arena gets you wall contacts
 instead of points.
 
-![The four arenas of the simulator: arena (24 × 16 m, mostly open, the four state-estimation
-tasks), maze (6.5 × 5.5 m maze), production (20 × 12 m hall with tables, the four kinematics
-and odometry tasks) and track (18 × 11 m ring). Each panel shows walls, floor markings, the
-goal as a bullseye and every spawn as a coloured dot with its heading.](docs/img/worlds.png)
+![The four arenas at one common scale: arena (24 × 16 m, open hall, the four state-estimation
+tasks), production (20 × 12 m hall with six tables, the four kinematics and odometry tasks),
+maze (13 × 11 m built on 1 m grid cells) and track (18 × 11 m ring around a central island).
+Solid blocks are walls that collide, dashed lines are painted floor markings without
+collision, dots are the start poses of robots 1–4 with their heading, the bullseye is the
+goal.](docs/img/worlds.png)
 
-*The four arenas, drawn by `python3 tools/worldpic.py`.* The picture is generated from
-`worlds/*.txt` and from the task titles in `config/tasks.json` — add an arena or move a task
-and the figure follows when you regenerate it (`tools/check.sh` does that as a check, so a
-stale image cannot survive a build).
+*The four arenas, drawn by `python3 tools/worldpic.py` — one metre has the same thickness in
+every panel, so the halls are comparable.* The numbers under the panels come from the same
+sources the checks use: task titles from `config/tasks.json`, and the width of the tightest
+passage on the widest start→goal path from `tools/worldcheck.py`. `arena` is deliberately open
+(5.25 m at its narrowest) because state estimation wants free space and a GPS outage in a
+corner; `maze` is deliberately tight (0.50 m free where the robot needs 0.46 m) because that
+is what makes odometry hard. Add an arena or move a task and the figure follows when you
+regenerate it — `tools/check.sh` draws it as a check, so a stale image cannot survive a build.
 
 ## Where configuration lives
 

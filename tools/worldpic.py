@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """One picture of every arena — for the README and for the tutor's screen.
 
-Draws what the GUI shows: floor, merged wall blocks, floor markings, the goal bullseye and
-every spawn with its heading. The line under each panel says which tasks name that world, read
-from `config/tasks.json` — the picture cannot quietly disagree with the task file.
+One metre has the same thickness everywhere in this figure: the panels are the worlds at a
+common scale, so `maze` (13 × 11 m, 1 m cells) and `arena` (24 × 16 m, 0.5 m cells) are
+comparable and a wall is as thick as it really is. Walls are solid blocks with a lit edge;
+floor markings (`-` and `|` in the grid) are drawn as dashed paint — they are decoration
+without collision and must not read as walls.
+
+Under each panel: which tasks name this world (`config/tasks.json`) and how wide the tightest
+passage on the widest start->goal path is (`tools/worldcheck.py`) — the number that says
+whether a robot fits through.
 
 Headless (SDL dummy), deterministic, stdlib + pygame only (CONTRACT section 1).
 
     python3 tools/worldpic.py                       # docs/img/worlds.png
-    python3 tools/worldpic.py --out /tmp/w.png --zoom 1.4
+    python3 tools/worldpic.py --out /tmp/w.png --massstab 28
 """
 import argparse
 import json
 import math
 import os
+import re
 import sys
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")       # no window needed to draw a picture
@@ -21,31 +28,31 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame                                           # noqa: E402
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 from mecanum_lab.types import PALETTE, cfg_get, load_config      # noqa: E402
 from mecanum_lab.worlds import load_world, list_worlds           # noqa: E402
+from worldcheck import pruefe                                    # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BG, TITEL, TEXT = (248, 248, 251), (38, 42, 54), (96, 102, 116)
-PANEL, RAHMEN = 496, 336                          # panel box; the world box sits inside
-RAND, TITEL_H, UNTER, SPALTEN = 22, 28, 44, 2     # margins, title strip, caption strip
-LEGENDE = 34                                      # one legend line under the grid
-BODEN, WAND = (.13, .14, .17), (.34, .36, .42)    # same defaults as the pygame window
-ZIEL, HELL = (255, 226, 110), (236, 239, 246)
+MASSSTAB = 20.0                                    # pixels per metre, the same in every panel
+POLSTER, TITEL_H, UNTER, LEGENDE = 16, 30, 54, 46  # panel padding, title and caption strips
+RAND, SPALTEN = 24, 2                              # gaps between panels, columns of the grid
+BG, TITEL, TEXT = (248, 248, 251), (36, 40, 52), (98, 104, 118)
+BODEN, WAND = (.13, .14, .17), (.42, .45, .52)     # floor and wall, close to the GUI's gui_style
+ZIEL, HELL = (255, 226, 110), (238, 241, 247)
+FREI = 0.25                                        # same clearance the world checker defaults to
+ENG = re.compile(r"narrowest point ([\d.]+) m free \(needs ([\d.]+) m\)")
 
 
 def farben(cfg: dict) -> tuple:
-    """Floor, wall and border colours — gui_style, but walls a bit brighter.
-
-    The arena walls are 5 cm thin; at figure scale they would vanish in the floor, so the
-    picture lightens them. The window itself keeps the original values (render.py).
-    """
+    """Floor, wall, edge and paint colours — the same gui_style values the window reads."""
     stil = cfg_get(cfg or {}, "gui_style") or {}
     boden = tuple(int(255 * v) for v in stil.get("floor", BODEN))
     wand = tuple(int(255 * v) for v in stil.get("wall", WAND))
-    wand = tuple(int(0.78 * c + 0.22 * h) for c, h in zip(wand, HELL))
-    rand = tuple(min(255, (c + 255) // 2) for c in wand)         # a lit edge, as in the GUI
-    return boden, wand, rand
+    kant = tuple((2 * c + 255) // 3 for c in wand)             # lit edge of a solid body
+    malung = tuple((3 * c + 255) // 4 for c in boden)          # painted line, clearly not wall
+    return boden, kant, wand, malung
 
 
 def aufgaben_pro_welt() -> dict:
@@ -62,9 +69,78 @@ def aufgaben_pro_welt() -> dict:
     return {name: " ".join(kurz) for name, kurz in welten.items()}
 
 
-def _px(box, s, x, y):
-    """World metres -> pixels in the panel: origin bottom left, y growing upwards."""
-    return (box.x + x * s, box.bottom - y * s)
+def durchlass(name: str, cfg: dict) -> str:
+    """'tightest passage 1.25 m, robot needs 0.46 m' — straight from the world checker."""
+    try:
+        meldungen, _ = pruefe(name, cfg, FREI)
+    except Exception as exc:                                   # the picture is still drawn
+        return f"passage width unavailable ({type(exc).__name__})"
+    for zeile in meldungen:
+        treffer = ENG.search(zeile)
+        if treffer:
+            return f"tightest passage {treffer.group(1)} m, robot needs {treffer.group(2)} m"
+    return "no start->goal pair (free driving)"
+
+
+def textzeilen(schrift, text: str, breite: int):
+    """Wrap a caption to the panel width — a clipped sentence helps nobody."""
+    zeilen, aktuelle = [], ""
+    for wort in text.split():
+        kandidat = f"{aktuelle} {wort}".strip()
+        if aktuelle and schrift.size(kandidat)[0] > breite:
+            zeilen.append(aktuelle)
+            aktuelle = wort
+        else:
+            aktuelle = kandidat
+    if aktuelle:
+        zeilen.append(aktuelle)
+    return zeilen
+
+
+def _px(herkunft, s, x, y):
+    """World metres -> pixels: origin bottom left, y grows upwards."""
+    return (herkunft[0] + x * s, herkunft[1] - y * s)
+
+
+def _strich(sc, a, b, farbe, stich=5, luecke=4):
+    """Dashed line — the only honest way to draw paint on the floor."""
+    (x0, y0), (x1, y1) = a, b
+    laenge = math.hypot(x1 - x0, y1 - y0) or 1.0
+    dx, dy = (x1 - x0) / laenge, (y1 - y0) / laenge
+    zurueck, an = 0.0, True
+    while zurueck < laenge:
+        schritt = min(stich if an else luecke, laenge - zurueck)
+        if an:
+            pygame.draw.line(sc, farbe, (x0 + dx * zurueck, y0 + dy * zurueck),
+                             (x0 + dx * (zurueck + schritt), y0 + dy * (zurueck + schritt)), 1)
+        zurueck, an = zurueck + schritt, not an
+
+
+def feld(sc, welt, ecke, s, paare):
+    """Draw one world with its bottom left corner at `ecke` (pixels)."""
+    boden, kant, wand, malung = paare
+    breite, hoehe = int(welt.size[0] * s), int(welt.size[1] * s)
+    rahmen = pygame.Rect(ecke[0], int(ecke[1] - hoehe), breite, hoehe)
+    sc.fill(boden, rahmen)
+    for mauer in welt.walls or []:
+        linke = _px(ecke, s, mauer.x0, mauer.y1)
+        leib = pygame.Rect(linke, (max(2, int((mauer.x1 - mauer.x0) * s)),
+                                   max(2, int((mauer.y1 - mauer.y0) * s))))
+        pygame.draw.rect(sc, wand, leib)
+        pygame.draw.rect(sc, kant, leib, 1)              # reads as a body, not as a stroke
+    for x0, y0, x1, y1 in welt.markings or []:
+        _strich(sc, _px(ecke, s, x0, y0), _px(ecke, s, x1, y1), malung)
+    pygame.draw.rect(sc, kant, rahmen, 2)                # where the world ends
+    if welt.goal:
+        mitte = _px(ecke, s, welt.goal.x, welt.goal.y)
+        for ring, rad in enumerate((13, 8, 3)):
+            pygame.draw.circle(sc, HELL if ring == 1 else ZIEL, mitte, rad, 2 if ring else 0)
+    for nr, start in enumerate(welt.spawns or []):
+        mitte, farbe = _px(ecke, s, start.x, start.y), _palette(nr)
+        pygame.draw.circle(sc, farbe, mitte, 7)
+        pygame.draw.line(sc, farbe, mitte, (mitte[0] + 15 * math.cos(start.theta),
+                                           mitte[1] - 15 * math.sin(start.theta)), 2)
+        pygame.draw.circle(sc, (18, 20, 26), mitte, 7, 1)
 
 
 def _palette(nr: int) -> tuple:
@@ -72,84 +148,68 @@ def _palette(nr: int) -> tuple:
     return tuple(min(255, int(255 * w)) for w in PALETTE[nr % len(PALETTE)][1])
 
 
-def feld(sc, welt, x, y, boden, wand, rand):
-    """Draw one world into the panel box at (x, y); returns scale and the world box."""
-    w, h = welt.size
-    s = min((PANEL - 28) / w, (RAHMEN - 28) / h)
-    box = pygame.Rect(x + (PANEL - w * s) / 2, y + (RAHMEN - h * s) / 2, w * s, h * s)
-    pygame.draw.rect(sc, boden, box)
-    hell = tuple(min(255, (c + 255) // 2) for c in boden)
-    for x0, y0, x1, y1 in welt.markings or []:                 # floor markings, view only
-        pygame.draw.line(sc, hell, _px(box, s, x0, y0), _px(box, s, x1, y1), max(1, int(.06 * s)))
-    for mauer in welt.walls or []:
-        ecke = _px(box, s, mauer.x0, mauer.y1)
-        rechteck = pygame.Rect(ecke, (max(1, (mauer.x1 - mauer.x0) * s),
-                                      max(1, (mauer.y1 - mauer.y0) * s)))
-        pygame.draw.rect(sc, wand, rechteck)
-        if rechteck.width < 4 or rechteck.height < 4:      # thin walls need their outline
-            pygame.draw.rect(sc, rand, rechteck.inflate(2, 2), 1)
-    pygame.draw.rect(sc, rand, box, 2)                         # here the world ends
-    if welt.goal:
-        mitte = _px(box, s, welt.goal.x, welt.goal.y)
-        for ring, rad in enumerate((13, 8, 3)):                # bullseye, like the GUI
-            pygame.draw.circle(sc, HELL if ring == 1 else ZIEL, mitte, rad, 2 if ring else 0)
-    for nr, start in enumerate(welt.spawns or []):
-        mittel, farbe = _px(box, s, start.x, start.y), _palette(nr)
-        pygame.draw.circle(sc, farbe, mittel, 7)
-        pygame.draw.line(sc, farbe, mittel, (mittel[0] + 14 * math.cos(start.theta),
-                                            mittel[1] - 14 * math.sin(start.theta)), 2)
-        pygame.draw.circle(sc, (18, 20, 26), mittel, 7, 1)
-    return s, box
-
-
-def massstab(sc, box, s, schrift):
-    """One metre as a bar — the panels scale independently, so this keeps them honest."""
-    x, y = int(box.x + 8), int(box.bottom - 10)
-    pygame.draw.line(sc, HELL, (x, y), (x + s, y), 2)
-    for rand_px in (x, x + s):
-        pygame.draw.line(sc, HELL, (rand_px, y - 4), (rand_px, y + 4), 2)
-    sc.blit(schrift.render("1 m", True, HELL), (x, y - 26))     # above the bar, not on it
-
-
-def legende(sc, y, schrift, paare):
-    """Drawn, not typeset: the default pygame font has no reliable glyphs for symbols."""
-    x = RAND
-    for nr, (text, mal) in enumerate((
-            ("start pose — colour = robot n", lambda cx, cy: pygame.draw.circle(sc, _palette(0),
-                                                                                (cx, cy), 6)),
-            ("goal", lambda cx, cy: [pygame.draw.circle(sc, ZIEL, (cx, cy), 7),
-                                     pygame.draw.circle(sc, HELL, (cx, cy), 4, 2)]),
-            ("floor marking (view only, no collision)",
-             lambda cx, cy: pygame.draw.line(sc, tuple(min(255, (c + 255) // 2) for c in
-                                                      paare[0]), (cx - 9, cy), (cx + 9, cy), 2)))):
-        mal(x + 8, y)
+def legende(sc, y, schrift, paare, s):
+    """Drawn, not typeset: the default pygame font has no reliable symbol glyphs."""
+    boden, kant, wand, malung = paare
+    x, zeile = RAND, y
+    for text, male in (("wall (collision)",
+                        lambda cx, cy: pygame.draw.rect(sc, wand, (cx - 9, cy - 6, 18, 12))),
+                       ("floor marking (paint, no collision)",
+                        lambda cx, cy: _strich(sc, (cx - 16, cy), (cx + 16, cy), malung)),
+                       ("start pose — colour = robot n",
+                        lambda cx, cy: pygame.draw.circle(sc, _palette(0), (cx, cy), 6)),
+                       ("goal",
+                        lambda cx, cy: [pygame.draw.circle(sc, ZIEL, (cx, cy), 7),
+                                        pygame.draw.circle(sc, HELL, (cx, cy), 4, 2)])):
         bild = schrift.render(text, True, TEXT)
-        sc.blit(bild, (x + 22, y - 8))
-        x += 40 + bild.get_width()
+        if x + 64 + bild.get_width() > sc.get_width() - RAND:      # flow into the next row
+            x, zeile = RAND, zeile + 20
+        male(x + 18, zeile)
+        sc.blit(bild, (x + 40, zeile - 8))
+        x += 64 + bild.get_width()
+    laenge = int(5 * s)
+    if x + 20 + laenge + 40 > sc.get_width() - RAND:
+        x, zeile = RAND, zeile + 20
+    pygame.draw.line(sc, TEXT, (x, zeile), (x + laenge, zeile), 2)   # one scale, all panels
+    for rand_px in (x, x + laenge):
+        pygame.draw.line(sc, TEXT, (rand_px, zeile - 5), (rand_px, zeile + 5), 2)
+    sc.blit(schrift.render("5 m", True, TEXT), (x + laenge + 8, zeile - 8))
 
 
 def bilde(namen, pfad: str, zoom: float = 1.0) -> str:
-    """Render the given worlds into one PNG and return the path."""
-    welten = [(name, load_world(name)) for name in namen]
+    """Render the given worlds at one common scale into one PNG and return the path."""
+    cfg = load_config()
+    welten = [(name, load_world(name, cfg=cfg)) for name in namen]
     pygame.init()
-    gross, klein = pygame.font.Font(None, 32), pygame.font.Font(None, 24)
-    paare = farben(load_config())
+    gross, klein = pygame.font.Font(None, 32), pygame.font.Font(None, 23)
+    paare, s = farben(cfg), MASSSTAB
+    messen = [(int(w.size[0] * s) + 2 * POLSTER, int(w.size[1] * s) + 2 * POLSTER)
+              for _, w in welten]
     spalten = max(1, min(SPALTEN, len(welten)))
-    zeilen = -(-len(welten) // spalten)
-    sc = pygame.Surface((spalten * (PANEL + RAND) + RAND,
-                         zeilen * (RAHMEN + TITEL_H + UNTER + RAND) + RAND + LEGENDE))
+    reihen = -(-len(welten) // spalten)
+    spalt_b = [max([messen[i][0] for i in range(len(welten)) if i % spalten == c] or [0])
+               for c in range(spalten)]
+    reihen_h = [max([messen[i][1] for i in range(len(welten)) if i // spalten == r] or [0])
+                for r in range(reihen)]
+    streifen = TITEL_H + UNTER                       # title + caption around each panel
+    sc = pygame.Surface((sum(spalt_b) + (spalten + 1) * RAND,
+                         sum(reihen_h) + reihen * streifen + 2 * RAND + LEGENDE))
     sc.fill(BG)
-    wer = aufgaben_pro_welt()
+    aufgaben = aufgaben_pro_welt()
     for nr, (name, welt) in enumerate(welten):
-        x = RAND + (nr % spalten) * (PANEL + RAND)
-        y = RAND + (nr // spalten) * (RAHMEN + TITEL_H + UNTER + RAND)
-        sc.blit(gross.render(f"{name}  —  {welt.size[0]:g} × {welt.size[1]:g} m", True, TITEL),
-                (x, y))
-        s, box = feld(sc, welt, x, y + TITEL_H, *paare)
-        massstab(sc, box, s, klein)
-        sc.blit(klein.render(wer.get(name, "no task names it — free driving and teleop"),
-                            True, TEXT), (x, y + TITEL_H + RAHMEN + 14))
-    legende(sc, sc.get_height() - LEGENDE + 18, klein, paare)
+        spalte, reihe = nr % spalten, nr // spalten
+        einschub = (spalt_b[spalte] - messen[nr][0]) // 2          # centre in the wider column
+        x = RAND + sum(spalt_b[:spalte]) + (spalte + 1) * RAND + einschub
+        y = RAND + sum(reihen_h[:reihe]) + reihe * (streifen + RAND)
+        sc.blit(gross.render(f"{name}  —  {welt.size[0]:g} × {welt.size[1]:g} m  ·  "
+                             f"cell {welt.cell:g} m", True, TITEL), (x, y))
+        feld(sc, welt, (x + POLSTER, y + TITEL_H + messen[nr][1] - POLSTER), s, paare)
+        rand_text = (f"{aufgaben.get(name, 'no task names it — free driving')}  ·  "
+                     f"{durchlass(name, cfg)}")
+        for nr_z, zeile in enumerate(textzeilen(klein, rand_text, messen[nr][0])):
+            sc.blit(klein.render(zeile, True, TEXT),
+                    (x, y + TITEL_H + messen[nr][1] + 10 + 17 * nr_z))
+    legende(sc, sc.get_height() - LEGENDE + 20, klein, paare, s)
     if zoom != 1.0:
         sc = pygame.transform.smoothscale(sc, (int(sc.get_width() * zoom),
                                               int(sc.get_height() * zoom)))
@@ -165,7 +225,9 @@ def main(argv=None):
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "img", "worlds.png"))
     ap.add_argument("--welten", default=",".join(list_worlds()), help="comma-separated names")
     ap.add_argument("--zoom", type=float, default=1.0, help="enlarge the whole figure")
+    ap.add_argument("--massstab", type=float, default=MASSSTAB, help="pixels per metre")
     args = ap.parse_args(argv)
+    globals()["MASSSTAB"] = args.massstab
     bilde([w for w in args.welten.split(",") if w.strip()], args.out, args.zoom)
 
 
