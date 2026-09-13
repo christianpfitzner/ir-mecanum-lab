@@ -92,8 +92,10 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/mission_state` | `std_msgs/msg/String` | students → sim/grader | `"idle"`, `"running"`, `"done"`, `"failed:<reason>"` |
 | `/sim/robots` | `std_msgs/msg/String` | sim → everyone | JSON: list of robots including color/marker/mode, plus `steer_deg` — the two rack angles in degrees — on a steering robot (§5.1), empty on a mecanum one |
 | `/sim/task` | `std_msgs/msg/String` | grader → sim → everyone | active task (`kinematik`, `quadrat`, …) |
-| `/sim/spawn_robot` | *service*, see §4 | student/supervisor → sim | add a robot |
-| `/sim/despawn_robot` | *service*, see §4 | same | remove a robot |
+| `/sim/spawn_robot` | *service*, see §4 | student/supervisor → sim | add a robot **with a given name** |
+| `/sim/despawn_robot` | *service*, see §4 | same | remove a named robot |
+| `/sim/spawn_next` | `std_srvs/srv/Trigger` | same | add a robot, the simulator picks the free name (§4) |
+| `/sim/despawn_last` | `std_srvs/srv/Trigger` | same | remove the robot that joined last (§4) |
 | `/sim/reset` | `std_srvs/srv/Trigger` | same | reset the world |
 | `/clock` | `rosgraph_msgs/msg/Clock` | sim → everyone | simulation time (seconds, `use_sim_time`) |
 
@@ -106,8 +108,10 @@ robot stays in `wheels` mode forever. The mode is in `/sim/robots` and in the HU
 
 ## 4. Spawn service (ROS 2 has no built-in string service)
 
-The transport is detected at runtime; the calling side (`robot_io`, `tools/lab`)
-notices nothing about it:
+Adding a robot to a running simulation is a service call with one string in it, and `std_srvs` has
+never had a service type that carries a string (`Trigger`, `SetBool`, `Empty` — in Kilted even
+`SetString` is gone). Three transports, therefore, and a fourth that needs no argument at all. The
+calling side (`robot_io`, `tools/lab`) notices nothing about which of them is in use:
 
 1. **Preferred:** own interface `mecanum_lab_interfaces/srv/SpawnRobot`
    (lives in `interfaces/`, `colcon build --packages-select mecanum_lab_interfaces`):
@@ -116,7 +120,7 @@ notices nothing about it:
    string variant         # "" = automatic (slow|fast|agile)
    ---
    bool   success
-   string message         # error reason or "ok"
+   string message         # what happened, in a sentence ("spawned 'robot1' (stock, red) at ...")
    uint8  index
    string color           # "red", "blue", ...
    string marker          # "triangle", "square", ...
@@ -127,10 +131,25 @@ notices nothing about it:
 2. **Fallback without the interface build:** topic handshake
    `/sim/spawn_robot/request` (`std_msgs/String`, JSON `{"name": "...", "variant": ""}`)
    → reply on `/sim/spawn_robot/result` (JSON in the same format). Timeout 2 s.
-3. **Stub mode (no ROS):** direct method call `SimEngine.spawn(name, variant)`.
+3. **Always there, no name in the request:** `/sim/spawn_next` and `/sim/despawn_last`, both
+   `std_srvs/srv/Trigger`. The simulator chooses the name (`robot1`, `robot2`, … the first that is
+   free) and answers in `message`, which is the only channel a Trigger has:
 
-Name rules: `^[a-z][a-z0-9_]{1,23}$`; duplicate → `success=false`,
-`message="name already taken"`; `spawn_limit` reached → `message="robot limit reached"`.
+   ```bash
+   ros2 service call /sim/spawn_next std_srvs/srv/Trigger
+   # response: "spawned 'robot1' (stock, red) at (7.25, 4.75, 0 deg)"
+   ros2 service call /sim/despawn_last std_srvs/srv/Trigger
+   # response: "'robot1' removed"        # the robot with the highest index, i.e. the last that joined
+   ```
+
+   This is what a supervisor button, a shell history line, or a machine without
+   `mecanum_lab_interfaces` built calls. `./lab spawn --name carlo` stays the named form.
+4. **Stub mode (no ROS):** direct method call `SimEngine.spawn(name, variant)`; an empty `name` there
+   means the same anonymous request as `/sim/spawn_next` (`SimEngine.next_name()`).
+
+Name rules: `^[a-z][a-z0-9_]{1,23}$`; duplicate → `success=false`, `message="Name 'carl' is already
+taken."`; `spawn_limit` reached → `message="Robot limit (12) reached."`; both are `SpawnError`, which
+the handler turns into `success=false` rather than a stack trace on the caller's terminal.
 
 ## 5. Physics conventions (agents A and D must compute identically)
 

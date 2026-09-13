@@ -273,11 +273,19 @@ def _stamp(header) -> float:
 
 
 def spawn_handler(engine) -> callable:
-    """Handler for spawn_robot: a SpawnError becomes a message, never an exception."""
+    """Handler for spawn_robot: a SpawnError becomes a message, never an exception.
+
+    The `message` is a sentence rather than `ok`, because on `/sim/spawn_next` (a Trigger, §4) it is
+    the only channel there is: the caller needs the name that was chosen and where the robot stands.
+    """
     def handle(req: dict) -> dict:
         try:
             r = engine.spawn(str(req.get("name", "")), str(req.get("variant", "")))
-            return {"success": True, "message": "ok", "index": r.spec.index,
+            return {"success": True,
+                    "message": f"spawned \'{r.spec.name}\' ({r.spec.variant}, {r.spec.color}) at "
+                               f"({r.pose.x:.2f}, {r.pose.y:.2f}, "
+                               f"{math.degrees(r.pose.theta):.0f} deg)",
+                    "name": r.spec.name, "index": r.spec.index,
                     "color": r.spec.color, "marker": r.spec.marker, "variant": r.spec.variant,
                     "x": r.pose.x, "y": r.pose.y, "theta": r.pose.theta}
         except Exception as exc:
@@ -285,9 +293,15 @@ def spawn_handler(engine) -> callable:
     return handle
 
 
-def despawn_handler(engine) -> callable:
+def despawn_handler(engine, last: bool = False) -> callable:
+    """Remove one robot; with `last`, an empty request means the robot that joined last."""
     def handle(req: dict) -> dict:
         name = str(req.get("name", ""))
+        if not name and last:
+            robot = engine.last_spawn()
+            if robot is None:
+                return {"success": False, "message": "no robot in this run"}
+            name = robot.spec.name
         ok = engine.despawn(name)
         return {"success": ok, "message": f"'{name}' removed" if ok else f"'{name}' not found"}
     return handle

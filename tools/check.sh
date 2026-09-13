@@ -13,7 +13,12 @@ run() { if eval "$1"; then echo "  ok: $1"; else echo "  FAIL: $1"; fail=1; fi; 
 step "Static check (syntax of every module)"
 run "python3 -m compileall -q mecanum_lab student tools"
 step "Unit tests (no ROS, no window)"
-run "python3 -m pytest tests -q"
+# Plugin autoload is off, and not because of these tests: with ROS sourced, `launch_testing` advertises
+# a pytest plugin whose hook no longer matches the hook spec of the pluggy that pip put in ~/.local, and
+# the run dies in a PluginValidationError before a single test has been collected. A gate that depends
+# on which plugins the machine happens to advertise is not a gate; `-p no:launch_testing` would fix
+# the plugin of today and leaves the next one.
+run "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests -q"
 step "LOC budget"
 run "python3 tools/loc.py"
 step "Launch arguments (every one read is declared, every one declared has one line of help)"
@@ -135,6 +140,31 @@ if [[ "${1:-}" == "--ros" ]]; then
   fi
   run "timeout 25 ros2 service call /sim/reset std_srvs/srv/Trigger || true"
   run "timeout 25 ros2 topic echo /sim/robots --once"
+  step "ROS 2: adding and removing a robot over the wire"
+  # The round trip is demonstrated with the service type every ROS 2 install has. `/sim/spawn_robot`
+  # needs the own interface, which is optional and here not built: a call that works only on a machine
+  # that compiled an extra package is a maybe, and whoever presses the button does not know which
+  # machine that is. A Trigger has no input and one string out: the check reads the sentence.
+  mkdir -p .runs
+  live=.runs/spawn_live.log
+  timeout 40 ros2 launch launch/lab.launch.py headless:=true seconds:=35 > "$live" 2>&1 &
+  sleep 10
+  call=.runs/spawn_call.log
+  if timeout 20 ros2 service call /sim/spawn_next std_srvs/srv/Trigger > "$call" 2>&1 \
+     && grep -q "spawned 'robot1'" "$call"; then
+    echo "  ok: $(grep -o "spawned '[^']*'[^\"]*" "$call" | head -1)"
+  else
+    echo "  FAIL: /sim/spawn_next did not answer as CONTRACT 4 promises"
+    tail -6 "$call"; fail=1
+  fi
+  gone=.runs/despawn_call.log
+  if timeout 20 ros2 service call /sim/despawn_last std_srvs/srv/Trigger > "$gone" 2>&1 \
+     && grep -q "removed" "$gone"; then
+    echo "  ok: $(grep -o "'[^']*' removed" .runs/despawn_call.log | head -1)"
+  else
+    echo "  FAIL: /sim/despawn_last did not answer"; tail -6 "$gone"; fail=1
+  fi
+  wait || true
   step "ROS 2: launch files"
   run "timeout 25 ros2 launch launch/sim.launch.py headless:=true seconds:=15"
   step "ROS 2: the radio link through launch/wifi.launch.py"

@@ -74,6 +74,7 @@ ros2 launch mecanum_lab lab.launch.py             # sim + window, the keyboard d
 ros2 launch mecanum_lab demo_wifi.launch.py       # one demo by name — six of them, table below
 ros2 launch mecanum_lab kf.launch.py              # Experiment 2, every knob mapped onto --set
 ros2 topic echo /muster/imu --once                # az at rest ≈ +9.81 — that is correct
+ros2 service call /sim/spawn_next std_srvs/srv/Trigger   # another robot, name chosen for you
 ros2 launch mecanum_lab lab.launch.py --show-args # what a launch file takes
 ```
 

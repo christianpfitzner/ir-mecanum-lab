@@ -367,8 +367,14 @@ MSG_SPECS = {
     "task":    ("std_msgs/msg/String",              "task",          "sim"),
     "clock":   ("rosgraph_msgs/msg/Clock",          "clock",         "global"),
     "spawn":   ("service",                          "spawn_robot",   "sim"),
-    "despawn": ("service",                          "despawn_robot", "sim"),
-    "reset":   ("std_srvs/srv/Trigger",             "reset",         "sim"),
+    "despawn": ("service",                          "despawn_robot",   "sim"),
+    # The pair that answers on every machine, built or not: a Trigger in, the answer in `message`.
+    # `std_srvs` has no `SetString` in Kilted, so a call that *names* a robot stays the own interface
+    # or the JSON handshake (§4); what these two add is the one request that needs no argument — the
+    # simulator picks the name and says which robot it took away.
+    "spawn_next": ("std_srvs/srv/Trigger",           "spawn_next",      "sim"),
+    "despawn_last": ("std_srvs/srv/Trigger",         "despawn_last",    "sim"),
+    "reset":   ("std_srvs/srv/Trigger",             "reset",           "sim"),
 }
 
 

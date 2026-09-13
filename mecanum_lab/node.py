@@ -560,11 +560,17 @@ def cmd_sim(args):
     def spawn(req):
         out = ros_bridge.spawn_handler(eng)(req)
         if out.get("success"):
-            subscribe(bus, eng, str(req.get("name", "")))       #the new robot is audible too
+            subscribe(bus, eng, out["name"])          # the new robot is audible too — by the name
+                                                      # the engine chose, which need not be the one
+                                                      # that was asked for
         return out
 
     bus.service(topic("spawn"), spawn)
     bus.service(topic("despawn"), ros_bridge.despawn_handler(eng))
+    # The same two operations for a caller with no interface of its own: a Trigger takes no argument,
+    # so the simulator picks the name and reports which robot it took away (§4).
+    bus.service(topic("spawn_next"), lambda req: spawn({"name": ""}))
+    bus.service(topic("despawn_last"), lambda req: ros_bridge.despawn_handler(eng, last=True)({}))
     wire_task(bus, eng, robot=args.robot if args.grade else None)
     bus.service(topic("reset"), lambda req: (eng.reset(), {"success": True,
                                                            "message": "world reset"})[1])
@@ -672,7 +678,9 @@ def cmd_docs(args):
     print("  /tf /tf_static  (tf2_msgs/TFMessage: map -> alice/odom -> alice/base_link "
           "-> laser, imu_link)")
     print("  /sim/spawn_robot /sim/despawn_robot (mecanum_lab_interfaces/srv/SpawnRobot "
-          "or the JSON handshake)  /sim/reset (std_srvs/srv/Trigger)  /clock")
+          "or the JSON handshake)")
+    print("  /sim/spawn_next /sim/despawn_last /sim/reset (std_srvs/srv/Trigger — no interface needed)"
+          "  /clock")
     print("\nTasks: " + T.short_help(T.load_tasks()))
     print("Groups: --task alle | kf_alle | v1 | v2 | a single task")
     print("\nExamples for lab 2 (Kalman filter):")

@@ -139,8 +139,13 @@ class SimEngine:
     # ------------------------------------------------------------------ Robot management
 
     def spawn(self, name: str, variant: str = "", pose: Pose | None = None) -> Robot:
-        """Add a new robot. The name must be unique and valid."""
-        name = sanitize_name(name)
+        """Add a new robot. The name must be unique and valid; asking for none takes the next free one.
+
+        An empty name is not a mistake but the request behind `/sim/spawn_next` (§4): a supervisor who
+        clicks a button does not know which names are taken, and the answer comes back with the name
+        that was chosen — in `name` on the typed interface, in `message` on the Trigger.
+        """
+        name = self.next_name() if not str(name or "").strip() else sanitize_name(name)
         if name in self.robots:
             raise SpawnError(f"Name '{name}' is already taken.")
         if len(self.robots) >= int(cfg_get(self.cfg, "spawn_limit", 12)):
@@ -175,6 +180,22 @@ class SimEngine:
                   "scale a=%.4f g=%.4f", name, *r.inertial.b_a, *r.inertial.b_g,
                   r.inertial.k_a, r.inertial.k_g)
         return r
+
+    def next_name(self) -> str:
+        """The first `robot<N>` that nobody has taken — the name an anonymous spawn gets."""
+        n = 1
+        while f"robot{n}" in self.robots:
+            n += 1
+        return f"robot{n}"
+
+    def last_spawn(self):
+        """The robot with the highest index, which is the one that joined the run last.
+
+        Index rather than insertion order, because the index *is* the joining order (a `reset()` puts
+        the same robots back at the same indices, and after a reset the highest index is again the
+        robot that was added last — which is what `/sim/despawn_last` then takes away).
+        """
+        return max(self.robots.values(), key=lambda r: r.spec.index, default=None)
 
     def despawn(self, name: str) -> bool:
         found = self.robots.pop(name, None) is not None
