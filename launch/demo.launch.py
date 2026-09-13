@@ -49,8 +49,8 @@ BASICS = [
     ("world", "production", "hall to drive; the demos are authored for production"),
     ("robot", "muster", "your robot name — RViz draws the topics of this one"),
     ("robots", "", "extra robots to spawn at start (comma-separated, empty = only yours)"),
-    ("controller", "student/solution.py", "your node, started beside the demo; the sim alone is "
-                                         "launch/sim.launch.py"),
+    ("controller", "", "your node, started beside the demo (empty = the keyboard alone drives; "
+                       "a node publishes every tick and the keys only fit between its frames)"),
     ("view", "", "what the window shows: clean (default) or sensors, i.e. everything"),
     ("layers", "", "single layers over that view, e.g. scan,ghost or -hud"),
     ("rviz", "auto", "RViz 2 beside the lab window: auto = when installed, true = insist, false = no"),

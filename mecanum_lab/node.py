@@ -517,6 +517,12 @@ def cmd_run(args):
     wire_task(bus, eng, robot=args.robot if graders else None)
     subscribe_all(bus, eng)          # every robot, after --robot was added: see that docstring
     node_threads = student_nodes(args, bus)
+    if node_threads and not args.no_teleop:
+        # Two drivers in one window. The keys are not switched off — they just lose most frames, because
+        # a node publishes a cmd_vel every tick and the keys only while a finger is down. `cmd topic …`
+        # in the readout is what the window shows of that; this says it before the first confusion.
+        print("note: your node publishes /cmd_vel every tick — the keyboard only interrupts it. "
+              "Run without --controller to drive alone (`--no-teleop` switches the keys off).")
     code = timed_run(args, eng, bus, graders, teleop=not args.no_teleop, tap=tap)
     for k in node_threads:
         k.join(timeout=0.5)

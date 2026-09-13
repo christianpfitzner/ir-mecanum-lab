@@ -268,3 +268,39 @@ def test_every_demo_name_in_the_documentation_launches():
         f"the documentation launches {sorted(named - real)}, the demos are {sorted(real)} — the "
         f"`demo:=` name is the file name without its `demo_` prefix")
     assert files <= real, f"the documentation names config files that do not exist: {sorted(files - real)}"
+
+
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="launch files need a sourced ROS 2")
+@pytest.mark.parametrize("name", ("lab.launch.py", "demo.launch.py"))
+def test_the_keyboard_is_the_default_driver(name):
+    """A launch file that starts a node by default takes the keyboard away from the person driving.
+
+    `controller:=student/solution.py` was the default in both files, so `ros2 launch launch/lab.launch.py`
+    opened a window, started the reference driver beside it, and the robot drove itself: the keys are not
+    off in that situation, they merely lose every frame, because a node publishes a cmd_vel every tick and
+    a key only while it is held (§ node.run_loop). That reads as "the keyboard is broken". So the window
+    starts with one driver — the person in front of it — and handing the wheel over is an explicit option.
+    """
+    module = load(name)
+    from launch.actions import DeclareLaunchArgument
+    from launch.launch_context import LaunchContext
+    ctx = LaunchContext()
+
+    def text(value):
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "perform"):
+            return value.perform(ctx)
+        return "".join(str(text(part)) for part in value)
+
+    defaults = {}
+    for entity in module.generate_launch_description().entities:
+        for action in getattr(entity, "actions", None) or [entity]:
+            if isinstance(action, DeclareLaunchArgument):
+                defaults[action.name] = text(action.default_value)
+    assert "controller" in defaults, f"{name} has no controller argument to default"
+    assert defaults["controller"] == "", (
+        f"{name} starts {defaults['controller']!r} by default, and the keyboard in its window is then "
+        f"a decoration — the node publishes a cmd_vel every tick")
+    text = open(os.path.join(LAUNCH, name), encoding="utf-8").read()
+    assert "LogInfo" in text, f"{name} says nothing about who drives when a node is started"

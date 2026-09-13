@@ -1,20 +1,17 @@
 """Everything at once: simulator + your node + (optional) grader + (optional) RViz.
 
-    ros2 launch launch/lab.launch.py robot:=alice controller:=student/solution.py \
-        world:=production headless:=true seconds:=60
-    ros2 launch launch/lab.launch.py config:=config/demo_wifi.json rviz:=true
+    ros2 launch launch/lab.launch.py robot:=alice config:=config/demo_wifi.json rviz:=true
 
-The grader runs inside the sim process (--grade); its report comes at the end. `config:=` is any file
-under config/ — the same one `./lab sim --config …` takes — and `rviz:=auto` (the default) opens the
-ROS-side view when rviz2 is installed and says one line when it is not; `demo.launch.py` is this file
-with a demo config picked out and RViz meant to be on.
+The grader runs inside the sim process (`--grade`), its report comes at the end. `config:=` is any file
+under config/, the same one `./lab sim --config …` takes; `rviz:=auto` (the default) opens the ROS-side
+view when rviz2 is installed and says one line when it is not; `controller:=<file>` hands the wheel from
+the keyboard to a node.
 """
 import os
 import sys
 
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess, LogInfo,
-                           OpaqueFunction)
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,13 +23,13 @@ if REPO not in sys.path:
     sys.path.append(REPO)
 from mecanum_lab import rviz_view                           # noqa: E402
 TRUE = ("true", "1", "yes", "on")
-# Every argument this file forwards, with its default and one line of help: `--show-args` prints one
-# row per entry here, and `tools/launchargs.py` fails the build when a row would be empty.
+# Every argument, its default and one line of help: `--show-args` prints a row per entry, and
+# `tools/launchargs.py` fails the build when a row would be empty.
 BASICS = [
     ("world", "production", "hall to drive: production | track | maze | arena | open"),
     ("robot", "muster", "your robot name (one person, one robot)"),
     ("robots", "muster", "robots to spawn at start (comma-separated)"),
-    ("controller", "student/solution.py", "your node, relative to the source tree"),
+    ("controller", "", "your node (empty = the keyboard alone drives)"),   # empty is the point
     ("task", "", "task or group announced to the students (empty = the grader decides)"),
     ("grade", "", "grade this task or group inside the simulator (empty = do not grade)"),
     ("seconds", "0", "end after N s of simulation time (0 = until q/Ctrl-C, as in ./lab)"),
@@ -52,7 +49,7 @@ def start(context, *args, **kwargs):
            "MECANUM_USE_SIM_TIME": "1" if read_arg("use_sim_time").lower() in TRUE else "0"}
     child = lambda command: [sys.executable, "-m", "mecanum_lab.node", command]  # noqa: E731
     robot = read_arg("robot")
-    controller = os.path.join(REPO, read_arg("controller"))   # absolute paths win the join
+    controller = os.path.join(REPO, read_arg("controller")) if read_arg("controller") else ""
     sim_cmd = child("sim") + ["--world", read_arg("world"),
                               "--robots", read_arg("robots") or robot,   # else: only your robot
                               "--seconds", read_arg("seconds"),
@@ -70,12 +67,21 @@ def start(context, *args, **kwargs):
         env["SDL_VIDEODRIVER"] = "dummy"                 # no X on the CI machines
         sim_cmd.append("--headless")
     run = {"additional_env": env, "output": "screen", "emulate_tty": True}
-    actions = [ExecuteProcess(cmd=sim_cmd, name="mecanum_sim", **run),
-               ExecuteProcess(cmd=controller_cmd, name=f"node_{robot}", **run)]
+    actions = [ExecuteProcess(cmd=sim_cmd, name="mecanum_sim", **run)]
+    if controller:
+        # Two publishers: the node every tick, the keys only while held. Said before the first confusion.
+        actions.append(LogInfo(msg=f"[lab] '{read_arg('controller')}' drives '{robot}': its cmd_vel "
+                                   f"comes every tick, the keys only in between — stop it to drive by hand"))
+        actions.append(ExecuteProcess(cmd=controller_cmd, name=f"node_{robot}", **run))
+    else:
+        # The alternative is a window that ignores the keyboard: with no node there is exactly one
+        # driver, and it is the person in front of it.
+        actions.append(LogInfo(msg=f"[lab] no node started — the keyboard drives '{robot}' "
+                                   f"(w/s, a/d, arrows); controller:=<file> hands the wheel to a node"))
     start_rviz, note = rviz_view.plan(read_arg("rviz"))
     if start_rviz:
-        config = rviz_view.render_config(REPO, robot)
-        viewer = rviz_view.command(config, sim_time=read_arg("use_sim_time").lower() in TRUE)
+        viewer = rviz_view.command(rviz_view.render_config(REPO, robot),
+                                   sim_time=read_arg("use_sim_time").lower() in TRUE)
         actions.append(ExecuteProcess(cmd=viewer, name="rviz2", **run))
     if note:
         actions.append(LogInfo(msg=note))
