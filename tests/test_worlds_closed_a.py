@@ -118,5 +118,5 @@ def test_worldcheck_finds_nothing_to_complain_about():
     run = subprocess.run([sys.executable, os.path.join(REPO, "tools", "worldcheck.py")],
                           capture_output=True, text=True, cwd=REPO)
     assert "FAIL" not in run.stdout, run.stdout
-    assert run.stdout.count("ok  ") >= 4, run.stdout        # every shipped world listed
+    assert run.stdout.count("ok  ") >= len(list_worlds()), run.stdout   # every shipped world listed
     assert run.returncode == 0, f"worldcheck exited {run.returncode}: {run.stdout}"

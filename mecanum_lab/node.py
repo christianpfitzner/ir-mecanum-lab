@@ -420,7 +420,7 @@ def cmd_sim(args):
     rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
     speed, fixed = pacing(args)
     if not args.stub:
-        log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,kf/pose>  "
+        log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,poi,kf/pose>  "
                  "/sim/<robots,world,task,config>  "
                  "/sim/<spawn_robot,despawn_robot,reset>  /clock  /tf /tf_static", "/<robot>")
     run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap,
@@ -502,7 +502,7 @@ def cmd_grade(args):
 def cmd_docs(args):
     print(f"worlds: {WORLD_LIST}\n")
     print("Topics per robot:")
-    for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "kf", "kfinfo", "mission"):
+    for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "poi", "kf", "kfinfo", "mission"):
         print(f"  {topic(kind, 'alice'):24} {MSG_SPECS[kind][0]}")
     print("  /alice/truth (only with --truth or debug_truth, then at truth.rate)")
     print("  /sim/robots /sim/world /sim/task /sim/config  (std_msgs/String, JSON)")

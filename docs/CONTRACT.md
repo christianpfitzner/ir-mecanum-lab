@@ -86,6 +86,7 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/scan` | `sensor_msgs/msg/LaserScan` | sim → everyone | 360 rays, 0…2π, range `range_max` |
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
+| `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity, name, distance}` of the radiation counter (§6.13) — a String topic because no standard message fits a counter, same pattern as `/sim/robots`; `distance` is `null` unless `poi.publish_distance` is on |
 | `/<robot>/mission_state` | `std_msgs/msg/String` | students → sim/grader | `"idle"`, `"running"`, `"done"`, `"failed:<reason>"` |
 | `/sim/robots` | `std_msgs/msg/String` | sim → everyone | JSON: list of robots including color/marker/mode, plus `steer_deg` — the two rack angles in degrees — on a steering robot (§5.1), empty on a mecanum one |
 | `/sim/task` | `std_msgs/msg/String` | grader → sim → everyone | active task (`kinematik`, `quadrat`, …) |
@@ -202,6 +203,17 @@ ASCII grid: each character block is `cell` meters across.
 `-`/`|` marking line (visible decoration only, no collision).
 Robot centre sits in the cell centre; theta from the order: 1=`0°`, 2=`90°`, 3=`180°`, 4=`270°`, then 0° again.
 Neighbouring wall cells merge into large rectangles (2-pass, reduces ray tests).
+
+Nothing that is not drawn lives in a grid file: the world has no comments and no sidecar format, so
+**a world key that is data comes from the config** — `pois` (the sources of §6.13) and
+`worlds.cell_by_world` are both config keys, and a demo file that plants a source therefore names
+the hall it belongs to (`config/demo_poi_exploration.json` sets `world` as well).
+
+`worlds/open.txt` is the hall of the drift exercises: 60 × 40 cells of 0.5 m = 30 × 20 m, border
+walls only, two spawns on the centre line, no obstacle, no marking, no goal. A goal-less world is
+legal (the checker only says so) and `tools/worldcheck.py` then has no start→goal path to measure; it
+reports the widest free spot it found instead — the same per-cell clearance number, just without a
+path to walk. That is the number `tools/worldpic.py` puts under the panel and the README quotes.
 
 ### 6.3 `mecanum_lab/physics.py` [A]
 ```python
@@ -601,6 +613,89 @@ measured over 20 s at full lock with the other noise off, scale 1.0 gives 0.0° 
 controller that goes with it (rounded rectangle, then LIDAR parking), and the reason the example is a
 `drive()` demo: §6.8.
 
+### 6.13 `mecanum_lab/pois.py` [integrator] — Points of Interest, and the counter that finds them
+
+```python
+def load_sources(value, world, d0_default: float = 1.0) -> list[Source]   # raises ValueError
+class Source:      # name, kind, x, y, activity, range_m, d0
+    def distance(self, x, y) -> float
+    def intensity(self, x, y) -> float     # activity / (1 + (d/d0)²) inside range, 0 outside
+class PoiSensor:
+    def __init__(self, sources, noise, cfg=None)     # cfg = the `poi` block
+    def read(self, pose) -> Poi | None               # None: this world has no source
+```
+
+The second *field* sensor of the lab and the only one that is not about position: the robot measures
+how much of something arrives at its antenna. `types.Poi` is the message (`t, intensity, name,
+distance`), published on `/<robot>/poi` at `poi.rate` (5 Hz) by one `self._due(...)` block of
+`engine._substep()`, and `overlays.poi_readout()` puts the same number into the readout line so a
+student sees it without a second terminal.
+
+**The field.** `intensity = activity / (1 + (d/d0)²)` up to the source's `range`, 0 beyond it. `d0`
+(which a source may carry itself, otherwise `poi.d0`) is where the counter reads half the activity, so
+it sets the shape and not the level: half at `d0`, a tenth at `3·d0`, a hundredth at `9·d0`. A ratio of
+two readings is therefore a distance estimate — that is the exercise, and it is why
+`poi.publish_distance` is **false** by default: the `distance` field stays `None` unless somebody
+switches it on for the truth/debug view.
+
+Measured for the source of `config/demo_poi_exploration.json` (`activity 1.0`, `range 4.0`, `d0 1.0`),
+4000 readings per spot with the shipped `poi.counts = 400`:
+
+| distance | field | measured mean | σ of one reading | relative |
+|---|---|---|---|---|
+| 0.5 m | 0.800 | 0.800 | 0.045 | 5.6 % |
+| 2 m | 0.200 | 0.200 | 0.022 | 11 % |
+| 4 m (= `range`) | 0.0588 | 0.0588 | 0.012 | 21 % |
+| 4.5 m | 0 | 0.000 | 0.000 | silence |
+
+**The noise is a counter's, not a dial's.** `counts = intensity · poi.counts` per reading with a Poisson
+sigma of `sqrt(counts)`, so the *absolute* sigma falls with the distance while the relative one grows as
+`1/sqrt(intensity)`: nearly exact next to the source, a hint at the edge of its range. That is what a
+gradient controller has to survive. `poi.counts: 0` switches the counter model off and reports the
+field itself (the maths exercise, which is what the tests read). Out of range nothing is counted and
+nothing is drawn from the random stream — a 0.0 reading is exactly 0.0 (`Noise.gauss(0.0)` does not ask
+the generator), the same rule that keeps the knobs of §6.4 inert.
+
+**No line of sight.** `Source.intensity()` has no world argument at all: no ray, no shadow, no
+reflection, because a gamma source does not care about the shelf in front of it. The walls of the arena
+appear twice in this story — in `load_sources`, which refuses a source that is not on open floor, and
+nowhere in what a reading is measured against. Measured in `production` with the shipped source,
+standing at (10.0, 3.0), 3.6 m away behind the corner of a table: the LIDAR beam pointed *at* the source
+reports the table at **0.60 m**, the counter reports **0.072 ± 0.014** and does not care. Two sensors,
+two different worlds, neither of them wrong — which is why the `p` layer draws a source as a symbol
+above the floor like the GPS shadow rather than as another obstacle, and why `debug_truth` adds the
+rings at `d0`, at `3·d0` and at the `range`. A ring past the range would promise a reading that the
+counter cannot give, so it is not drawn.
+
+**Validation raises.** A source outside the walls, a `range` or `d0` ≤ 0, a negative `activity`, a
+`kind` outside `KINDS`, a missing name, or two sources sharing one name is a `ValueError` that names the
+source. That is deliberately *not* the `_zones()` rule of §6.4: a malformed shadow zone only makes one
+demo less pretty and is dropped, while a source inside a wall is a scenario nobody can solve, and a
+student would debug their own controller for an hour to find a typo. It is raised at engine
+construction, before the first step.
+
+**Off means off, again.** `pois` is empty in `DEFAULT_CONFIG`, and `SimEngine._make_pois()` then answers
+`None` for it rather than a sensor over an empty list: the engine never enters the publish block, so the
+message streams of every graded task stayed what they were (`tests/test_sensor_reality.py`, byte for
+byte). With a source planted, the counter draws from the one seeded `Noise` of the run and the other
+streams *do* shift; `tests/test_world_poi_w5.py` asserts that shift instead of denying it, and
+`config/tasks.json` names no source for any graded task.
+
+**On the wire** there is no standard ROS message for a counter, so `/poi` uses the JSON-on-a-String
+pattern that `/sim/robots` and `kf/info` already use (§6.7): `ros_bridge.to_ros()` writes the four
+fields as one JSON object, `from_ros()` reads them back, and `ros2 topic echo /alice/poi` needs no
+custom interface. As with `Gps.quality` and `Scan.missing`, what does not survive is the convenience — a
+ROS node parses a string. And the source positions are published nowhere: `engine.poi_sources()` exists
+for the window, and `/sim/config` carries the `poi` *block* (how the counter works) but never `pois`
+(where the answer is).
+
+**The hall that goes with it** is `worlds/open.txt` (§6.2): 30 × 20 m, border walls, nothing else,
+because a wrong wheel constant should be readable as a number before it is readable as a collision.
+Measured on 20 m driven straight at 0.5 m/s, seed 1, with `config/demo_open_odrift.json` (GPS switched
+off by a `gps.gap` opened to the length of the exercise): the odometry counts **21.01 m** of 20.00 m
+and the ghost is **1.00 m** ahead of the robot at 5 % wrong wheel radius — **0.01 m** with honest ones —
+and both runs end with **0 wall contacts**.
+
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 
 Authoritative list is `BUDGET` in `tools/loc.py` (`python3 tools/loc.py` prints the tally).
@@ -608,17 +703,17 @@ Current frame after the view and TF work:
 
 | Module | LOC | | Module | LOC |
 |---|---|---|---|---|
-| types.py | 420 | | ros_bridge.py | 490 |
+| types.py | 460 | | ros_bridge.py | 490 |
 | stub.py | 115 | | tf_bcast.py | 135 |
-| engine.py | 435 | | node.py | 613 |
+| engine.py | 485 | | node.py | 613 |
 | worlds.py | 135 | | robot_io.py | 259 |
 | physics.py | 180 | | tasks.py | 210 |
 | sensors.py | 560 | | grade.py | 620 |
-| render.py | 472 | | logbook.py | 110 |
+| render.py | 480 | | logbook.py | 110 |
 | cam.py | 115 | | menu.py | 90 |
-| overlays.py | 213 | | | |
+| overlays.py | 290 | | pois.py | 170 |
 | steering.py | 290 | | | |
-| **simulator core (mecanum_lab/)** | **≤ 5400** | | | |
+| **simulator core (mecanum_lab/)** | **≤ 5750** | | | |
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
 layer menu, and because `tf_bcast.py` is new. `tasks.py` grew with `_LEGACY_KEYS` (§6.11), the
@@ -653,6 +748,20 @@ rack readout, `render.py` +6 to draw the front wheels at their own angles, `node
 `--variant` existed but never reached `spawn()`. `sensors.py`, `grade.py`, `tasks.py`, `logbook.py` and
 both reference solutions are untouched: no sensor, no graded threshold and no wheel equation of
 experiment 1 changed, which is also why 100/100 and 90/90 are the same numbers they were.
+
+The growth after that is one new sensor and the hall it is demonstrated in (§6.13, §6.2): `pois.py` is
+new with 164 lines rather than 164 more lines inside `sensors.py`, because that file is 556 lines about
+measuring a *position*, and a counter that is deliberately blind to the walls between it and its source
+has nothing in common with the four of them. Where it reaches into an existing file it stays at the seam
+— `overlays.py` +71 for the symbol, the field rings and the readout segment, `engine.py` +46 for
+building the detector (and answering `None` when nothing is planted, which is what keeps the graded
+streams byte-identical) plus one rate-limited publish block, `types.py` +38 for the message and one
+comment per new key, `render.py` +3 for the `p` layer, `ros_bridge.py` +10 for the JSON mapping,
+`menu.py` +1 for the row, `node.py` +0 because two topic lists only gained the word `poi`.
+`tools/worldpic.py` +4 for the fifth panel and the caption of a hall without a goal. `sensors.py`,
+`physics.py`, `grade.py`, `logbook.py`, `worlds.py`, both reference solutions and `config/tasks.json`
+did not grow by a single line, and the 100/100, the 90/90 and the 30/30 of `tools/check.sh` are the same
+three numbers they were before this package.
 
 ## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
 

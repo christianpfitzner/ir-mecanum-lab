@@ -1,0 +1,445 @@
+"""W5: the empty hall `open`, and the Points of Interest a robot can only hear.
+
+Two deliverables with one theme: a hall with nothing in it, and something to look for in it.
+
+The first block checks the arena — that it really is empty (the drift argument only works if a wrong
+wheel constant cannot be blamed on a collision), that the supervisor's checker passes it, and that the
+documentation picture and the README still agree after the fifth panel.
+
+The second block checks the field model of `pois.py`: the fall-off measured as a ratio at two
+distances instead of asserted, the counting noise seeded, the distance staying out of the message, a
+mis-placed source refused, and the wall that is not in the model staying out of it.
+
+The third block is the wiring: no source configured means no detector, no message and no random
+number, which is what keeps every graded stream of `tests/test_sensor_reality.py` what it was.
+"""
+import math
+import os
+import statistics
+import subprocess
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from mecanum_lab import overlays, pois, render, sensors
+from mecanum_lab.engine import SimEngine
+from mecanum_lab.types import (Poi, Pose, Rect, Robot, RobotSpec, Twist, World, cfg_get,
+                               load_config, topic)
+from mecanum_lab.worlds import list_worlds, load_world
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import worldcheck                                              # noqa: E402
+import worldpic                                                # noqa: E402
+
+# The source of config/demo_poi_exploration.json — the shipped scenario, the one the README quotes.
+SHIP = [{"name": "src1", "kind": "radiation", "x": 12.0, "y": 6.0, "activity": 1.0, "range": 4.0}]
+CLEARANCE = 0.25                     # the allowance tools/worldcheck.py defaults to
+CFG = load_config()
+
+
+def poi_cfg(**over):
+    """The lab defaults with a source planted in `open`, plus whatever a single test needs."""
+    return load_config(None, dict({"world": "open", "gui": False, "pois": SHIP}, **over))
+
+
+def drive(cfg, seconds=6.0, seed=1, velocity=0.5):
+    """One straight drive east from the world's first spawn; every measurement that came out."""
+    eng = SimEngine(load_world(cfg_get(cfg, "world", "arena"), cfg=cfg), cfg, seed=seed)
+    eng.spawn("muster")
+    got = []
+    for _ in range(int(seconds * cfg["rate"])):
+        eng.set_cmd_vel("muster", Twist(vx=velocity))
+        eng.step(eng.sub_step)
+        got += eng.drain()
+    return eng, got
+
+
+def sensor(sources, seed=3, **poi_keys):
+    """The detector for `sources`, reading the shipped `poi` block with one knob changed."""
+    return pois.PoiSensor(sources, sensors.Noise(seed),
+                          dict(cfg_get(load_config(), "poi"), **poi_keys))
+
+
+# ---------------------------------------------------------------------------- the empty hall
+
+
+def test_the_open_hall_is_floor_and_border_and_nothing_else():
+    """No obstacle, no marking, no goal: what the drift argument needs is an empty room."""
+    world = load_world("open", cfg=CFG)
+    assert world.size == (30.0, 20.0) and world.cell == 0.5
+    assert world.goal is None, "a goal would make it a task arena instead of a drift hall"
+    assert world.markings == []
+    assert len(world.walls) == 4, f"border walls merged into {world.walls}"
+    for wall in world.walls:                        # every wall is on the outer edge
+        assert wall.x0 <= 0.5 or wall.x1 >= 29.5 or wall.y0 <= 0.5 or wall.y1 >= 19.5, wall
+    assert len(world.spawns) == 2, [tuple(p) for p in world.spawns]
+    for pose in world.spawns:                       # both start on open floor, well off the wall
+        assert min(pose.x, pose.y, 30.0 - pose.x, 20.0 - pose.y) > 1.0
+
+
+def test_the_open_hall_passes_the_supervisor_checker():
+    """`tools/worldcheck.py` has to like it — with the whole hall as the aisle."""
+    run = subprocess.run([sys.executable, os.path.join(REPO, "tools", "worldcheck.py"),
+                          "--world", "open"], capture_output=True, text=True, cwd=REPO)
+    assert run.returncode == 0, run.stdout
+    assert "FAIL" not in run.stdout, run.stdout
+    assert "widest free spot 9.25 m free (needs 0.46 m)" in run.stdout, run.stdout
+
+
+def test_a_straight_line_in_the_open_hall_never_touches_anything():
+    """20 m of driving, 0 wall contacts, and the odometry drifts anyway — that is the demo."""
+    eng, _ = drive(load_config("config/demo_open_odrift.json", {"gui": False}), seconds=42.0)
+    robot = eng.robots["muster"]
+    assert 20.0 < robot.distance < 21.0 and robot.contacts == 0
+    assert robot.gps is None, "the demo switches the GPS off; a fix would be the answer key"
+    assert robot.imu is not None, "the IMU keeps its default rate, drift is not its subject"
+    gap = math.dist((robot.pose.x, robot.pose.y), (robot.odom.x, robot.odom.y))
+    assert 0.9 < gap < 1.1, f"5 % of 20 m should read as 1 m of ghost, measured {gap:.2f} m"
+
+
+def test_the_picture_draws_every_world_including_the_empty_one(tmp_path):
+    """Five panels, one PNG: the figure is generated, so it has to keep generating."""
+    assert "open" in list_worlds()
+    target = str(tmp_path / "worlds.png")
+    run = subprocess.run([sys.executable, os.path.join(REPO, "tools", "worldpic.py"),
+                          "--out", target], capture_output=True, text=True, timeout=180, cwd=REPO)
+    assert run.returncode == 0, run.stderr[-400:]
+    for name in list_worlds():
+        assert name in run.stdout, f"{name} not in the figure: {run.stdout}"
+    assert open(target, "rb").read(8) == b"\x89PNG\r\n\x1a\n"
+    assert len(open(target, "rb").read()) > 5000, "picture too small to contain five arenas"
+
+
+def test_the_readme_quotes_the_widths_the_checker_measures():
+    """The README states passage widths; the numbers have to be the checker's, not the author's."""
+    readme = open(os.path.join(REPO, "README.md"), encoding="utf-8").read()
+    quoted = {"arena": "5.25", "maze": "0.50", "open": "9.25"}
+    for name, number in quoted.items():
+        text = worldpic.clearance(name, CFG)                 # what goes under the panel
+        assert number in text, f"{name}: the picture says {text!r}"
+        assert f"{number} m" in readme, f"{name}: README lost its {number} m (picture: {text})"
+    report, ok = worldcheck.check("open", CFG, CLEARANCE)
+    assert ok, report
+    assert any("no start->goal pair" in row for row in report), report
+
+
+# ------------------------------------------------------------------------- the field of a source
+
+
+def source(**over):
+    return pois.Source(**dict({"name": "src1", "x": 12.0, "y": 6.0, "activity": 1.0,
+                               "range_m": 4.0, "d0": 1.0}, **over))
+
+
+def test_the_intensity_is_one_over_one_plus_d_over_d0_squared():
+    """Two distances, one ratio: the fall-off is the formula of the docstring and nothing else."""
+    src = source()
+    near, far = src.intensity(11.5, 6.0), src.intensity(14.0, 6.0)      # 0.5 m and 2 m
+    assert near == pytest.approx(0.8) and far == pytest.approx(0.2)
+    assert near / far == pytest.approx((1 + (2.0 / 1.0) ** 2) / (1 + (0.5 / 1.0) ** 2))
+    assert src.intensity(12.0, 6.0) == pytest.approx(1.0)               # at the centre: activity
+    assert src.intensity(16.0, 6.0) == pytest.approx(1 / 17.0)          # 4 m: still in range
+    assert src.intensity(16.1, 6.0) == 0.0                              # one decimetre later: 0
+
+
+def test_the_range_is_where_the_counter_stops_hearing_it():
+    src = source(activity=2.0, range_m=3.0)
+    assert src.intensity(14.9, 6.0) > 0.0 and src.intensity(15.1, 6.0) == 0.0
+
+
+def hall(with_shelf=False):
+    """An 8 × 6 m hall, optionally with a shelf between (4, 3) and the source at (7, 3)."""
+    walls = [Rect(0, 0, 8, 0.2), Rect(0, 5.8, 8, 6), Rect(0, 0, 0.2, 6), Rect(7.8, 0, 8, 6)]
+    if with_shelf:
+        walls.append(Rect(5.0, 2.0, 5.6, 4.0))
+    return World(name="hall with shelf" if with_shelf else "hall", walls=walls,
+                 spawns=[Pose(4.0, 3.0, 0.0)], size=(8.0, 6.0))
+
+
+def test_a_shelf_between_the_robot_and_the_source_changes_nothing():
+    """No line of sight, and that is a property of the model rather than a phrase in a comment.
+
+    Same seeded detector, same poses, once in the empty hall and once with a shelf in the line of the
+    source: the two reading series are identical. The LIDAR of the same robot is asked for the same
+    line and reports the shelf — the disagreement is what makes the pair worth teaching together.
+    """
+    src = [source(x=7.0, y=3.0, range_m=6.0)]
+    poses = [Pose(4.0, 3.0, 0.0), Pose(4.5, 2.5, 0.0), Pose(3.0, 3.5, 0.0)]
+    without = [sensor(src, 9).read(p).intensity for p in poses]
+    with_shelf = [sensor(src, 9).read(p).intensity for p in poses]
+    assert without == with_shelf, "the counter started caring about occlusion"
+    lidar_free = sensors.Lidar(hall(), sensors.Noise(1), cfg_get(CFG, "lidar"))
+    lidar_shelf = sensors.Lidar(hall(True), sensors.Noise(1), cfg_get(CFG, "lidar"))
+    towards = lidar_free.scan(poses[0]).ranges[0]
+    blocked = lidar_shelf.scan(poses[0]).ranges[0]
+    assert blocked < 2.0 < towards, (towards, blocked)          # 1.4 m of shelf, 3 m of free floor
+
+
+# ------------------------------------------------------------------------- the counter's noise
+
+
+def readings(seed, at=(12.5, 6.0), count=2000, **poi_keys):
+    """One detector, `count` readings of the same spot — one sensor, not one per reading."""
+    sources = pois.load_sources(SHIP, load_world("open", cfg=CFG), cfg_get(CFG, "poi.d0"))
+    detector = sensor(sources, seed, **poi_keys)
+    pose = Pose(at[0], at[1], 0.0)
+    return [detector.read(pose) for _ in range(count)]
+
+
+def test_the_same_seed_reads_the_same_twice_and_another_seed_differently():
+    """Deterministic from --seed — the only way a demo is repeatable in the lab."""
+    assert [p.intensity for p in readings(7)] == [p.intensity for p in readings(7)]
+    assert [p.intensity for p in readings(7)] != [p.intensity for p in readings(8)]
+
+
+def test_a_weak_reading_is_relatively_noisier_than_a_strong_one():
+    """Counting noise: the absolute sigma is sqrt(counts), so the relative one is 1/sqrt(intensity)."""
+    for spot in ((12.5, 6.0), (14.0, 6.0), (16.0, 6.0)):          # 0.5 m, 2 m and the range itself
+        vals = [p.intensity for p in readings(5, at=spot)]
+        field = source().intensity(*spot)
+        assert statistics.pstdev(vals) / statistics.fmean(vals) == \
+            pytest.approx(1 / math.sqrt(field * 400.0), rel=0.15), spot
+        assert statistics.fmean(vals) == pytest.approx(field, rel=0.05), spot
+
+
+def test_a_reading_outside_every_range_is_exactly_nothing():
+    """0.0 with no noise on it: a counter that hears nothing does not guess."""
+    assert {p.intensity for p in readings(11, at=(12.0, 11.0), count=500)} == {0.0}
+
+
+def test_the_distance_stays_out_of_the_message_unless_it_is_asked_for():
+    """`poi.publish_distance` is false by default: turning intensity into metres is the exercise."""
+    sources = pois.load_sources(SHIP, load_world("open", cfg=CFG), 1.0)
+    silent = sensor(sources, 3)
+    assert all(m.distance is None for m in (silent.read(Pose(13.0, 6.0, 0.0)) for _ in range(5)))
+    loud = sensor(sources, 3, publish_distance=True)
+    assert {round(m.distance, 6) for m in (loud.read(Pose(13.0, 6.0, 0.0)) for _ in range(5))} \
+        == {1.0}
+
+
+def test_no_counts_means_the_field_itself():
+    """`poi.counts: 0` switches the counter model off — the maths exercise without the noise."""
+    assert {p.intensity for p in readings(2, at=(14.0, 6.0), count=20, counts=0.0)} == \
+        {source().intensity(14.0, 6.0)}
+
+
+def test_the_message_names_the_loudest_source_and_nothing_else():
+    """Two sources, one reading: the one that contributes the counts is the one that is named."""
+    two = [{"name": "src1", "x": 12.0, "y": 6.0, "activity": 1.0, "range": 5.0},
+           {"name": "src2", "x": 14.0, "y": 6.0, "activity": 0.5, "range": 5.0}]
+    sources = pois.load_sources(two, load_world("open", cfg=CFG), 1.0)
+    between = sensor(sources, 4, counts=0.0).read(Pose(13.0, 6.0, 0.0))
+    assert (between.name, between.intensity) == ("src1", pytest.approx(0.5))     # same distance
+    at_second = sensor(sources, 4, counts=0.0).read(Pose(13.95, 6.0, 0.0))
+    assert at_second.name == "src2", "the weaker source is never named"
+    assert at_second.intensity == pytest.approx(0.5 / (1 + 0.05 ** 2))
+
+
+# ---------------------------------------------------------------------------- the validation
+
+
+def test_a_source_outside_the_walls_is_refused_and_says_which_one():
+    world = load_world("open", cfg=CFG)
+    for broken in ({"x": 31.0}, {"y": -0.5}, {"x": 0.0}, {"y": 20.0}):
+        with pytest.raises(ValueError, match=r"src1.*outside the walls"):
+            pois.load_sources([dict(SHIP[0], **broken)], world)
+
+
+def test_a_source_inside_a_wall_is_refused():
+    """In `maze` the same coordinates sit in a wall block — that is a typo, not a scenario."""
+    with pytest.raises(ValueError, match="inside a wall"):
+        pois.load_sources(SHIP, load_world("maze", cfg=CFG))
+
+
+def test_a_source_in_the_furnished_hall_is_fine():
+    """The demo file also runs with `--world production`; (12, 6) is a lane there, not a table."""
+    got = pois.load_sources(SHIP, load_world("production", cfg=CFG))
+    assert [s.name for s in got] == ["src1"] and got[0].range_m == 4.0
+
+
+@pytest.mark.parametrize("broken, why", [
+    ({"name": "src1", "x": 5.0, "y": 5.0, "range": 0.0}, "range and d0 have to be > 0"),
+    ({"name": "src1", "x": 5.0, "y": 5.0, "d0": -1.0}, "range and d0 have to be > 0"),
+    ({"name": "src1", "x": 5.0, "y": 5.0, "activity": -2.0}, "activity has to be >= 0"),
+    ({"name": "src1", "x": 5.0, "y": 5.0, "kind": "gravity"}, "unknown kind"),
+    ({"x": 5.0, "y": 5.0}, "has no name"),
+    ({"name": "src1", "x": "left", "y": 5.0}, "have to be numbers"),
+])
+def test_a_broken_source_is_refused_with_a_readable_message(broken, why):
+    world = load_world("open", cfg=CFG)
+    with pytest.raises(ValueError, match=why):
+        pois.load_sources([broken], world)
+
+
+def test_a_source_list_has_to_be_a_list_of_unique_names():
+    world = load_world("open", cfg=CFG)
+    with pytest.raises(ValueError, match="is not an object"):
+        pois.load_sources(["src1"], world)
+    with pytest.raises(ValueError, match="used twice"):
+        pois.load_sources([dict(SHIP[0]), dict(SHIP[0], x=13.0)], world)
+
+
+# ------------------------------------------------------------------------- the wiring
+
+
+def test_without_a_source_no_detector_is_built_and_no_message_appears():
+    """The default config plants nothing: no sensor, no `/poi`, no question to the generator."""
+    eng, got = drive(load_config(None, {"gui": False, "debug_truth": True}), seconds=4.0)
+    assert eng._poi is None and eng.poi_sources() == []
+    kinds = {kind for kind, _r, _p in got}
+    assert "poi" not in kinds
+    assert {"odom", "scan", "gps", "imu", "truth"} <= kinds           # everything else still runs
+    assert kinds <= {"odom", "scan", "gps", "imu", "truth", "robots"}  # `robots`: the spawn report
+    assert eng.robots["muster"].poi is None
+
+
+def test_a_planted_source_adds_its_topic_at_poi_rate():
+    cfg = poi_cfg()
+    assert topic("poi", "muster") == "/muster/poi"
+    eng, got = drive(cfg, seconds=4.0)
+    assert [s.name for s in eng.poi_sources()] == ["src1"]
+    readings = [p for kind, _r, p in got if kind == "poi"]
+    assert len(readings) in (19, 20), f"5 Hz for 4 s: {len(readings)} messages"
+    # 19 or 20: the last accumulator tick of the 4th second may fall on either side of the boundary,
+    # which is the same behaviour every other sensor of the engine has (engine._due).
+    assert all(m.t > 0.0 for m in readings), "not stamped with simulation time"
+    assert eng.robots["muster"].poi is readings[-1]
+    assert {m.name for m in readings} == {"src1"}
+    assert all(m.distance is None for m in readings)
+
+
+def test_the_demo_file_plants_one_source_and_switches_nothing_else_on():
+    cfg = load_config("config/demo_poi_exploration.json")
+    assert cfg_get(cfg, "world") == "open" and len(cfg_get(cfg, "pois")) == 1
+    assert cfg_get(cfg, "poi.publish_distance") is False
+    assert cfg_get(cfg, "poi.rate") == 5.0 and cfg_get(cfg, "gps.rate") == 5.0
+    assert cfg_get(load_config(), "pois") == []              # and the lab default stays empty
+
+
+def test_a_source_uses_the_shared_noise_stream_which_is_why_the_default_is_empty():
+    """Honest accounting: a sensor that counts draws from the one seeded generator of the run.
+
+    So planting a source does shift the other streams of that run, and `config/tasks.json` names no
+    source for any graded task. The default case is the byte-for-byte test in test_sensor_reality.py.
+    """
+    heard = poi_cfg(pois=[dict(SHIP[0], x=4.0, y=6.25)])          # in range from the first step on
+    plain = [p.x for k, _r, p in drive(load_config(None, {"gui": False}), seconds=2.0)[1]
+             if k == "odom"]
+    planted = [p.x for k, _r, p in drive(heard, seconds=2.0)[1] if k == "odom"]
+    assert plain and plain != planted
+    quiet = [p.intensity for k, _r, p in drive(poi_cfg(), seconds=2.0)[1] if k == "poi"]
+    assert set(quiet) == {0.0}, "out of range the counter draws nothing, so nothing shifts"
+
+
+def test_the_poi_block_written_out_at_its_defaults_changes_nothing():
+    """A key that is read while it is switched off is a bug, so it is tested and not denied."""
+    off = {"gui": False, "pois": [], "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0,
+                                             "publish_distance": False}}
+    series = lambda cfg: [[vars(m) for k, _r, m in drive(cfg, seconds=3.0)[1] if k == kind]
+                          for kind in ("odom", "imu")]
+    assert series(load_config(None, off)) == series(load_config(None, {"gui": False}))
+
+
+def test_the_window_sees_the_sources_the_sensor_measured():
+    eng = SimEngine(load_world("open", cfg=poi_cfg()), poi_cfg(), seed=1)
+    assert eng.poi_sources() == eng._poi.sources
+    assert eng.poi_sources()[0].intensity(12.5, 6.0) == pytest.approx(0.8)
+
+
+def test_the_detector_settings_travel_in_the_config_topic_but_not_the_positions():
+    """/sim/config says how the counter works; where the source is would be the answer."""
+    import json
+    eng = SimEngine(load_world("open", cfg=poi_cfg()), poi_cfg(), seed=1)
+    profile = json.loads(eng.config_json())
+    assert profile["poi"] == cfg_get(poi_cfg(), "poi")
+    assert "pois" not in profile and "12.0" not in eng.world_json(), eng.world_json()
+
+
+# ------------------------------------------------------------------------- what the window shows
+
+
+class StubRenderer:
+    """The one attribute `overlays.poi_readout()` looks at, without a window."""
+
+
+def test_the_readout_line_carries_the_current_intensity():
+    """`poi src1 0.803` in the line the student already reads — no second terminal needed."""
+    robot = SimpleNamespace(poi=None)
+    assert overlays.poi_readout(StubRenderer(), robot) == []
+    robot.poi = Poi(t=1.0, intensity=0.803, name="src1")
+    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi src1 0.803"
+    robot.poi = Poi(t=1.0, intensity=0.0, name="")
+    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi - 0.000"
+    robot.poi = Poi(t=1.0, intensity=0.5, name="src1", distance=2.25)
+    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi src1 0.500 @2.25 m"
+
+
+def test_the_key_p_and_the_menu_row_belong_to_the_same_layer():
+    """`p` in render.KEYS, a row in menu.LAYERS, one boolean on the renderer."""
+    assert render.KEYS["p"] == ("show_pois", "")
+    assert {attribut: key for attribut, _t, key in render.menue.LAYERS}["show_pois"] == "p"
+    assert "p" in render.menue.FUSS.split()
+
+
+def fake_engine(sources, size=(12.0, 9.0)):
+    """The engine `overlays.poi_sources()` reads: a world, one robot out of the way, the sources."""
+    robot = Robot(spec=RobotSpec(name="muster", index=0, color="red", rgb=(0.9, 0.3, 0.3)),
+                  chassis=None, pose=Pose(2.0, 2.0, 0.0), wheels=[0.0] * 4)
+    return SimpleNamespace(world=World(name="hall", walls=[Rect(0, 0, size[0], 0.2),
+                                                           Rect(0, size[1] - .2, size[0], size[1]),
+                                                           Rect(0, 0, 0.2, size[1]),
+                                                           Rect(size[0] - .2, 0, size[0], size[1])],
+                                       spawns=[Pose(1, 1, 0.0)], size=size),
+                           robots={"muster": robot}, t=1.0, task="", drain=lambda: [],
+                           poi_sources=lambda: list(sources))
+
+
+def ring_pixels(rend, centre, radius_px, band=5):
+    """How many of 36 angles see something that is not floor at about that distance.
+
+    A band of a few pixels around the radius instead of the exact circle: `pygame.draw.circle` places a
+    1 px outline at a radius of its own choosing (and not at every angle the same one), so a test that
+    samples one pixel wide would fail on the drawing routine rather than on the overlay.
+    """
+    hits = 0
+    for step in range(0, 360, 10):
+        for offset in range(-band, band + 1):
+            radius = radius_px + offset
+            x = int(round(centre[0] + radius * math.cos(math.radians(step))))
+            y = int(round(centre[1] - radius * math.sin(math.radians(step))))
+            if rend.screen.get_at((x, y))[:3] != rend.col_floor[:3]:
+                hits += 1
+                break
+    return hits
+
+
+def test_the_p_layer_draws_the_source_and_debug_truth_adds_the_field_rings():
+    """Layer off: floor. Layer on: the symbol. With truth: the rings the field is worth."""
+    src = [source(x=6.0, y=4.5, range_m=2.5, d0=1.0)]          # centre of the fake hall, d0 = 1 m
+    rend = render.Renderer(fake_engine(src), load_config(None, {"gui": True, "width": 900,
+                                                               "height": 600}))
+    try:
+        centre, ring = rend.px(6.0, 4.5), int(round(1.0 * rend.s))
+        spot = (int(round(centre[0])), int(round(centre[1])))
+        rend.show_pois = False
+        rend.draw(cap=False)
+        assert rend.screen.get_at(spot)[:3] == rend.col_floor[:3]
+        rend.show_pois = True
+        rend.draw(cap=False)
+        assert rend.screen.get_at(spot)[:3] != rend.col_floor[:3], "the source symbol is missing"
+        assert ring_pixels(rend, centre, ring) == 0, "rings drawn without debug_truth"
+        rend.cfg["debug_truth"] = True
+        rend.draw(cap=False)
+        assert ring_pixels(rend, centre, ring) >= 30, "no ring at d0 with debug_truth"
+        assert ring_pixels(rend, centre, int(2.5 * rend.s)) >= 30, "no ring at the range"
+        assert ring_pixels(rend, centre, int(1.75 * rend.s)) == 0, "a ring in between"
+    finally:
+        rend.close()
+
+
+def test_the_layer_switch_never_touches_what_the_sensor_publishes():
+    """The rule of the view (test_view_menu_c covers all layers): fewer pixels, same messages."""
+    _eng, got = drive(poi_cfg(), seconds=2.0)
+    assert sum(1 for k, _r, _p in got if k == "poi") in (9, 10)

@@ -10,7 +10,7 @@ import json
 import logging
 import math
 
-from . import physics, sensors, steering
+from . import physics, pois, sensors, steering
 from .types import (Gps, Pose, Robot, RobotSpec, Twist, cfg_get, load_config, merge,
                     sanitize_name, PALETTE, MARKERS, VARIANTS)
 
@@ -38,6 +38,7 @@ class SimEngine:
         self._noise = sensors.Noise(seed)
         self._lidar = sensors.Lidar(world, self._noise, cfg_get(self.cfg, "lidar"))
         self._gps = self._make_gps()
+        self._poi = self._make_pois()
         self._index = 0
         self._sub = 1.0 / float(cfg_get(self.cfg, "rate", 50))
         self._acc = 0.0
@@ -62,6 +63,26 @@ class SimEngine:
                      "gps.delay_ticks = %d", seconds, as_ticks)
             gpscfg["delay_ticks"] = as_ticks     # so /sim/config says what the sensor will do
         return sensors.GpsSensor(self._noise, gpscfg)
+
+    def _make_pois(self):
+        """The radiation detector of this world — or None, which is the default and the whole point.
+
+        `pois` (the sources of the world) is validated here rather than in worlds.py because the
+        check needs both sides: the point from the config and the walls of the arena it has to be
+        inside. A bad entry raises, it is not dropped — a scenario with a source in a wall cannot be
+        solved, so saying so at once beats a run in which nothing ever explains itself (pois.py).
+
+        None rather than a sensor over an empty list: with no source configured the engine does not
+        run the sensor loop at all, and the message streams of every graded task stay what they were
+        before this topic existed.
+        """
+        sources = pois.load_sources(cfg_get(self.cfg, "pois"), self.world,
+                                   float(cfg_get(self.cfg, "poi.d0", 1.0)))
+        if not sources:
+            return None
+        log.info("%d points of interest in '%s': %s", len(sources), self.world.name,
+                 ", ".join(f"{s.name} at ({s.x:g}, {s.y:g}) r={s.range_m:g} m" for s in sources))
+        return pois.PoiSensor(sources, self._noise, cfg_get(self.cfg, "poi"))
 
     def _make_odometer(self, r):
         """The robot's odometry: wheel speeds integrated over the *believed* geometry.
@@ -221,6 +242,7 @@ class SimEngine:
             merge(self.cfg, dict(self.forced))     # what was set by hand stays put
         self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
         self._gps = self._make_gps()
+        self._poi = self._make_pois()
         self._gps.t0 = getattr(self, "t_task", self.t)
         for r in self.robots.values():
             r.odometer = self._make_odometer(r)
@@ -334,6 +356,15 @@ class SimEngine:
             if cfg_get(self.cfg, "debug_truth") and self._due(
                     r, "truth", cfg_get(self.cfg, "truth.rate", 20.0), dt):
                 self._push("truth", r.spec.name, Pose(r.pose.x, r.pose.y, r.pose.theta))
+            if self._poi is not None and self._due(
+                    r, "poi", cfg_get(self.cfg, "poi.rate", 5.0), dt):
+                # A counter that is switched on reports even where it hears nothing: the 0.0 outside
+                # a source's range is a measurement too, and the only way a student sees the
+                # difference between "out of range" and "the topic is not running".
+                reading = self._poi.read(r.pose)
+                if reading is not None:
+                    r.poi = reading
+                    self._push("poi", r.spec.name, reading)
         self.t += dt
 
     def _drive(self, r: Robot, dt: float) -> None:
@@ -410,6 +441,16 @@ class SimEngine:
         q, sats = self._gps.sky(r.pose)
         return (q, sats, self._gps.drops.get(name, 0))
 
+    def poi_sources(self) -> list:
+        """The sources of the running world (pois.Source) — for the window's truth view, not for a node.
+
+        There is no topic for this on purpose: finding the place from the intensity series is the
+        exercise, so `overlays.poi_sources()` is the only reader it has, and `debug_truth` decides
+        whether even the rings are drawn. A student node that wants the answer can only read the
+        overlay or ask a tutor, which is the same border as `--truth` for the pose.
+        """
+        return list(self._poi.sources) if self._poi is not None else []
+
     def publish_world(self) -> None:
         self._push("robots", None, json.dumps(self.robots_info()))
 
@@ -428,8 +469,13 @@ class SimEngine:
         `steering` travels along because the drive geometry is a fact of the running car, not a
         recommendation: a student node that plans corners from `R = L / tan(delta_max)` has to ask
         the simulation which car it is driving, not its own local config file.
+
+        `poi` (the detector: rate, `d0`, counts, whether the distance is published) is in here; the
+        `pois` (where the sources are) are deliberately not. One is how the sensor works, the other
+        is the answer to the question the sensor asks.
         """
         profile = {k: cfg_get(self.cfg, k) for k in
-                  ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth", "steering")}
+                  ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth", "steering",
+                   "poi")}
         profile["seed"] = self.seed
         return json.dumps(profile)

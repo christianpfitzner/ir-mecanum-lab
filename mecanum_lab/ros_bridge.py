@@ -26,7 +26,7 @@ import threading
 import time
 
 from . import stub, tf_bcast
-from .types import Gps, Imu, Kf, Odom, Pose, Scan, Twist, topic
+from .types import Gps, Imu, Kf, Odom, Poi, Pose, Scan, Twist, topic
 
 log = logging.getLogger("mecanum.ros")
 
@@ -35,7 +35,7 @@ KIND_MSG = {"twist": "Twist", "wheels": "Float64MultiArray", "odom": "Odometry",
             "scan": "LaserScan", "gps": "PoseStamped", "truth": "PoseStamped",
             "imu": "Imu", "kf": "PoseWithCovarianceStamped", "kfinfo": "String",
             "mission": "String", "robots": "String", "world": "String",
-            "task": "String", "config": "String", "clock": "Clock"}
+            "task": "String", "config": "String", "clock": "Clock", "poi": "String"}
 # Frame names live in tf_bcast: the same names in the message headers and in /tf, each
 # carrying the robot as prefix. Nothing here invents frame names of its own.
 # Placeholder uncertainty of the IMU assembly (diagonal), so RViz and rqt do not work
@@ -143,6 +143,12 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         return M["Float64MultiArray"](data=[float(w) for w in payload])
     if kind == "mission" or kind in ("robots", "world", "task", "config", "kfinfo"):
         return M["String"](data=str(payload))
+    if kind == "poi":
+        # No standard ROS message fits a radiation reading, so /poi follows the JSON-on-a-String
+        # pattern of the four lines above (CONTRACT §6.13): every field of types.Poi in one object,
+        # echoable without a custom interface. `distance` is null unless poi.publish_distance is on.
+        return M["String"](data=json.dumps({"t": payload.t, "intensity": payload.intensity,
+                                            "name": payload.name, "distance": payload.distance}))
     if kind == "clock":
         return M["Clock"](clock=M["Time"](sec=int(payload), nanosec=int((payload % 1) * 1e9)))
     if kind == "odom":
@@ -208,6 +214,10 @@ def from_ros(kind: str, msg):
         return [float(v) for v in msg.data]
     if kind in ("task", "mission", "robots", "world", "config", "kfinfo"):
         return msg.data
+    if kind == "poi":
+        got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
+        return Poi(got.get("t", 0.0), got.get("intensity", 0.0), got.get("name", ""),
+                   got.get("distance"))
     if kind == "odom":
         p, v = msg.pose.pose, msg.twist.twist
         return Odom(_stamp(msg.header), p.position.x, p.position.y,

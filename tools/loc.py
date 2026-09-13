@@ -149,13 +149,44 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #                          tasks.py, logbook.py and both reference solutions did not change at all —
 #                          which is the same fact the unchanged 100/100 and 90/90 of check.sh show
 #                          from the other side.
+# Addendum, the empty hall `open` and the radiation sources of `/poi` (numbers measured):
+#   pois.py new, 170 (measured 164)   a second field sensor next to the four position ones: the
+#                          fall-off, the validation that refuses a source in a wall instead of
+#                          dropping it (a scenario that cannot be solved is worse than a crash), and
+#                          the Poisson counter that makes a weak reading a rough one. Not inside
+#                          sensors.py: that file is 556 lines about measuring a *position*, and a
+#                          source that is measured through a wall has nothing in common with that.
+#   types.py 420 -> 460  the Poi message with the reason `distance` is not in it by default, one
+#                          config comment per new key (why `pois` is empty and what `poi.counts` is
+#                          worth), the /poi topic and its ROS mapping.
+#   engine.py 435 -> 485  building the detector from the world and the config (None when nothing is
+#                          planted — the reason the graded streams did not move), one rate-limited
+#                          publish block, and `poi_sources()` for the window with the sentence saying
+#                          why there is no topic for it.
+#   overlays.py 213 -> 290 the source symbol, the field rings of `debug_truth` and the intensity in
+#                          the readout line. Most of it is why a source is drawn as a source and not
+#                          as an obstacle — the disagreement with the LIDAR is the teaching point.
+#   render.py 472 -> 480  three lines: the `p` key, its boolean, the call. New drawing goes into
+#                          overlays.py, that is what that file is for.
+#   tools/worldpic.py 240 -> 245  five panels instead of four (three columns) and the caption of a
+#                          hall without a goal, which quotes the widest free spot the checker measured
+#                          instead of a passage it cannot have.
+#   menu.py and ros_bridge.py keep their budgets (90, 490): the menu row and the /poi mapping cost
+#                          +1 and +10 lines, both still inside the number that was already there.
+#   CORE_TOTAL 5400 -> 5750  measured 5718 (5385 before): pois.py 164 new, overlays +71, engine +46,
+#                          types +38, render +3, ros_bridge +10, menu +1. sensors.py, physics.py,
+#                          grade.py, node.py, logbook.py, tasks.py, both reference solutions and
+#                          config/tasks.json did not grow by one line — no graded number, no sensor of
+#                          experiment 1 and no wheel equation is involved, and the 100/100, the 90/90
+#                          and the 30/30 of check.sh are the same numbers they were before.
 # The names of the fields students read (report, CSV) cost nothing here: they are strings.
 BUDGET = {
-    "mecanum_lab/types.py": 420, "mecanum_lab/stub.py": 115,
-    "mecanum_lab/engine.py": 435, "mecanum_lab/worlds.py": 135,
+    "mecanum_lab/types.py": 460, "mecanum_lab/stub.py": 115,
+    "mecanum_lab/engine.py": 485, "mecanum_lab/worlds.py": 135,
     "mecanum_lab/physics.py": 180, "mecanum_lab/sensors.py": 560,
-    "mecanum_lab/steering.py": 290, "mecanum_lab/overlays.py": 213,
-    "mecanum_lab/render.py": 472, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
+    "mecanum_lab/steering.py": 290, "mecanum_lab/pois.py": 170,
+    "mecanum_lab/overlays.py": 290,
+    "mecanum_lab/render.py": 480, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
     "mecanum_lab/node.py": 615, "mecanum_lab/robot_io.py": 259,
     "mecanum_lab/tasks.py": 210, "mecanum_lab/grade.py": 620,
@@ -165,10 +196,10 @@ BUDGET = {
     "student/steering_example.py": 220,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
     "launch/lab.launch.py": 60, "launch/kf.launch.py": 185,
-    "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 240,
+    "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 245,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 5400
+CORE_TOTAL = 5750
 
 
 def loc(path):

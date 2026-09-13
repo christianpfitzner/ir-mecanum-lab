@@ -1,6 +1,6 @@
 """Extra overlays for the window: GPS shadow zones, the odometry ghost, rubber from wheel slip.
 
-Four small effects that make the invisible visible, none of which changes physics or a topic:
+Effects that make the invisible visible, none of which changes physics or a topic:
 
 * `zones()` draws the rectangles of `gps.zones` (see sensors.GpsSensor) as hatched shadow, so a
   student can see *where* the fix goes bad before the logbook proves it. Blackout zones are drawn
@@ -14,6 +14,8 @@ Four small effects that make the invisible visible, none of which changes physic
 * `steer_readout()` is the same for the second drive train: the two front wheel angles and the
   turning radius that follows from them. A steered car is drawn with its wheels turned by
   `render._wheel()`; what belongs here is the number next to the picture.
+* `poi_sources()` draws the Points of Interest of the world (pois.py) and, with `debug_truth`, the
+  rings of their field; `poi_readout()` puts the counter's current reading into the readout line.
 
 Stdlib + pygame only, no state in the module (marks live on the renderer), stdlib drawing calls
 only (CONTRACT section 1). Text uses the renderer's own blit so both use the same fonts.
@@ -185,6 +187,75 @@ def steer_readout(rend, robot) -> list:
     radius = f"  R={base / math.tan(delta):.2f} m" if base and abs(delta) > 1e-3 else ""
     return [(f"steer {math.degrees(angles[0]):+.1f}/{math.degrees(angles[1]):+.1f} deg{radius}",
              GREY)]
+
+
+def poi_list(rend) -> list:
+    """The sources of the running world, from the engine that validated them.
+
+    Asked of the engine and not read out of `rend.cfg["pois"]`: the numbers the window draws have to
+    be the ones the sensor measured, and one of them failed the wall test before it got here. A
+    renderer built without an engine (a view test with a hand-made robot) gets an empty list.
+    """
+    eng = getattr(rend, "engine", None)
+    probe = getattr(eng, "poi_sources", None)
+    return list(probe()) if probe is not None else []
+
+
+def poi_sources(rend) -> None:
+    """The radiation source as a symbol; with `debug_truth`, the rings its field draws around it.
+
+    The symbol is drawn even when the robot measures 0.0, and that is the whole lesson of the layer:
+    a source is not an obstacle. The LIDAR in front of it reports the table, the counter reports the
+    source, and the two do not agree because one of them needs a straight line and the other does not
+    (pois.py). So the layer belongs next to the GPS shadow, not next to the walls.
+
+    Without `debug_truth` only the name goes with the symbol — what the message already says. With
+    it, the distances a reading can be traced back to are drawn as circles: half the activity at `d0`,
+    a tenth at `3·d0` where that is still inside the range, and the `range` itself beyond which the
+    counter stays at zero. Those circles are the tutor's view of the field, not another sensor.
+    """
+    from .render import mix                                   # lazy: render imports this module
+    sc, s = rend.screen, rend.s
+    truth = bool((getattr(rend, "cfg", None) or {}).get("debug_truth"))
+    bright = mix(rend.col_floor, (250, 205, 90), 0.8)
+    pale = mix(rend.col_floor, (250, 205, 90), 0.35)
+    for src in poi_list(rend):
+        centre = rend.px(src.x, src.y)
+        if truth:
+            rings = [(src.range_m, pale), (src.d0, bright)]
+            if 3 * src.d0 <= src.range_m:      # the tenth ring only exists where there is a field
+                rings.append((3 * src.d0, bright))
+            for metres, color in rings:
+                if int(metres * s) >= 3:                      # a 2 px circle is a dot, not a ring
+                    pygame.draw.circle(sc, color, centre, int(metres * s), 1)
+        pygame.draw.circle(sc, bright, centre, 5)
+        for spoke in range(6):                                # the burst: a source, not a waypoint
+            angle = math.tau * spoke / 6
+            ux, uy = math.cos(angle), math.sin(angle)
+            pygame.draw.line(sc, bright, (centre[0] + 7 * ux, centre[1] - 7 * uy),
+                             (centre[0] + 13 * ux, centre[1] - 13 * uy), 2)
+        if s > 26:
+            rend._text(f"{src.name}" + (f"  a={src.activity:g} r={src.range_m:g} m d0={src.d0:g} m"
+                                         if truth else ""),
+                       centre[0] + 17, above_bar(rend, centre[1] - 20), bright)
+
+
+def poi_readout(rend, robot) -> list:
+    """The counter in the readout line: `poi src1 0.803` — the sensor without a second terminal.
+
+    One number, and it is the one the students have to work from: the distance is not in the message
+    (`poi.publish_distance` is off) and so is not in the line either — a readout that prints the
+    answer ends the exercise. An empty list for a robot with no detector keeps the readout line of
+    every graded run exactly as long as it was, in the same rule as `steer_readout()`.
+    """
+    msg = getattr(robot, "poi", None)
+    if msg is None:
+        return []
+    from .render import GREY, mix                       # lazy: render imports this module
+    loud = msg.intensity > 0.0 and msg.name != ""
+    text = f"poi {msg.name or '-'} {msg.intensity:.3f}" \
+        + (f" @{msg.distance:.2f} m" if msg.distance is not None else "")
+    return [(text, mix(GREY, (250, 205, 90), 0.7) if loud else GREY)]
 
 
 def above_bar(rend, y: float) -> float:

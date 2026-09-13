@@ -148,6 +148,28 @@ class Imu:
 
 
 @dataclass
+class Poi:
+    """Reading of the radiation detector at the robot's position (CONTRACT §6.13).
+
+    One message per source reading, and it names the source that contributes the most counts —
+    a wide-band counter cannot tell two sources apart, so the name is how the simulation labels
+    the loudest contribution rather than something the robot could know.
+
+    `distance` is **not** in a real detector's output: `poi.publish_distance` is off by default and
+    the field stays `None`, because turning the intensity series into a distance is the exercise.
+    With the key switched on the number is the true metres to that source — the truth/debug view.
+
+    The field model itself is in `pois.py`: `activity / (1 + (d/d0)²)` up to the source's `range`,
+    0 beyond it, through the walls. Through, not around: unlike the LIDAR the detector does not
+    care what stands between it and the source, which is why a shelf hides a wall and not a source.
+    """
+    t: float = 0.0
+    intensity: float = 0.0            # counts per second, normalised (0.0 = nothing in range)
+    name: str = ""                    # which source is loudest ('' = no source in this world)
+    distance: float | None = None     # m to its centre, only with `poi.publish_distance`
+
+
+@dataclass
 class Kf:
     """Students' own state estimate — the grader measures it against `truth`.
 
@@ -182,6 +204,7 @@ class Robot:
     scan: Scan | None = None
     gps: Gps | None = None
     imu: Imu | None = None
+    poi: Poi | None = None                          # radiation reading (pois.py), None = no source
     kf: Kf | None = None                            # students' estimate
     kf_err: float | None = None                     # |kf − truth| in m, HUD/grader only
     contacts: int = 0
@@ -233,6 +256,9 @@ MSG_SPECS = {
     "kf":      ("geometry_msgs/msg/PoseWithCovarianceStamped", "kf/pose", "robot"),
     "kfinfo":  ("std_msgs/msg/String",              "kf/info",       "robot"),
     "truth":   ("geometry_msgs/msg/PoseStamped",    "truth",         "robot"),
+    # No standard message fits a radiation reading, so /poi uses the JSON-on-a-String pattern of
+    # §6.7 that /sim/robots and kf/info already use: the fields of `Poi` as one JSON object.
+    "poi":     ("std_msgs/msg/String",              "poi",           "robot"),
     "mission": ("std_msgs/msg/String",              "mission_state", "robot"),
     "robots":  ("std_msgs/msg/String",              "robots",        "sim"),
     "world":   ("std_msgs/msg/String",              "world",         "sim"),
@@ -358,6 +384,18 @@ DEFAULT_CONFIG = {
         "variants": {"steering": {},
                      "steering-big": {"wheel_base": 1.4, "track": 0.8,
                                       "v_max": 1.2, "footprint_r": 0.85}}},
+    # Points of Interest (pois.py): the sources of one world, and the detector that reads them.
+    # `pois` is empty by default — then the engine builds no detector, publishes no /poi message and
+    # draws no random number, so every graded stream stays byte for byte what it was. A world that
+    # has sources lists them (validated by pois.load_sources: inside the walls, range > 0, unique
+    # names). A demo file that plants a source therefore also names the hall it is planted in
+    # (`config/demo_poi_exploration.json`), and `--world production` moves it into the furnished one.
+    "pois": [],
+    # The detector: messages per second, the `d0` of §6.13 for a source that does not name its own,
+    # how many counts one unit of intensity is worth per reading (`counts`: the Poisson sigma is
+    # sqrt(counts), so a weak reading is a noisier reading, which is what a counter does), and
+    # whether the true distance may travel with the message. Off by default: see types.Poi.
+    "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0, "publish_distance": False},
     # Cell size per world: the robot is the same size everywhere, but the maze is built on a
     # coarser grid, so its corridors are wide enough to drive and to see. See worlds.py.
     "worlds": {"cell": 0.5, "cell_by_world": {"maze": 1.0}},

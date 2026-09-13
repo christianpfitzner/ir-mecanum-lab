@@ -504,3 +504,72 @@ maneuver; and every plan has to be mapped through the start pose, since the odom
 spawn and not at (0, 0). The 60 s of the brief's command is enough but not generous — the lap is
 20 m at ≤0.75 m/s plus a parking maneuver that approaches by LIDAR.
 
+
+## 12. An empty hall, and a source the robot can only hear (this pass)
+
+**Two deliverables, one argument.** `worlds/open.txt` is 30 × 20 m of floor with a border wall, two
+spawns and nothing else; `mecanum_lab/pois.py` gives a world a radiation source and the robot a counter
+for it. The pairing is the point: in a hall with nothing in it, a wrong wheel constant and a sensor that
+disagrees with the LIDAR are both *numbers on a screen* instead of a collision that ends the run.
+
+**The world is a grid file, the source is a config key.** The package brief named
+`config/worlds/open.json`; this repository has no JSON world format — `worlds/<name>.txt` is an ASCII
+grid and `worlds.py` is the only parser, so a second format for one hall would have been a second way to
+be a hall. The hall is therefore `worlds/open.txt` (60 × 40 cells, 4 merged border rectangles), and the
+sources are the config key `pois`, which is also where they belong: the grid file has no comments and no
+room for `activity` or `range`, and validation needs the walls, which the engine has and the parser does
+not. `pois` empty (the default) means `SimEngine._make_pois()` returns `None`, so no sensor loop runs at
+all and `tests/test_sensor_reality.py` is still byte for byte the pre-W5 stream.
+
+**`kind`, not `type`.** The source entry spells its field `kind` because `config/tasks.json` already
+uses that word for the same concept (§6.11 renamed `art` → `kind`); two spellings for one idea is the
+mistake that file exists to undo. Everything else of the shipped scenario is as specified: (12.0, 6.0),
+`activity 1.0`, `range 4.0`, 5 Hz, distance off.
+
+**The empty hall has no "tightest passage", and the figure says so.** The suggested caption number was
+20.0 m. That is the height of the hall, not a measured width: `worldcheck.py` scores a path by the
+clearance of its cells (distance to the nearest wall), and `open` has no goal, so it has no start→goal
+path at all. Instead of inventing a number for the panel, the checker now reports what it can measure
+when there is no path — the widest free spot in the file, same clearance figure — which for `open` is
+**9.25 m** (the centre of a 29 × 19 m interior). `tools/worldpic.py` quotes that under the panel and the
+README says plainly that the number is the hall and not a gap. A test compares the README's numbers with
+`worldpic.clearance()` rather than with this note. Five panels are three columns now, so the figure grew
+from 976 × 886 px to 1632 × 966 px.
+
+**GPS off means a gap, not a rate of zero.** `gps.rate: 0` looks like the natural way to switch the
+sensor off, but `engine._due()` clamps the period to 1/0.001 s, so a drive longer than ~16 minutes would
+still deliver one fix. `gps.gap: [0.0, 1e9]` is the outage window of §6.4 opened to the width of the
+exercise and produces exactly zero messages (measured: 0 GPS messages, 4014 IMU messages and 802 LIDAR
+messages in the 40 s drift drive — the other sensors keep working, only the sky is gone).
+
+**The numbers of the two demos.** Drift: 20.00 m driven straight at 0.5 m/s in `open`, seed 1 — with
+`odom.geometry.wheel_radius_scale: 1.05` the odometry counts 21.01 m and the ghost is 1.00 m ahead of
+the robot (0.60 m after 12 m); with 1.0 it is 0.01 m away. Both runs end with 0 wall contacts, because
+there is nothing to touch. Field: the shipped source measures 0.800 at 0.5 m, 0.200 at 2 m, 0.0588 at
+the 4 m range and 0.000 past it; with 400 counts per unit the relative σ of one reading is 5.6 % /
+11 % / 21 % at those three distances (Poisson: σ counts = √counts). Along the spawn's own line the
+reading is 0.000 until x = 8.1 m, peaks near 1.0 at x = 12 m (the line misses the source by 0.25 m),
+and the two crossings of 0.50 are 1.90 m apart in the noise-free field — 2·d0, which is how a student
+gets a distance out of a series. Through a wall: in `production` at (10.0, 3.0), the LIDAR beam pointed
+at the source reports the table at 0.60 m while the counter reports 0.072 ± 0.014.
+
+**A shared noise stream is a coupling, and it is tested as one.** The counter draws from the run's one
+`sensors.Noise`, so planting a source shifts the odom/scan/gps/imu values of that run. That is the
+correct behaviour for a seeded sensor and the reason nothing in `config/tasks.json` may name a source
+until the thresholds are re-measured — `tests/test_world_poi_w5.py` asserts the shift, and
+`test_the_poi_keys_change_nothing_while_no_source_is_planted` in the golden file asserts that the keys
+themselves are inert while empty.
+
+**Four files outside this package's list, each at its seam.** `render.py` +3 (the `p` key, its boolean,
+the call — new drawing belongs to `overlays.py`, which grew +71), `menu.py` +1 (the row),
+`ros_bridge.py` +10 (without a `KIND_MSG`/`to_ros` entry a ROS run would raise on the first `/poi`
+message; it uses the JSON-on-a-String pattern of `kf/info`, no new interface), `node.py` +0 lines (two
+printed topic lists gained the word `poi`, otherwise `./lab docs` would list a topic set that no longer
+exists). None of them changes a graded path, a threshold or a message that existed before.
+
+**Left open on purpose.** `logbook.py` has no `intensity_poi` column yet (one entry in `COLUMNS`, the
+next person who touches the CSV should add it — until then the readout line and `ros2 topic echo` are
+where the reading is), `robot_io.RobotIO` has no `poi()` accessor so a student node reads
+`rob.bus.last("poi", rob.name)[0]`, and there is no `student/` gradient-climbing example: `student/*`
+is not this package's to write, and the three exercises of `config/demo_poi_exploration.json` are
+written so that one of them can become that example.

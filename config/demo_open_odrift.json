@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "DEMO, not the default: the hall in which odometry drift has nothing to hide behind.",
+    "",
+    "`open` is 30 x 20 m of floor with a border wall and nothing else: no obstacle, no floor marking,",
+    "no goal, two spawns on the centre line. Every other arena in worlds/ hides a wrong wheel",
+    "constant behind a collision; here the same wrong constant stays what it is: a number.",
+    "",
+    "Drive 20 m straight and watch the odometry ghost (`o` in the window):",
+    "    ./lab sim --world open --config config/demo_open_odrift.json",
+    "then hold `Up`. The readout counts the metres the odometry believes, the dot on the screen is",
+    "where the robot really is, and the label between them is the drift in metres: measured `odom off",
+    "0.60 m` after 12 m of driving, `1.00 m` after 20 m -- the same 5 cm per metre, all the way.",
+    "",
+    "Measured on that drive (seed 1, 0.5 m/s east from the spawn, 20.00 m driven in 40.1 s):",
+    "    wheel_radius_scale 1.0    the odometry reports 20.01 m, the ghost sits 0.01 m away",
+    "    wheel_radius_scale 1.05   it reports 21.01 m, the ghost is 1.00 m ahead of the robot",
+    "and both runs end with **0 wall contacts**, because there is nothing to collide with. That is the",
+    "point: in a furnished hall the same kind of error ends in a collision instead of in a number --",
+    "config/demo_odom_error.json measures 26 wall contacts for task T3 with a 5 % radius and a 3 %",
+    "lever arm. Here the error ends in a number a student can compare with 5 % of 20 m.",
+    "",
+    "GPS is switched off for the run (`gps.gap` is the outage window of CONTRACT section 6.4, opened",
+    "to the length of the exercise): with fixes on the screen the ghost is only one candidate among",
+    "three, and drift is the subject. The IMU keeps its default 100 Hz, so the same drive can also be",
+    "used to check that the integral of `gz` is the yaw the odometry reports.",
+    "",
+    "Nothing else is turned on: no slip, no odom jitter, no GPS dropout, no thermal IMU drift. One",
+    "wrong wheel constant and nothing beside it, so the 5 % in the file is the 5 % on the screen.",
+    "",
+    "To hand, without this file: ./lab sim --world open --set odom.geometry.wheel_radius_scale=1.05",
+    "and the same drive recorded instead of watched:",
+    "    ./lab run --world open --config config/demo_open_odrift.json --robot muster \\",
+    "            --controller student/solution.py --seconds 60 --truth"
+  ],
+  "world": "open",
+  "gps": {
+    "gap": [0.0, 1.0e+09]
+  },
+  "odom": {
+    "geometry": {
+      "wheel_radius_scale": 1.05
+    }
+  },
+  "_comment_tail": "No fix, no obstacles: the odometry is the only position left, and it may lie."
+}

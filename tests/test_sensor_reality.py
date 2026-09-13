@@ -115,6 +115,20 @@ def test_the_new_keys_change_nothing_while_they_are_off():
         text_of(drive(load_config(None, {"gui": False, "debug_truth": True})))
 
 
+def test_the_poi_keys_change_nothing_while_no_source_is_planted():
+    """The same test as above for the keys of W5: `pois` empty and `poi` at its defaults.
+
+    A radiation detector is a sensor of its own and draws from this one stream, so the guard here is
+    that the *keys* are inert while no source is planted — not that the topic is cheap. With a source
+    in the world the streams do shift, which is why `config/tasks.json` names no source and
+    `tests/test_world_poi_w5.py` asserts the shift instead of pretending it away.
+    """
+    off = {"pois": [], "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0,
+                               "publish_distance": False}}
+    assert text_of(drive(load_config(None, dict(off, gui=False, debug_truth=True)))) == \
+        text_of(drive(load_config(None, {"gui": False, "debug_truth": True})))
+
+
 # ------------------------------------------------------------------- quality and satellite count
 
 

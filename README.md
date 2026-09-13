@@ -64,10 +64,10 @@ To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless
 | `Up`/`Down` drive · `Left`/`Right` **strafe** | keyboard driving, on unless `--no-teleop`; the keys set body speeds, this is not a game |
 | `q` or `,` turn right · `e` or `.` turn left | ±0.9 rad/s yaw. With teleop on, `q` **turns** instead of quitting — `ESC` or the window's close button ends the run |
 | `SPACE` pause | `q` quits only when teleop is off |
-| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines, gps shadow zones, odometry ghost |
-| `l t g k w v d z h s o` | switch a single layer — the same as clicking its row (`s` GPS shadow, `o` odometry ghost) |
+| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines, gps shadow zones, odometry ghost, radiation source |
+| `l t g k w v d z h s o p` | switch a single layer — the same as clicking its row (`s` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings) |
 
-The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu` and your `kf/pose`
+The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu`, `/poi` and your `kf/pose`
 keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
 is deliberate: hide the dots, keep the data, and see which layer belongs to which topic. The
 per-robot readout line also carries the IMU (`ax`, `ay`, `gz` and the chip temperature) — it is live
@@ -252,6 +252,59 @@ default): **4.38 m driven, 17.91 m counted**, `contacts 1`, the wheels still at 
 `steering.slip=0` (static friction) the wheels stand still and the odometry stays honest to 1 cm.
 Model, wiring and what is published where: `docs/CONTRACT.md` §5.1 and §6.12.
 
+## An empty hall, and a source to find
+
+`--world open` is 30 × 20 m of floor with a border wall and nothing else: no obstacle, no floor
+marking, no goal, two spawns on the centre line. Odometry drift is the subject there — in every other
+arena a wrong wheel constant shows up as a collision first, here it stays what it is: a number.
+Measured on 20 m driven straight at 0.5 m/s (seed 1, 40.1 s):
+
+| `odom.geometry.wheel_radius_scale` | odometry counted | ghost away from the robot | wall contacts |
+|---|---|---|---|
+| 1.0 (default) | 20.01 m | 0.01 m | 0 |
+| 1.05 — `config/demo_open_odrift.json`, GPS switched off | 21.01 m | **1.00 m** | 0 |
+
+```bash
+./lab sim --world open --config config/demo_open_odrift.json    # hold Up, watch `o` walk away
+./lab sim --world open                                          # the same hall with honest wheels
+```
+
+### A radiation source: `/poi`
+
+`pois` plants a Point of Interest in a world and `mecanum_lab/pois.py` gives it a field:
+`intensity = activity / (1 + (d/d0)²)` up to the source's `range`, 0 beyond it, with counting noise
+on top (`poi.counts` per unit, so the sigma of one reading is `sqrt(counts)/counts` — the reading is
+rough where the field is weak). The robot gets `/<robot>/poi` at `poi.rate` (5 Hz) with
+`t, intensity, name, distance`, and the readout line prints `poi src1 0.803` so the sensor is
+observable without a second terminal. Measured for the shipped source, 4000 readings per spot:
+
+| distance | intensity | σ of one reading | relative |
+|---|---|---|---|
+| 0.5 m | 0.800 | 0.045 | 5.6 % |
+| 2 m | 0.200 | 0.022 | 11 % |
+| 4 m (= `range`) | 0.059 | 0.012 | 21 % |
+| 4.5 m | 0.000 | 0.000 | — silence |
+
+**The field goes through the furniture.** Nothing in the model asks what stands between the robot and
+the source, because a gamma source does not care about a shelf: in `production` the LIDAR pointed at
+the source reports the table in front of it at 0.60 m while the counter, 3.6 m away, still reports
+0.072. Two sensors that disagree because one of them needs a straight line and the other does not —
+and neither of them is wrong. That is why the layer `p` draws the source as a symbol rather than as
+an obstacle, and with `debug_truth` the rings where the reading is half and a tenth of the activity.
+
+`distance` is **not** in the message: `poi.publish_distance` is false by default, because turning an
+intensity series into a distance is the exercise. `pois` is empty in the defaults, so no detector is
+built, no message is published and no random number is drawn in any graded run.
+
+```bash
+./lab sim --world open --config config/demo_poi_exploration.json         # drive past it, watch `p`
+./lab sim --world production --config config/demo_poi_exploration.json   # same source, tables between
+./lab sim --world open --config config/demo_poi_exploration.json --truth # + the field rings
+```
+
+Model, validation (a source outside the walls is refused, not dropped) and the noise model:
+`docs/CONTRACT.md` §6.13.
+
 ## Task and arena belong together
 
 `--task` takes task ids, groups or a comma list: `v1` and `alle` (Experiment 1),
@@ -260,21 +313,25 @@ Model, wiring and what is published where: `docs/CONTRACT.md` §5.1 and §6.12.
 `--world` overrides it. Grading in the wrong arena gets you wall contacts
 instead of points.
 
-![The four arenas at one common scale: arena (24 × 16 m, open hall, the four state-estimation
-tasks), production (20 × 12 m hall with six tables, the four kinematics and odometry tasks),
-maze (13 × 11 m built on 1 m grid cells) and track (18 × 11 m ring around a central island).
-Solid blocks are walls that collide, dashed lines are painted floor markings without
-collision, dots are the start poses of robots 1–4 with their heading, the bullseye is the
-goal.](docs/img/worlds.png)
+![The five arenas at one common scale, in three columns: arena (24 × 16 m, open hall, the four
+state-estimation tasks), maze (13 × 11 m built on 1 m grid cells), open (30 × 20 m, border walls
+only — the hall for drift work), production (20 × 12 m hall with six tables, the four kinematics
+and odometry tasks) and track (18 × 11 m ring around a central island). Solid blocks are walls that
+collide, dashed lines are painted floor markings without collision, dots are the start poses of
+robots 1–4 with their heading, the bullseye is the goal.](docs/img/worlds.png)
 
-*The four arenas, drawn by `python3 tools/worldpic.py` — one metre has the same thickness in
+*The five arenas, drawn by `python3 tools/worldpic.py` — one metre has the same thickness in
 every panel, so the halls are comparable.* The numbers under the panels come from the same
 sources the checks use: task titles from `config/tasks.json`, and the width of the tightest
 passage on the widest start→goal path from `tools/worldcheck.py`. `arena` is deliberately open
 (5.25 m at its narrowest) because state estimation wants free space and a GPS outage in a
 corner; `maze` is deliberately tight (0.50 m free where the robot needs 0.46 m) because that
-is what makes odometry hard. Add an arena or move a task and the figure follows when you
-regenerate it — `tools/check.sh` draws it as a check, so a stale image cannot survive a build.
+is what makes odometry hard. `open` has no goal and nothing in it, so there is no path to quote a
+passage for and its panel states what the same check measures without one: 9.25 m of free space in
+the widest spot, 0.46 m of it needed — the number is the hall, not a gap between two walls. Add an
+arena or move a task and the figure follows when you regenerate it — `tools/check.sh` draws it as a
+check, so a stale image cannot survive a build, and two tests compare these numbers with the tool
+rather than with this file.
 
 ## Where configuration lives
 
@@ -286,7 +343,8 @@ regenerate it — `tools/check.sh` draws it as a check, so a stale image cannot 
 | Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
 | Launch file | `ros2 launch launch/kf.launch.py --show-args` | 47 arguments, all mapped onto `--set` |
 
-Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track` — or your own
+Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track`, `open` (nothing but floor and
+border, for drift work) — or your own
 `worlds/name.txt` (`python3 tools/worldcheck.py --world name` checks it, including that the
 world is closed). One grid cell is 0.5 m; `"worlds": {"cell_by_world": {"maze": 1.0}}` in
 `config/default.json` makes a single world coarser without touching the robot — that is why the

@@ -168,6 +168,14 @@ def check(name, cfg, free_lift=0.0, start_page=1.0, open_max=None):
                            f"(needs {radius:.2f} m)" + ("" if widest >= radius else "  << too narrow"))
             if widest < radius:
                 ok = False
+    elif starts:
+        # A hall without a goal has no start->goal path, but it still has to say something about its
+        # width, and it says it with the same number the path check uses: the clearance of a cell is
+        # its distance to the nearest wall, so the largest one in the file is the widest spot there
+        # is. `open` is that hall: border walls, floor, and 9.25 m of nothing in the middle.
+        widest_free = max(freiheit.values()) if freiheit else 0.0
+        problems.append(f"no start->goal pair (free driving): widest free spot {widest_free:.2f} m "
+                        f"free (needs {radius:.2f} m)")
 
     # Maze or arena? Free cells with a completely free 3x3 neighbourhood count as "open" —
     # a real maze has almost none of them, an arena with tables has many.

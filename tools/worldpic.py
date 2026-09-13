@@ -37,12 +37,17 @@ from worldcheck import check                                    # noqa: E402
 
 SCALE = 20.0                                    # pixels per metre, the same in every panel
 POLSTER, TITLE_H, UNTER, LEGENDE = 16, 30, 54, 46  # panel padding, title and caption strips
-MARGIN, COLUMNS = 24, 2                              # gaps between panels, columns of the grid
+MARGIN, COLUMNS = 24, 3                             # gaps between panels, columns of the grid
+# 3 columns: five arenas, three rows of two at two columns, two rows of three at three. With `open`
+# (30 x 20 m) in the set the second shape is the one that stays near square — see docs/img/worlds.png.
 BG, TITLE, CAPTION = (248, 248, 251), (36, 40, 52), (98, 104, 118)
 BODEN, WAND = (.13, .14, .17), (.42, .45, .52)     # floor and wall, close to the GUI's gui_style
 TARGET, HELL = (255, 226, 110), (238, 241, 247)
 FREI = 0.25                                        # same clearance the world checker defaults to
 ENG = re.compile(r"narrowest point ([\d.]+) m free \(needs ([\d.]+) m\)")
+# A world without a goal has no start->goal path; the checker then reports the widest spot it found
+# (tools/worldcheck.py), which is the number this figure quotes for `open` instead.
+ENG_FREI = re.compile(r"widest free spot ([\d.]+) m free \(needs ([\d.]+) m\)")
 
 
 def colors(cfg: dict) -> tuple:
@@ -79,6 +84,10 @@ def clearance(name: str, cfg: dict) -> str:
         hits = ENG.search(row_rect)
         if hits:
             return f"tightest passage {hits.group(1)} m, robot needs {hits.group(2)} m"
+        hits = ENG_FREI.search(row_rect)
+        if hits:
+            return (f"widest free spot {hits.group(1)} m, robot needs {hits.group(2)} m — "
+                    "nothing to hit")
     return "no start->goal pair (free driving)"
 
 
