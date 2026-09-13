@@ -294,6 +294,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   tools/kfplot.py 250 -> 310 (measured 305)  `sensor_state()`: q_gps, lost_gps, temp_imu and
 #                          intensity_poi as four sparklines, each on its own scale (a shared axis would
 #                          show the temperature and hide the quality).
+#   mecanum_lab/overlays.py 490 -> 520 (measured 507)  `dashed_polyline()`: one stroke helper for
+#                          the two places that draw a belief rather than a fact (the radio stub had
+#                          its own loop, the odometry trail now asks for the same one), plus the
+#                          three lines explaining why the readout asks a Robot for `spec.name`.
 #   student/poi_seek_example.py new, 180 (measured 176)  the climb to the radiation source; ~45 of its
 #                          lines are the four reasons the search is shaped the way it is, measured
 #                          against the three versions that did not work.
@@ -314,7 +318,7 @@ BUDGET = {
     "mecanum_lab/physics.py": 180, "mecanum_lab/sensors.py": 560,
     "mecanum_lab/steering.py": 290, "mecanum_lab/pois.py": 170,
     "mecanum_lab/wifi.py": 365,
-    "mecanum_lab/overlays.py": 490,
+    "mecanum_lab/overlays.py": 520,
     "mecanum_lab/render.py": 485, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 515, "mecanum_lab/tf_bcast.py": 135,
     "mecanum_lab/node.py": 755, "mecanum_lab/robot_io.py": 290,

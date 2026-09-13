@@ -572,9 +572,11 @@ class Renderer:
         Written whether or not the layer is drawn, exactly like the truth trail — a line that starts at
         the pose of the moment the layer was switched on would tell a student the drift began now, while
         the whole point of the demo is the error that has been collecting for a minute. Same spacing and
-        the same cap as the truth line, so the only difference between the two lines is the odometry
-        error itself, and not a drawing decision; dimmer than the ghost plate, which says the same
-        position twice.
+        the same cap as the truth line, so the two lines differ by the odometry error and by one stroke
+        decision: this one is dashed. Two solid lines in one colour family are not read as "fact" and
+        "belief" by someone looking for their drift — and a dash, unlike a second hue, still says
+        "belief" on a printed handout and to the colour-blind half of a lab course. Dimmer than the
+        ghost plate, which says the same position twice.
         """
         o = getattr(robot, "odom", None)
         if not o:
@@ -586,7 +588,8 @@ class Renderer:
             del pts[:-max(1, self.trail_len)]
         if self.show_ghost and len(pts) > 1:
             col = mix(rgb(robot.spec.rgb), self.col_floor, .60)
-            pygame.draw.lines(self.screen, col, False, [self.px(x, y) for x, y in pts], 2)
+            overlays.dashed_polyline(self.screen, [self.px(x, y) for x, y in pts], col,
+                                     width=2, dash=6, gap=5)
 
     def _robot(self, robot, dt: float) -> None:
         """Chassis, marker, four wheels with rolling strokes, name label.

@@ -462,14 +462,28 @@ def _ap_symbol(rend, ap) -> None:
         rend._text("access point", centre[0] + 13, above_bar(rend, centre[1] - 16), colour)
 
 
+def dashed_polyline(sc, pts, color, width: int = 2, dash: int = 8, gap: int = 6) -> None:
+    """One polyline with holes in it — the stroke of a belief, next to the solid one of a fact.
+
+    Pixel space, so `dash` and `gap` are in pixels and the pattern stays readable at every zoom: a
+    pattern in metres would turn into a solid line when the view is zoomed out, which is exactly when
+    two similar lines need telling apart. Holes, not another colour: the dash survives a black-and-white
+    printout and every kind of colour-blindness, a second hue survives neither.
+    """
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        length = math.hypot(bx - ax, by - ay)
+        if length < 1.0:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        for walk in range(0, int(length), dash + gap):
+            end = min(walk + dash, length)
+            pygame.draw.line(sc, color, (ax + ux * walk, ay + uy * walk),
+                             (ax + ux * end, ay + uy * end), width)
+
+
 def _dashed_line(sc, a, b, color) -> None:
     """A dashed line between two points: what is left of a link that carries nothing."""
-    length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
-    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
-    for walk in range(0, int(length), 14):
-        end = min(walk + 8, length)
-        pygame.draw.line(sc, color, (a[0] + ux * walk, a[1] + uy * walk),
-                         (a[0] + ux * end, a[1] + uy * end), 1)
+    dashed_polyline(sc, [a, b], color, width=1)
 
 
 def _plate(point, u, v, half_l, half_w) -> list:

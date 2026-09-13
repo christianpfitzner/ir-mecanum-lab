@@ -58,7 +58,9 @@ and a reprinted hub add up to.
 ## What you see
 
 - `o` — the odometry ghost, pulling ahead along the direction of travel: 5 cm per metre.
-- `t` — the trail the ghost leaves, which is the path the odometry thinks it drove.
+- `t` — the trail the ghost leaves, which is the path the odometry thinks it drove: the **dashed** line
+  of the robot's colour, while the solid one of the same colour is the path it really drove. Every metre
+  between the two is 5 cm of wrong wheel.
 - the readout line's `odom off` segment, the metres between the two.
 
 ## What it measured

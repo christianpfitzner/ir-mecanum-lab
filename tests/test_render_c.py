@@ -638,3 +638,35 @@ def test_forget_drops_the_drawn_history_of_one_robot_and_keeps_the_others():
         rend.forget("alice")
         for history in (rend.trails, rend.ghost_trail, rend.kf_trail, rend.phase):
             assert "alice" not in history and "bob" in history
+
+
+def test_the_believed_line_is_dashed_and_the_true_line_is_not():
+    """Which of the two similar lines is the belief must be readable without a legend.
+
+    Counted as holes: the row the collected trail lies on is sampled pixel by pixel and the runs of ink
+    are counted — a solid stroke answers 1, the dashed one answers several. Row and span are read back
+    from the trail the renderer collected itself, because where that line sits in pixels is the
+    renderer's business (and its cap decides how much of it is drawn). The truth line is checked in the
+    same run to stay solid: two dashed lines would distinguish nothing, only swap the confusion.
+    """
+    def runs_of_ink(ghost):
+        engine = make_engine()
+        robot = engine.robots["alice"]
+        with gui(engine) as rend:
+            rend.show_ghost, rend.show_trails = ghost, not ghost
+            for i in range(40):                       # 4 m straight ahead, pose and odometer together
+                robot.pose.x = 1.0 + 0.1 * i
+                robot.odom.x = 1.0 + 0.1 * i
+                engine.t += 0.1
+                rend.draw(cap=False)
+            pts = rend.ghost_trail["alice"] if ghost else rend.trails["alice"]
+            assert len(pts) > 2, "no trail was collected at all"
+            x_lo, x_hi = sorted((rend.px(*pts[0])[0], rend.px(*pts[-1])[0]))
+            y = int(round(rend.px(*pts[-1])[1]))
+            x1 = int(x_hi - 14)                       # short of the marker drawn on the last pose
+            x0 = int(x_lo + 0.6 * (x_hi - x_lo))
+            ink = [rend.screen.get_at((x, y))[:3] != rend.col_floor for x in range(x0, x1)]
+            return sum(1 for a, b in zip(ink, ink[1:]) if a and not b) + (1 if ink and ink[0] else 0)
+
+    assert runs_of_ink(ghost=True) >= 3, "the believed trail is drawn solid again"
+    assert runs_of_ink(ghost=False) == 1, "the truth trail is not the solid line any more"

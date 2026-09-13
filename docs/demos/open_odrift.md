@@ -42,7 +42,7 @@ robot while both stand in an empty hall.
 ## What you see
 
 - `o` — the ghost, ahead on the line of travel, with `odom off` in the readout naming the gap in metres;
-- `t` — the trail of that belief;
+- `t` — the trail of that belief, dashed; the solid line in the same colour is the truth;
 - the dot, which is where the robot really is, and no fix anywhere near it.
 
 ## What it measured
