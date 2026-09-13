@@ -73,19 +73,19 @@ Four tasks: `kf_gps` (CV model, GPS only) → `kf_fusion` (GPS + odometry + IMU 
 
 ```bash
 source /opt/ros/kilted/setup.bash
-./lab sim --robots alice,bob                      # simulator as a real ROS node
-./lab spawn --name carlo                          # add a robot to a running sim
-ros2 launch launch/kf.launch.py                   # Experiment 2, everything configurable
-ros2 launch launch/kf.launch.py grade:=kf_alle controller:=student/kf_solution.py
-ros2 launch launch/sim.launch.py robots:=alice,bob  # Experiment 1
-ros2 launch launch/demo.launch.py demo:=wifi       # one demo config, RViz when it is installed
-ros2 launch launch/lab.launch.py config:=config/demo_gps_shadow.json view:=sensors
-ros2 topic echo /alice/imu --once                 # az at rest ≈ +9.81 — that is correct
-ros2 topic echo /tf --once                        # map → alice/odom → alice/base_link → laser
-./lab rviz --robot alice                          # RViz alone, on a config written for alice
+./install.sh                                      # also builds the ROS package (colcon, ~1 min)
+source install/setup.bash                         # every new terminal, until ROS is the only one
+ros2 launch mecanum_lab lab.launch.py             # sim + window, keyboard drives 'muster'
+ros2 launch mecanum_lab demo_wifi.launch.py       # one demo by name — six of them, table below
+ros2 launch mecanum_lab kf.launch.py              # Experiment 2, 47 arguments, all mapped onto --set
+ros2 topic echo /muster/imu --once                # az at rest ≈ +9.81 — that is correct
+ros2 topic echo /tf --once                        # map → muster/odom → muster/base_link → laser
 ```
 
-To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless`.
+Nothing needs that build. Every file also launches by path from this tree
+(`ros2 launch launch/demo_wifi.launch.py`), and the plain commands stay:
+`./lab sim --robots alice,bob`, `./lab spawn --name carlo`, `./lab rviz --robot alice`. To keep the
+in-process bus even with ROS sourced: `MECANUM_ROS=stub ./lab sim --headless`.
 
 ## The simulator window (what you hide is not what is published)
 
@@ -121,10 +121,11 @@ of it without a second terminal running `ros2 topic echo` beside the window.
 ### The demos: four configurations that make one instrument lie
 
 Each file changes one block of the config and leaves the graded defaults alone, so starting a demo is
-a `--config`, not an edit. The `demo:=` name of the launch file is the file name without its `demo_`
-prefix, and `ros2 launch launch/demo.launch.py demo:=gps_shadow` opens the same run beside RViz.
+a `--config`, not an edit. Each demo has a launcher of its own — `ros2 launch mecanum_lab
+demo_gps_shadow.launch.py` (or `launch/demo_gps_shadow.launch.py` by path, no build needed) — and
+`ros2 launch launch/demo.launch.py demo:=gps_shadow` is the same thing with the name as an argument.
 
-| demo (file and `demo:=` name) | what it turns on | what you see |
+| demo (config, `demo:=` name, launcher) | what it turns on | what you see |
 |---|---|---|
 | `demo_gps_shadow` | `gps.zones`: two rectangles and a blackout | hatched shadow (`x`), fixes that scatter, then none at all |
 | `demo_odom_error` | `odom.geometry`: the odometry believes radius ×1.05, lever ×0.97 | the ghost (`o`) drifts ahead: 0.61 m per 12 m of straight lane |

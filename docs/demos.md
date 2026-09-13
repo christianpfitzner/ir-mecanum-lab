@@ -8,8 +8,8 @@ experiment, and a default that lies would move what every filter is graded again
 Started either way — in the window of one process, or beside RViz through the launch file:
 
 ```bash
-./lab sim --world production --config config/demo_gps_shadow.json     # window
-ros2 launch launch/demo.launch.py demo:=gps_shadow         # same, with rviz:=auto
+./lab sim --config config/demo_gps_shadow.json                        # window, no build needed
+ros2 launch mecanum_lab demo_gps_shadow.launch.py           # same through ROS, with RViz beside it
 ```
 
 ### GPS that gets bad by place: the shadow demo (not the default)

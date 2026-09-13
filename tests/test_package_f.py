@@ -163,7 +163,9 @@ def test_requirements_only_pygame():
     # and every decision with more than one outcome lives in mecanum_lab/, which test_launch_docs.py checks.
     ("lab.launch.py", {"world", "robot", "robots", "controller", "task", "grade", "seconds",
                        "headless", "use_sim_time", "config", "view", "layers", "rviz"}, 75),
-    ("demo.launch.py", {"demo", "robot", "controller", "seconds", "rviz", "view", "layers"}, 75),
+    # demo.launch.py and the six demo_*.launch.py are not in this list: they declare no arguments of
+    # their own any more — `mecanum_lab/demo_launch.py` does, once — and test_launch_docs.py checks the
+    # arguments they *offer* by loading the description, which is the only reading that cannot lie.
 ])
 def test_launch_file_small_and_with_arguments(file_name, args, max_lines):
     path = os.path.join(WURZEL, "launch", file_name)
@@ -224,3 +226,51 @@ for path in sys.argv[1:]:
 def test_topic_names_are_in_the_node_documentation():
     assert topic("wheels", "alice") == "/alice/wheel_speeds"
     assert topic("spawn") == "/sim/spawn_robot"
+
+
+# --------------------------------------------------------------------- where the installation keeps its data
+
+
+def test_the_data_root_follows_the_installation(tmp_path, monkeypatch):
+    """`./lab` and `colcon build` put config/ and worlds/ in different places; one function decides.
+
+    In the source tree the data is next to the package. After `colcon build` the module sits in
+    `<prefix>/lib/python3*/…/mecanum_lab/` and its data in `<prefix>/share/mecanum_lab`, and the old
+    one-liner (`dirname(dirname(__file__))`) resolved that to a `lib/` folder that contains neither — which
+    showed up as "unknown world" from `ros2 launch mecanum_lab …`, i.e. as a broken simulator rather than as
+    a missing path. The installed branch needs the module path as an argument, because a test that runs in
+    the source tree can never arrive there by other means.
+    """
+    from mecanum_lab.types import ROOT, data_root
+    assert os.path.isdir(os.path.join(ROOT, "worlds")), "this tree itself must resolve to its data"
+
+    prefix = tmp_path / "prefix"
+    installed = prefix / "lib" / "python3.12" / "site-packages" / "mecanum_lab" / "types.py"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("# the installed module\n")
+    monkeypatch.setenv("AMENT_PREFIX_PATH", str(prefix))
+
+    # a prefix that was sourced but has no data of ours is not allowed to answer
+    assert data_root(str(installed)) == os.path.dirname(os.path.dirname(installed)), (
+        "an <prefix>/share/mecanum_lab without worlds/ must not hijack the lookup")
+    (prefix / "share" / "mecanum_lab" / "worlds").mkdir(parents=True)
+    from mecanum_lab.types import PACKAGE
+    assert data_root(str(installed)).endswith(os.path.join("share", PACKAGE)), (
+        "the installed layout must resolve to <prefix>/share/mecanum_lab, where setup.py put the data")
+
+
+def test_a_missing_config_is_an_error_and_not_the_default_config(tmp_path):
+    """`--config` that points at nothing used to run the plain lab setup in silence.
+
+    For a demo that is the worst possible failure: the window opens, looks like the normal hall, and the
+    student spends the hour on their own typing. A relative name is also looked up next to the
+    installation's own config/, which is what a launch file needs when it was started from another
+    directory.
+    """
+    from mecanum_lab.types import load_config
+    with pytest.raises(FileNotFoundError, match="is not there"):
+        load_config(str(tmp_path / "demo_nope.json"))
+    with pytest.raises(FileNotFoundError, match="demo_nope"):
+        load_config("demo_nope.json")
+    assert load_config("config/demo_wifi.json")["wifi"]["enabled"] is True   # bare name, from anywhere
+    assert load_config(None) is not None

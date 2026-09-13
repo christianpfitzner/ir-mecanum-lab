@@ -54,6 +54,7 @@ PACKAGES, ROS = _ros_packages()
 node_main = node_module.main
 HAVE_LAUNCH = PACKAGES is not None
 FILES = sorted(name for name in os.listdir(LAUNCH) if name.endswith(".launch.py"))
+HELPER = os.path.join(REPO, "mecanum_lab", "demo_launch.py")     # where a demo start is decided
 
 
 def load(name):
@@ -64,6 +65,32 @@ def load(name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def declared_arguments(module) -> dict:
+    """{name: (default, description)} of one launch file, read from its own LaunchDescription.
+
+    Written once here because three checks need it and the launch system wraps a plain string default in
+    `TextSubstitution` objects: `str(default_value)` then answers `[<launch.substitutions.…>]`, which is
+    how the first version of this test "proved" that a default was not empty.
+    """
+    from launch.actions import DeclareLaunchArgument
+    from launch.launch_context import LaunchContext
+    ctx = LaunchContext()
+
+    def text(value):
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "perform"):
+            return value.perform(ctx)
+        return "".join(str(text(part)) for part in value)
+
+    out = {}
+    for entity in module.generate_launch_description().entities:
+        for action in getattr(entity, "actions", None) or [entity]:
+            if isinstance(action, DeclareLaunchArgument):
+                out[action.name] = (text(action.default_value), text(action.description))
+    return out
 
 
 @pytest.mark.skipif(not HAVE_LAUNCH, reason="launch files need a sourced ROS 2")
@@ -87,15 +114,21 @@ def test_a_launch_file_loads_and_does_not_shadow_the_framework_it_runs_in(name):
 
 
 @pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
-def test_the_demos_named_for_demo_are_the_config_files():
-    """`--show-args` is what a student reads; it must not list a demo that cannot be launched.
+def test_the_demo_argument_lists_the_demos_that_exist():
+    """`--show-args` is what a student reads, and its list is now assembled from `config/`.
 
-    Both directions: a name in the argument's text without `config/demo_<name>.json` is a promise the
-    launch file cannot keep, and a config file that is not named there is a demo nobody finds.
+    A hand-written list of demo names inside the launch file was a second source all along: it could be
+    edited into a name with no config file, and only a test kept it honest. `demo_launch.demos()` is the
+    folder, so the argument's help line and its default come from the same read of `config/` — what is
+    checked here is that the row a student sees really enumerates those files.
     """
-    module = load("demo.launch.py")
-    assert set(module.documented_demos()) == set(module.available_demos())
-    assert "gps_shadow" in module.documented_demos()
+    from mecanum_lab import demo_launch
+    known = demo_launch.demos()
+    assert known, "no config/demo_*.json in this installation — the check below would pass on nothing"
+    default, help_line = declared_arguments(load("demo.launch.py"))["demo"]
+    listed = help_line.rsplit(": ", 1)[-1].split(", ")
+    assert sorted(listed) == sorted(known), f"`--show-args` offers {listed}, config/ has {sorted(known)}"
+    assert default in known, f"the default demo `{default}` has no config file"
 
 
 def test_the_rviz_answer_means_what_it_says(tmp_path, monkeypatch):
@@ -174,13 +207,16 @@ def test_demo_launch_includes_lab_launch_rather_than_copying_it():
     `lab.launch.py`, which stays the one place that knows how. If somebody pastes a process list into the
     demo file again, the two drift and the students find out first.
     """
-    text = open(os.path.join(LAUNCH, "demo.launch.py"), encoding="utf-8").read()
-    assert "IncludeLaunchDescription" in text and "lab.launch.py" in text
-    started = {alias.name for node in ast.parse(text).body if isinstance(node, ast.ImportFrom)
-               for alias in node.names}
-    assert "ExecuteProcess" not in started, (
-        "demo.launch.py imports ExecuteProcess: it starts processes of its own again, and the sim/node/"
-        "rviz list is then maintained twice — which is the drift this test exists for")
+    # since the demo launchers are thin, the rule is read where it lives: the shared helper
+    helper = open(HELPER, encoding="utf-8").read()
+    assert "IncludeLaunchDescription" in helper and '"launch", "lab.launch.py"' in helper, (
+        "the demo launcher no longer includes lab.launch.py — it starts processes of its own again, and "
+        "the sim/node/rviz list is then maintained twice, which is the drift this test exists for")
+    for label, path in (("launch/demo.launch.py", os.path.join(LAUNCH, "demo.launch.py")),
+                        ("mecanum_lab/demo_launch.py", HELPER)):
+        started = {alias.name for node in ast.parse(open(path, encoding="utf-8").read()).body
+                   if isinstance(node, ast.ImportFrom) for alias in node.names}
+        assert "ExecuteProcess" not in started, f"{label} imports ExecuteProcess and starts its own list"
     lab = open(os.path.join(LAUNCH, "lab.launch.py"), encoding="utf-8").read()
     for argument in ("config", "view", "layers", "rviz"):
         assert f'("{argument}"' in lab, f"lab.launch.py no longer declares {argument}"
@@ -248,6 +284,7 @@ def test_no_launch_file_starts_rviz2_by_itself():
                 f"{name} calls the viewer helper without importing it, or forwards `rviz:=` — if it "
                 f"forwards, nothing here may decide")
 
+
 @pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
 def test_every_demo_name_in_the_documentation_launches():
     """`demo:=gps` stood in the README for a round of commits, and a reader got a raised ValueError.
@@ -257,12 +294,20 @@ def test_every_demo_name_in_the_documentation_launches():
     in between — the part a student actually copies — was nobody's subject. So the names on the
     documentation pages are looked up in the same list the launcher uses.
     """
-    real = set(load("demo.launch.py").available_demos())
+    from mecanum_lab import demo_launch
+    real = set(demo_launch.demos())
     named, files = set(), set()
     for page in ("README.md", os.path.join("docs", "demos.md")):
         text = open(os.path.join(REPO, page), encoding="utf-8").read()
         named |= set(re.findall(r"demo:=([a-z_]+)", text))
         files |= set(re.findall(r"config/demo_([a-z_]+)\.json", text))
+    launchers = set()
+    for page in ("README.md", os.path.join("docs", "demos.md")):
+        launchers |= set(re.findall(r"(demo_[a-z_]+)\.launch\.py",
+                                    open(os.path.join(REPO, page), encoding="utf-8").read()))
+    for launcher in sorted(launchers):
+        assert os.path.exists(os.path.join(LAUNCH, launcher + ".launch.py")), (
+            f"the documentation tells a reader to start {launcher}, and there is no such file")
     assert named, "no `demo:=` on the documentation pages at all — the scan is broken, not the docs"
     assert named <= real, (
         f"the documentation launches {sorted(named - real)}, the demos are {sorted(real)} — the "
@@ -281,26 +326,42 @@ def test_the_keyboard_is_the_default_driver(name):
     a key only while it is held (§ node.run_loop). That reads as "the keyboard is broken". So the window
     starts with one driver — the person in front of it — and handing the wheel over is an explicit option.
     """
-    module = load(name)
-    from launch.actions import DeclareLaunchArgument
-    from launch.launch_context import LaunchContext
-    ctx = LaunchContext()
+    declared = declared_arguments(load(name))
+    assert "controller" in declared, f"{name} has no controller argument to default"
+    default, help_line = declared["controller"]
+    assert default == "", (
+        f"{name} starts {default!r} by default, and the keyboard in its window is then a decoration — "
+        f"the node publishes a cmd_vel every tick")
+    assert "keyboard" in help_line, f"{name} does not say in --show-args who drives by default"
+    # who says it: lab.launch.py starts the processes and prints the line; the demo files only forward
+    place = os.path.join(LAUNCH, name) if name == "lab.launch.py" else HELPER
+    assert "LogInfo" in open(place, encoding="utf-8").read(), (
+        f"{name} says nothing about who drives — the line is in {place}")
 
-    def text(value):
-        if isinstance(value, str):
-            return value
-        if hasattr(value, "perform"):
-            return value.perform(ctx)
-        return "".join(str(text(part)) for part in value)
 
-    defaults = {}
-    for entity in module.generate_launch_description().entities:
-        for action in getattr(entity, "actions", None) or [entity]:
-            if isinstance(action, DeclareLaunchArgument):
-                defaults[action.name] = text(action.default_value)
-    assert "controller" in defaults, f"{name} has no controller argument to default"
-    assert defaults["controller"] == "", (
-        f"{name} starts {defaults['controller']!r} by default, and the keyboard in its window is then "
-        f"a decoration — the node publishes a cmd_vel every tick")
-    text = open(os.path.join(LAUNCH, name), encoding="utf-8").read()
-    assert "LogInfo" in text, f"{name} says nothing about who drives when a node is started"
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
+def test_every_demo_has_its_own_launcher():
+    """One launcher per demo, both directions — and a launcher stays a *name*.
+
+    `demo_<name>.launch.py` is what a student types after `colcon build` (`ros2 launch mecanum_lab
+    demo_gps.launch.py`), so a demo whose launcher is missing is a demo that does not exist, and a launcher
+    whose name matches no config is a window on the wrong hall. Each file reads its own name through
+    `demo_launch.demo_of()`, so launcher, config and docstring cannot be edited apart; what is left to
+    check is that the two lists are the same list.
+
+    The size rule is the same one `test_package_f.py` applies to the launch files: eight code lines, no
+    branch. Everything a demo start means lives in `mecanum_lab/demo_launch.py`, once.
+    """
+    from mecanum_lab import demo_launch
+    launchers = {name[len("demo_"):-len(".launch.py")] for name in os.listdir(LAUNCH)
+                 if name.startswith("demo_") and name.endswith(".launch.py")}
+    known = set(demo_launch.demos())
+    assert launchers == known, (f"launchers for {sorted(launchers)}, demos in config/ {sorted(known)}")
+    for name in sorted(launchers):
+        path = os.path.join(LAUNCH, f"demo_{name}.launch.py")
+        text = open(path, encoding="utf-8").read()
+        assert "description(demo_of(" in text, f"{name}: the launcher decides about the demo itself again"
+        code = [line for line in text.split("\n")
+                if line.strip() and not line.strip().startswith("#")]
+        assert len(code) < 20, f"demo_{name}.launch.py has grown logic: {len(code)} non-comment lines"
+        assert "ExecuteProcess" not in text, f"demo_{name}.launch.py starts processes of its own"

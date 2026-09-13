@@ -86,17 +86,23 @@ if [[ $ohne_ros == 0 ]]; then
     set +u; source "$ros_setup" 2>/dev/null || true; set -u
     if python3 -c 'import rclpy' >/dev/null 2>&1; then
       ok "ROS 2 (${ROS_DISTRO:-$ros_name}) — ros2 launch and ros2 topic work"
-      if python3 -c 'import mecanum_lab_interfaces' >/dev/null 2>&1; then
-        ok "mecanum_lab_interfaces built (spawn service with its own type)"
+      if python3 -c 'import mecanum_lab_interfaces' >/dev/null 2>&1 \
+         && ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
+        ok "mecanum_lab and mecanum_lab_interfaces installed — ros2 launch mecanum_lab <demo> works"
       elif [[ $check_nur == 1 ]]; then
-        wann "interfaces not built — in the lab room: ./install.sh (takes ~20 s)"
+        wann "not built — in the lab room: ./install.sh (takes ~1 min), then source install/setup.bash"
       elif command -v colcon >/dev/null 2>&1; then
-        echo "  building mecanum_lab_interfaces (colcon, --symlink-install) …"
-        ( cd "$here" && colcon build --paths interfaces/mecanum_lab_interfaces --symlink-install ) \
-          && ok "interfaces built — for new shells: source install/setup.bash" \
-          || wann "colcon build failed — without the interfaces everything runs over the JSON handshake"
+        # Both packages in one pass. `--paths .` finds the root package.xml (the lab itself, whose launch
+        # files and config/ end up in share/mecanum_lab) and the interfaces below it — which is what makes
+        # `ros2 launch mecanum_lab demo_gps_shadow.launch.py` work from any directory: without this build
+        # only the *paths* of the source tree launch, and every demo command in the documentation that
+        # starts with a package name is a lie.
+        echo "  building mecanum_lab + mecanum_lab_interfaces (colcon, --symlink-install) …"
+        ( cd "$here" && colcon build --paths . --symlink-install ) \
+          && ok "built — for new shells: source install/setup.bash (it also overlays ROS)" \
+          || wann "colcon build failed — from the source tree everything still works with ros2 launch launch/…"
       else
-        wann "colcon is missing — without built interfaces the sim answers the JSON handshake (see docs/CONTRACT.md §4)"
+        wann "colcon is missing — the demos still run: ros2 launch launch/demo_gps_shadow.launch.py"
       fi
     else
       wann "ROS 2 is installed, but rclpy is not importable — ROS parts skipped"
@@ -109,7 +115,6 @@ else
   hinweise+=("this run left ROS 2 out on purpose (--without-ros)")
 fi
 
-# ---------------------------------------------------------------- Final
 # ---------------------------------------------------------------- Final
 echo "------------------------------------------------------------------"
 for h in "${hinweise[@]:-}"; do [[ -n "$h" ]] && echo "  note: $h"; done
@@ -130,6 +135,13 @@ echo "result: ready. Continue in directory $here with"
 echo "  ./lab run --robot alice --controller student/controller_template.py"
 echo "  ./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv"
 echo "  ros2 launch launch/kf.launch.py            (with ROS 2)"
+# The demos by name — the installed form first, because that is the one that works from any directory
+# and in a terminal that only sourced ROS.
+if ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
+  echo "  ros2 launch mecanum_lab demo_gps_shadow.launch.py     (demos: $(cd "$here" && ls config | sed -n 's/^demo_\(.*\)\.json$/\1/p' | tr '\n' ' '))"
+else
+  echo "  ros2 launch launch/demo_gps_shadow.launch.py          (or ./lab sim --config config/demo_wifi.json)"
+fi
 [[ -n "$ros_setup" ]] && echo "In every new terminal, if ROS does not come up automatically:"
 echo "  source ${ROS_SETUP:-$ros_setup}"
 exit 0

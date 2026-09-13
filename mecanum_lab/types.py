@@ -10,7 +10,34 @@ import os
 import re
 
 VERSION = "0.1"
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PACKAGE = "mecanum_lab"            # the name `ros2 launch <PACKAGE> …` and the share/ folder answer to
+
+
+def data_root(module_file: str | None = None) -> str:
+    """Where this installation keeps `config/`, `worlds/` and `config/rviz/`.
+
+    Two layouts share one package name. In the source tree (`./lab`, pytest) the data sits one level
+    above `mecanum_lab/`, next to the code. After `colcon build` (`ros2 launch mecanum_lab …`) the package
+    lives in `<prefix>/lib/python3*/site-packages/mecanum_lab/` and its data in `<prefix>/share/mecanum_lab`
+    — a directory that is *not* above the module at all. Resolving the source-tree path in the installed
+    layout does not fail on the spot: it fails as "unknown world 'production'" or "no config/default.json",
+    which reads as a broken simulator instead of a missing path. So the layout is asked, not guessed, and
+    AMENT_PREFIX_PATH is where an installed ROS 2 says where it installed itself.
+    """
+    # `module_file` is a parameter for the same reason the layouts are spelled out above: the installed
+    # branch cannot be reached from a test that runs inside the source tree, and an untestable fallback is
+    # a fallback nobody ever sees until a student does.
+    here = os.path.dirname(os.path.dirname(os.path.abspath(module_file or __file__)))
+    if os.path.isdir(os.path.join(here, "worlds")):
+        return here
+    for prefix in [entry for entry in os.environ.get("AMENT_PREFIX_PATH", "").split(os.pathsep) if entry]:
+        share = os.path.join(prefix, "share", PACKAGE)
+        if os.path.isdir(os.path.join(share, "worlds")):
+            return share
+    return here             # nothing found: name the source tree, the one place the message makes sense
+
+
+ROOT = data_root()
 
 # ----------------------------------------------------------------------------- Core types
 
@@ -520,12 +547,25 @@ DEFAULT_CONFIG = {
 
 
 def load_config(path: str | None = None, overrides: dict | None = None) -> dict:
-    """DEFAULT_CONFIG <- file (JSON) <- overrides. Nested dictionaries are merged."""
+    """DEFAULT_CONFIG <- `config/default.json` <- file (JSON) <- overrides. Nested dictionaries are merged.
+
+    A `--config` that cannot be found is an **error**, not the default configuration: typed from another
+    directory, `--config config/demo_wifi.json` used to run the plain lab setup without saying anything,
+    and a demo whose window is indistinguishable from the normal one costs an hour of suspecting one's own
+    typing. A name that is relative is therefore also looked up next to the installation's own `config/`,
+    which is the one place `ros2 launch mecanum_lab demo_…` can point at from any working directory.
+    """
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))       # deep copy, cheap enough
-    for p in [os.path.join(ROOT, "config", "default.json"), path]:
-        if p and os.path.exists(p):
-            with open(p) as fh:
-                _merge(cfg, json.load(fh))
+    with open(os.path.join(ROOT, "config", "default.json"), encoding="utf-8") as handle:
+        _merge(cfg, json.load(handle))
+    if path:
+        candidates = [path, os.path.join(ROOT, os.path.basename(path)), os.path.join(ROOT, path)]
+        found = next((candidate for candidate in candidates if os.path.exists(candidate)), None)
+        if found is None:
+            raise FileNotFoundError(f"config file '{path}' is not there — looked in "
+                                    + ", ".join(repr(os.path.dirname(c) or ".") for c in candidates[:2]))
+        with open(found, encoding="utf-8") as handle:
+            _merge(cfg, json.load(handle))
     _merge(cfg, overrides or {})
     return cfg
 
