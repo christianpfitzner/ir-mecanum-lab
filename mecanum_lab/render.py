@@ -40,12 +40,16 @@ WHEEL_SPIN_GAIN = 0.25                              # wheel radius -> on-screen 
 WHEEL_WIDTH_RATIO = 0.6           # drawn width of a wheel, as a fraction of its drawn length
 WHEEL_MIN_PX = 3.0               # below this a wheel is one pixel and says nothing about rollers
 # Marker per robot as a list of (radius, angle in degrees); radius 1 = footprint.
+# The marker of a robot, authored in the **body frame**: angle 0 is forward, counter-clockwise
+# positive — the same convention as the wheels, the kinematics and the topics. The tip of the
+# triangle and the point of the pentagon are at 0 because a marker that points somewhere else than
+# the robot drives is a second heading indicator that contradicts the first.
 SHAPES = {
-    "triangle": [(1, -90), (1, 30), (1, 150)],
+    "triangle": [(1, 0), (1, 120), (1, 240)],
     "square": [(1.2, a) for a in (45, 135, 225, 315)],
     "diamond": [(1.25, a) for a in (0, 90, 180, 270)],
     "circle": [(1, a) for a in range(0, 360, 30)],
-    "pentagon": [(1.15, a) for a in range(90, 450, 72)],
+    "pentagon": [(1.15, a) for a in range(0, 360, 72)],
     "hexagon": [(1.15, a) for a in range(0, 360, 60)],
     "star": [v for a in range(0, 360, 36) for v in ((1.35, a), (.55, a + 18))],
     "cross": [v for a in range(0, 360, 45) for v in ((1.3, a), (.5, a + 22.5))],
@@ -60,6 +64,21 @@ def body(theta: float, dx: float, dy: float) -> tuple:
     """Rotate a vector from the body frame (x forward, y left) into the world."""
     c, s = math.cos(theta), math.sin(theta)
     return (dx * c - dy * s, dx * s + dy * c)
+
+
+def screen(theta: float, dx: float, dy: float) -> tuple:
+    """A body-frame direction as a vector **on the screen**: x right, y down.
+
+    The world is right-handed with y to the left, the screen is not: its y grows downwards. So the
+    screen direction of a body vector is `body(-theta, dx, -dy)` — the mirror of the handy form that
+    was used here for years, which agreed for vectors along the body x-axis and quietly mirrored
+    the ones with a y component. Harmless for the chassis plate — a rectangle looks the same with
+    one of its axes flipped — and not harmless at all for a roller axis at 45°: the X arrangement of
+    the wheels came out as an O, in the one picture a student is meant to learn the kinematics from.
+    Everything that draws a *direction* goes through here; `px()` remains the one that draws a
+    *position*, because that one already flipped y correctly.
+    """
+    return body(-theta, dx, -dy)
 
 
 def rgb(color, factor: float = 1.0) -> tuple:
@@ -97,14 +116,18 @@ def wheel_mounts(lx: float, ly: float) -> list:
 
 
 def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
-    """Corner points of a marker shape in pixels, unknown names drawn as a circle.
+    """Corner points of one marker shape in pixels; an unknown name is drawn as a circle.
 
-    The minus before theta compensates the downward screen y, so the shape turns with the
-    robot instead of standing mirrored.
+    One corner of `SHAPES` is a body-frame direction, `screen()` makes it a screen direction, and
+    the two are multiplied by the same radius for every corner — so the shape turns with the robot
+    and never stands mirrored, whatever the heading.
     """
-    return [(centre[0] + radius * rt * math.cos(math.radians(ang) - theta),
-             centre[1] + radius * rt * math.sin(math.radians(ang) - theta))
-            for rt, ang in SHAPES.get(name) or SHAPES["circle"]]
+    corners = []
+    for span, angle in SHAPES.get(name) or SHAPES["circle"]:
+        reach = radius * span
+        direction = screen(theta, math.cos(math.radians(angle)), math.sin(math.radians(angle)))
+        corners.append((centre[0] + reach * direction[0], centre[1] + reach * direction[1]))
+    return corners
 
 
 # ------------------------------------------------------------------ the layers a run starts with
@@ -369,7 +392,7 @@ class Renderer:
         # collision circle — a tyre drawn past the circle the physics collides with would show a
         # robot that cannot fit through the gaps the grader measures it through.
         wheel_r = min(wr * self.wheel_scale, max(0.01, fp_m - ly))                  # metres
-        u, v = body(-pose.theta, 1, 0), body(-pose.theta, 0, 1)                    # screen vectors
+        u, v = screen(pose.theta, 1, 0), screen(pose.theta, 0, 1)                 # on screen
         chassis_body = self._plate(centre, u, v, plate[0] * self.s, plate[1] * self.s)
         pygame.draw.polygon(sc, mix(col, self.col_floor, .55), chassis_body)
         pygame.draw.polygon(sc, col, chassis_body, 1)
@@ -414,12 +437,12 @@ class Renderer:
         centre = self.px(*_add((pose.x, pose.y), body(pose.theta, *mount)))
         half_len = max(WHEEL_MIN_PX, wheel_r * self.s)          # pixels, along the rolling direction
         half_wid = max(WHEEL_MIN_PX * .5, half_len * WHEEL_WIDTH_RATIO)   # pixels, across it
-        u, v = body(-heading, 1, 0), body(-heading, 0, 1)       # this wheel's axes on screen
+        u, v = screen(heading, 1, 0), screen(heading, 0, 1)          # this wheel's axes on screen
         tyre = self._plate(centre, u, v, half_len, half_wid)
         pygame.draw.polygon(sc, mix(col, (0, 0, 0), .55), tyre)
         if self.s > 45:                                           # a 1 px edge below that is mush
             pygame.draw.polygon(sc, col, tyre, 1)
-        roller = body(-heading, ROLLERS[index][0], ROLLERS[index][1])
+        roller = screen(heading, *ROLLERS[index])
         roller = (roller[0] * half_wid * 1.3, roller[1] * half_wid * 1.3)     # one stroke, full width
         for stroke in range(WHEEL_STROKES):
             share = (phase[index] / math.tau + stroke / WHEEL_STROKES) % 1.0

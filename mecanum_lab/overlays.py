@@ -90,7 +90,7 @@ def zone_label(zone: dict) -> str:
 
 def odom_ghost(rend, robot) -> None:
     """Ghost chassis at the odometry pose, leader line to the truth, gap in metres."""
-    from .render import body, mix, rgb
+    from .render import mix, rgb, screen
     o = getattr(robot, "odom", None)
     if not o:
         return
@@ -103,7 +103,7 @@ def odom_ghost(rend, robot) -> None:
     g = getattr(robot.chassis, "geom", None)
     half_l = (float(getattr(g, "lx", .14)) + float(getattr(g, "r", .05))) * rend.chassis_scale
     be = (float(getattr(g, "ly", .13)) + float(getattr(g, "r", .05))) * rend.chassis_scale
-    u, v = body(-o.theta, 1, 0), body(-o.theta, 0, 1)
+    u, v = screen(o.theta, 1, 0), screen(o.theta, 0, 1)      # the ghost is drawn like the real thing
     pygame.draw.polygon(sc, fill, _plate(ghost, u, v, half_l * rend.s, be * rend.s))
     pygame.draw.polygon(sc, edge, _plate(ghost, u, v, half_l * rend.s, be * rend.s), 1)
     if math.dist(truth, ghost) > 3:
@@ -114,7 +114,7 @@ def odom_ghost(rend, robot) -> None:
 
 def skid_marks(rend, robot, dt: float) -> None:
     """Rubber on the floor while the wheels turn and the body cannot — `robot.slip` made visible."""
-    from .render import body, mix
+    from .render import body, mix, screen        # body() for the world offset, screen() for the stroke
     trail = rend.__dict__.setdefault("skid_trail", [])          # state on the renderer, not here
     g = getattr(robot.chassis, "geom", None)
     rder = getattr(robot, "wheels", None) or [0.0]
@@ -133,7 +133,7 @@ def skid_marks(rend, robot, dt: float) -> None:
             continue
         alive.append((x, y, theta, life))
         center = rend.px(x, y)
-        stroke = body(-theta, 5 * life, 0)
+        stroke = screen(theta, 5 * life, 0)      # the mark lies along the driven direction
         pygame.draw.line(sc, mix(bg, rend.col_floor, 1 - life),
                          (center[0] - stroke[0], center[1] - stroke[1]),
                          (center[0] + stroke[0], center[1] + stroke[1]), 2)

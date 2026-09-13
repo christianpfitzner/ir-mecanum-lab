@@ -6,6 +6,7 @@ the contract (engine.world, engine.robots, engine.t, engine.task). All of it hea
 import contextlib
 import math
 import statistics
+import unittest.mock as mock
 import time
 from types import SimpleNamespace
 
@@ -64,6 +65,38 @@ def gui(engine=None, cfg=None):
         yield rend
     finally:
         rend.close()
+
+
+def _to_world(theta: float, bx: float, by: float) -> tuple:
+    """A body-frame direction of a robot at `theta` as a world direction.
+
+    Written out here rather than taken from `render`: the right hand side is the definition of the
+    frame the whole project documents — x forward, y to the left, theta counter-clockwise.
+    """
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+    return bx * cos_t - by * sin_t, bx * sin_t + by * cos_t
+
+
+def _drawn_at(theta: float, bx: float, by: float) -> tuple:
+    """And the same direction as the camera shows it: `px()` maps a world y downwards on the screen.
+
+    This is the contract `render.screen()` has to satisfy, restated independently of it. Without this
+    step a test of the drawing can only ever compare a drawing with the transform it was drawn by, and
+    passes on a mirrored one.
+    """
+    wx, wy = _to_world(theta, bx, by)
+    return wx, -wy
+
+
+def _shift(x: float, y: float, theta: float, mount: tuple) -> tuple:
+    """Where a body-frame point of a robot at `theta` lands in the world (the camera does the rest)."""
+    dx, dy = _to_world(theta, *mount)
+    return x + dx, y + dy
+
+
+def _closest_to(axles: list, point: tuple) -> int:
+    """Which wheel a drawn stripe belongs to: the one whose axle it started nearest to."""
+    return min(range(len(axles)), key=lambda i: math.dist(axles[i], point))
 
 
 def press(key):
@@ -162,6 +195,111 @@ def test_wheel_pixels_stay_inside_the_chassis_box():
             assert rend.screen.get_at((px, py))[:3] != rend.col_floor, f"no wheel at {mx}, {my}"
         far = tuple(int(round(v)) for v in rend.px(robot.pose.x + 2.0, robot.pose.y))
         assert rend.screen.get_at(far)[:3] == rend.col_floor, "a wheel is drawn 2 m ahead"
+
+
+def test_a_body_direction_becomes_the_direction_it_is_drawn_as():
+    """`render.screen()` has to be the camera's own mapping, and the camera is defined in `px()`.
+
+    The world is right-handed with y to the left; the screen is not, its y grows downwards, and
+    `px()` turns a world position into a screen position with exactly one sign change. A *direction*
+    needs the same sign change, which the helper that stood here for years left out: it rotated body
+    vectors by `-theta`, a reflection composed with a rotation. The two agree on every vector along the
+    body x-axis — the long axis of the chassis plate, the heading line, the velocity arrow, and the
+    direction the collision circle is measured in — which is why the difference survived as long as it
+    did. The ones it got wrong were the diagonals: the roller axes of the wheels.
+    """
+    for theta in (0.0, 0.7, math.pi / 2, 2.3, -1.1):
+        for vector in ((1, 0), (0, 1), (1, 1), (1, -1), (-1, 1), (0.3, 0.9)):
+            world = _to_world(theta, *vector)
+            want = (world[0], -world[1])
+            got = render.screen(theta, *vector)
+            assert got[0] == pytest.approx(want[0], abs=1e-9)
+            assert got[1] == pytest.approx(want[1], abs=1e-9), \
+                f"body direction {vector} at {math.degrees(theta):+.0f}° drawn at " \
+                f"{math.degrees(math.atan2(got[1], got[0])):+.1f}°, belongs at " \
+                f"{math.degrees(math.atan2(want[1], want[0])):+.1f}°"
+    assert render.screen(0.0, 0, 1)[1] < 0, "left is up the screen for a robot that faces +x"
+
+
+def test_the_nose_of_a_marker_points_where_that_robot_drives():
+    """A marker says "this corner is the front of that robot", so its nose must lie on the heading.
+
+    The marker angles used to be authored as *screen* angles of an unrotated robot, and the tip of the
+    triangle sat at -90° — up the screen, which is the robot's left. A robot facing +x therefore wore a
+    triangle pointing 90° off its heading while the white heading line beside it pointed forward: two
+    heading indicators on one robot, telling two stories, in the picture a student uses to tell the
+    robots apart. The shapes are authored in the body frame now (0° = forward, counter-clockwise), so
+    every marker that has a corner forward has that corner on the heading at any heading.
+    """
+    nose_markers = ("triangle", "diamond", "pentagon", "star", "cross")   # the ones with a corner at 0°
+    for marker in nose_markers:
+        for theta in (0.0, 0.7, math.pi / 2, 2.3, -1.1):
+            ahead = render.screen(theta, 1, 0)
+            corners = render.shape(marker, (0.0, 0.0), 10.0, theta)
+            best = max(corners, key=lambda p: (p[0] * ahead[0] + p[1] * ahead[1]) / math.hypot(*p))
+            along = (best[0] * ahead[0] + best[1] * ahead[1]) / math.hypot(*best)
+            assert along > 0.99, f"{marker} at {math.degrees(theta):+.0f}°: nose is {along:.2f} ahead"
+
+
+def test_the_roller_strokes_are_drawn_on_the_free_glide_axis_of_their_own_wheel():
+    """Which way the stripes on a tyre lean is the content of a mecanum drawing.
+
+    A wheel is drawn as a rectangle along the direction it is mounted to roll in, with its rollers as
+    stripes across the tread. Those stripes are the free-glide axis, and the wheel is driven along the
+    direction perpendicular to it — which is what `physics.inverse_kinematics()` projects the body
+    velocity onto. The stripes are therefore the one thing in the picture that says which diagonal this
+    robot's layout follows, and the renderer's screen helper used to mirror every direction with a y
+    component, enough to turn the X of the physics into an O: in the figure a student is meant to learn
+    the kinematics from. A rectangle hides a mirror image of its own axes; a stripe does not.
+
+    The stripe is taken from the drawing call rather than from the pixels, deliberately. A tyre is some
+    20 px across, its three stripes are 2 px thick, and where they sit along the tread depends on the
+    wheel phase and so on the frame time: an axis fitted from such ink sits within a few degrees of the
+    truth at best and cannot tell a mirror image from a rounding error. What is checked instead is the
+    segment the renderer asks pygame to draw, per wheel, at four headings — with the free-glide axis of
+    every wheel derived from the kinematics and nothing copied from `render`. The right drawing and the
+    mirrored one are 90° apart, so no tolerance here can blur the two together.
+    """
+    g = physics.Geometry()
+    free_axes = []                                        # one perpendicular per wheel, from physics
+    for i in range(4):
+        vx = physics.inverse_kinematics(g, 1.0, 0.0, 0.0)[i] * g.r      # this wheel's speed at +vx
+        vy = physics.inverse_kinematics(g, 0.0, 1.0, 0.0)[i] * g.r      # ... and at +vy
+        assert (vx, vy) != (0.0, 0.0), f"wheel {i} is driven by nothing, so its stripe says nothing"
+        free_axes.append((-vy, vx))                       # a quarter turn from the driven direction
+
+    robot = make_robot("alice", 0, with_scan=False)
+    stripe = render.mix(render.rgb(robot.spec.rgb), (1, 1, 1), .35)
+    calls = []
+    real_line = pygame.draw.line
+
+    def spy(surface, color, start, end, width=1, **kw):
+        calls.append((tuple(color)[:3], start, end))
+        return real_line(surface, color, start, end, width, **kw)
+
+    for theta in (0.0, 0.6, -1.2, 2.6):
+        robot.pose = Pose(3.0, 2.0, theta)
+        with gui(make_engine({"alice": robot})) as rend:
+            axles = [rend.px(*_shift(3.0, 2.0, theta, m)) for m in
+                     render.wheel_mounts(CFG["robot"]["lx"], CFG["robot"]["ly"])]
+            with mock.patch.object(pygame.draw, "line", spy):
+                calls.clear()
+                rend.draw(cap=False)
+            strokes = [(a, b) for colour, a, b in calls if colour == stripe]
+            assert len(strokes) == 4 * render.WHEEL_STROKES, \
+                f"{len(strokes)} roller strokes drawn, expected one per wheel per stripe"
+            for i, free in enumerate(free_axes):
+                want = _drawn_at(theta, *free)       # where the camera puts this wheel's stripes
+                mine = [(a, b) for a, b in strokes if _closest_to(axles, a) == i]
+                assert len(mine) == render.WHEEL_STROKES, f"wheel {i} owns {len(mine)} stripes"
+                for (ax, ay), (bx, by) in mine:
+                    gx, gy = bx - ax, by - ay
+                    length = math.hypot(gx, gy)
+                    assert length > 1, "a roller stroke of no length is drawn as a point"
+                    along = (gx * want[0] + gy * want[1]) / (length * math.hypot(*want))
+                    assert abs(along) > 0.94, f"wheel {i} at {math.degrees(theta):+.0f}°: roller drawn " \
+                        f"at {math.degrees(math.atan2(gy, gx)):+.0f}° on the screen, its free-glide " \
+                        f"axis is at {math.degrees(math.atan2(want[1], want[0])):+.0f}°"
 
 
 def test_roller_axes_match_the_kinematics_that_drive_the_wheels():

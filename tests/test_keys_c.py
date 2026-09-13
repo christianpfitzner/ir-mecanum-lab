@@ -159,3 +159,35 @@ def test_the_help_line_names_every_layer():
     line = keys.help_line(True) + keys.help_line(False)
     for key, _attr, label, _edge in LAYERS:
         assert key in line, f"{label} ({key}) is not in the help line"
+
+
+def test_the_readme_table_is_the_table_and_not_a_memory_of_it():
+    """README's input table is the second place the keyboard is written down — so it is checked.
+
+    The window's help line is generated from `keys.py`, but a table in the documentation is typed by
+    hand, and a hand-typed copy is where the keyboard rotted last time: it went on advertising
+    "`q` turn right" after `q` had been made to turn left, and "`l t g k w v d …`" after `w`, `s` and
+    `d` had been handed back to driving. Both are sentences a reader would act on.
+
+    So the two things that must agree with the code are taken from the code: the sequence of layer
+    keys, and the direction the turn keys turn in. A row that renames a key or flips a direction fails
+    here rather than in front of a class.
+    """
+    readme = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/README.md")
+    with open(readme, encoding="utf-8") as fh:
+        text = fh.read()
+    rows = [line for line in text.splitlines() if line.startswith("| `")]
+
+    layer_keys = keys.layer_hint().split("layers: ")[1]
+    assert f"| `{layer_keys}`" in text, f"README does not list the layer keys {layer_keys}"
+    for key, _attr, label, _edge in LAYERS:
+        assert key in layer_keys, f"{label} is on key {key}, which README cannot show"
+
+    turning = [row for row in rows if "`q`" in row and "`e`" in row]
+    assert len(turning) == 1, f"README documents the turn keys {len(turning)} times"
+    assert "left/right" in turning[0][turning[0].index("`q`"):], (
+        f"README promises q turns the other way again: {turning[0]}")
+
+    driving = " ".join(rows)
+    for pair in ("`w`/`s` drive", "`a`/`d` turn", "`Up`/`Down` drive", "`Left`/`Right` **strafe**"):
+        assert pair in driving, f"README has stopped documenting {pair}"
