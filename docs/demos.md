@@ -9,7 +9,7 @@ Started either way — in the window of one process, or beside RViz through the 
 
 ```bash
 ./lab sim --world production --config config/demo_gps_shadow.json     # window
-ros2 launch launch/demo.launch.py demo:=gps                           # same, with rviz:=auto
+ros2 launch launch/demo.launch.py demo:=gps_shadow         # same, with rviz:=auto
 ```
 
 ### GPS that gets bad by place: the shadow demo (not the default)

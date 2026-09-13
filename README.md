@@ -121,16 +121,20 @@ of it without a second terminal running `ros2 topic echo` beside the window.
 ### The demos: four configurations that make one instrument lie
 
 Each file changes one block of the config and leaves the graded defaults alone, so starting a demo is
-a `--config`, not an edit. `ros2 launch launch/demo.launch.py demo:=gps` opens the same run beside
-RViz; the launch names are `gps`, `odom`, `odom_error`, `sensor_reality`, `wifi`, `poi`.
+a `--config`, not an edit. The `demo:=` name of the launch file is the file name without its `demo_`
+prefix, and `ros2 launch launch/demo.launch.py demo:=gps_shadow` opens the same run beside RViz.
 
-| file | what it turns on | what you see |
+| demo (file and `demo:=` name) | what it turns on | what you see |
 |---|---|---|
-| `config/demo_gps_shadow.json` | `gps.zones`: two rectangles and a blackout | hatched shadow (`x`), fixes that scatter, then none at all |
-| `config/demo_odom_slip.json` | `robot.slip: 1.0` against a wall | the `odom x` readout climbs while the dot does not move |
-| `config/demo_odom_error.json` | `odom.geometry`: radius ×1.05, lever ×0.97 | the ghost (`o`) drifts ahead: 0.61 m per 12 m straight |
-| `config/demo_sensor_reality.json` | latency, dropout, staleness, temperature | `sensor_state` in the readout: `lost_gps`, `q_gps`, `temp_imu` |
-| `config/demo_wifi.json`, `config/demo_poi_exploration.json` | the radio link, a source to find | the `link` and `poi` panels, and a robot hunting by one number |
+| `demo_gps_shadow` | `gps.zones`: two rectangles and a blackout | hatched shadow (`x`), fixes that scatter, then none at all |
+| `demo_odom_error` | `odom.geometry`: the odometry believes radius ×1.05, lever ×0.97 | the ghost (`o`) drifts ahead: 0.61 m per 12 m of straight lane |
+| `demo_open_odrift` | no GPS at all (`gps.gap` past the end of the run) on top of the wrong radius | dead reckoning in an empty hall: the trail (`t`) shows where odometry thinks it has been |
+| `demo_sensor_reality` | latency, dropout, staleness, chip temperature | `sensor_state` in the readout: `lost_gps`, `q_gps`, `temp_imu` |
+| `demo_wifi` | the radio link and its access points | the `link` panel (`n`), and a robot that loses its autonomy mid-lane |
+| `demo_poi_exploration` | a radiation source somewhere in the hall | the `poi` panel (`p`) and a robot hunting by one number |
+
+Wheel slip has no file of its own: it is `robot.slip`, and `./lab sim --world arena` with the robot
+driven into the east wall shows the odometry counting metres that were never driven.
 
 The commands, the measured numbers behind those rows and what each demo costs a graded run:
 **[docs/demos.md](docs/demos.md)**.

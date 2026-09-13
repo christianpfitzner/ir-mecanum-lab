@@ -226,9 +226,45 @@ def test_no_launch_file_starts_rviz2_by_itself():
     front of it — which is how `rviz:=true` came to do nothing at all, quietly, when the config file moved.
     """
     for name in FILES:
-        text = open(os.path.join(LAUNCH, name), encoding="utf-8").read()
+        path = os.path.join(LAUNCH, name)
+        text = open(path, encoding="utf-8").read()
+        tree = ast.parse(text)
+        # read the code, not the prose: a docstring that merely *mentions* rviz_view is documentation,
+        # and three of these guards have already been fooled by a word in a sentence
+        imported = any(isinstance(node, ast.ImportFrom)
+                       and any(alias.name == "rviz_view" for alias in node.names)
+                       for node in ast.walk(tree))
+        called = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+        kwargs = {kw.arg for node in ast.walk(tree) if isinstance(node, ast.Call) for kw in node.keywords}
         assert '["rviz2"' not in text, f"{name} builds an rviz2 command line of its own again"
-        if "rviz_view.command" in text:
-            assert "render_config" in text, f"{name} starts a viewer whose topics belong to someone else"
-        if "rviz" in text:
-            assert "rviz_view.plan" in text, f"{name} handles rviz:= without the helper's rule"
+        if imported:
+            assert {"plan", "render_config", "command"} <= called, (
+                f"{name} imports the viewer helper and does not use all of it — the rest of the "
+                f"repository decides with those three calls")
+            assert "available" not in called, f"{name} asks about rviz2 itself, beside the helper"
+            assert "sim_time" in kwargs, f"{name} opens a viewer that will show an empty map"
+        else:
+            assert not called & {"plan", "render_config", "command"}, (
+                f"{name} calls the viewer helper without importing it, or forwards `rviz:=` — if it "
+                f"forwards, nothing here may decide")
+
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
+def test_every_demo_name_in_the_documentation_launches():
+    """`demo:=gps` stood in the README for a round of commits, and a reader got a raised ValueError.
+
+    Three short names and one config file were invented on the way to a shorter front page: the launcher
+    checks its names against `config/`, the tests checked the *launch file's* argument text, and the prose
+    in between — the part a student actually copies — was nobody's subject. So the names on the
+    documentation pages are looked up in the same list the launcher uses.
+    """
+    real = set(load("demo.launch.py").available_demos())
+    named, files = set(), set()
+    for page in ("README.md", os.path.join("docs", "demos.md")):
+        text = open(os.path.join(REPO, page), encoding="utf-8").read()
+        named |= set(re.findall(r"demo:=([a-z_]+)", text))
+        files |= set(re.findall(r"config/demo_([a-z_]+)\.json", text))
+    assert named, "no `demo:=` on the documentation pages at all — the scan is broken, not the docs"
+    assert named <= real, (
+        f"the documentation launches {sorted(named - real)}, the demos are {sorted(real)} — the "
+        f"`demo:=` name is the file name without its `demo_` prefix")
+    assert files <= real, f"the documentation names config files that do not exist: {sorted(files - real)}"

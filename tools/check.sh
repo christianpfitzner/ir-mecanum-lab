@@ -153,6 +153,26 @@ if [[ "${1:-}" == "--ros" ]]; then
   fi
   step "ROS 2: own student node against the real simulation"
   timeout 40 ros2 launch launch/lab.launch.py headless:=true seconds:=35 controller:=student/solution.py || true
+  step "ROS 2: a demo through launch/demo.launch.py (the include chain, and rviz:=auto)"
+  # `demo:=gps_shadow` is the first launch line a student copies, and it goes through two files: the demo
+  # file includes lab.launch.py, which starts the processes. A leftover import in the outer file failed
+  # only *here* — under pytest the repository is already on sys.path, so every unit test passed while
+  # `ros2 launch` raised ModuleNotFoundError. rviz2 is absent on this machine, so the same run also has
+  # to print the one honest line about it and still end without a crashed process.
+  timeout 45 ros2 launch launch/demo.launch.py demo:=gps_shadow headless:=true seconds:=12 \
+      > .runs/demo_launch.log 2>&1
+  rc=$?
+  if [[ $rc == 0 || $rc == 124 ]]; then
+    if grep -q "ModuleNotFoundError\|Traceback" .runs/demo_launch.log; then
+      echo "  FAIL: demo.launch.py raised"; tail -12 .runs/demo_launch.log; fail=1
+    elif ! grep -q "demo gps_shadow" .runs/demo_launch.log; then
+      echo "  FAIL: the run does not say which demo it started"; tail -8 .runs/demo_launch.log; fail=1
+    else
+      echo "  ok: demo.launch.py starts the demo it names, with the rviz rule applied"
+    fi
+  else
+    echo "  FAIL: demo.launch.py exited with $rc"; tail -12 .runs/demo_launch.log; fail=1
+  fi
   if [[ -f student/kf_template.py ]]; then
     step "ROS 2: lab 2 through kf.launch.py (KF topics in the real sim)"
     # Not run() with a plain timeout: ros2 launch also waits for the student node, so running

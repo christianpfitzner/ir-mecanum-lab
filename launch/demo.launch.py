@@ -13,7 +13,7 @@ Everything that is not the choice of a demo belongs to `lab.launch.py`, and this
 rather than repeating its process list: two copies of a list of `ExecuteProcess` lines drift apart within
 a month, and it is the students who find out. `rviz:=` is forwarded, so the RViz rule — start it when it
 is installed, insist when asked, say one honest line when it is not — is written once, in
-`mecanum_lab/rviz_view.py`.
+`mecanum_lab/rviz_view.py`, which is the file that starts it.
 """
 import os
 
@@ -29,7 +29,6 @@ REPO = os.path.dirname(HERE)
 # the file below — and the repository owns a directory called `launch`, so putting it in front of the ROS
 # packages would break `import launch` for every launch file this process reads afterwards. The note (and
 # the append) lives in lab.launch.py, which is the file that does import from the project.
-from mecanum_lab import rviz_view                                   # noqa: E402
 
 LAB = os.path.join(HERE, "lab.launch.py")
 CONFIGS = os.path.join(REPO, "config")
@@ -83,7 +82,6 @@ def start(context, *args, **kwargs):
     # one line about the choice; whether RViz starts, and what stops it, is said by lab.launch.py,
     # which is the file that starts it — twice from two files is noise on the screen
     print(f"demo {demo}: config/demo_{demo}.json")
-    start_rviz, _note = rviz_view.plan(read_arg("rviz"))
     forwarded = [("config", f"config/demo_{demo}.json")]
     for name, _default, _text in BASICS:
         if name == "demo":
