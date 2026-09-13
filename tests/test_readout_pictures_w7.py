@@ -8,7 +8,7 @@ Two things that look like cosmetics and are not:
 
 Both are checked here on the real code path: `Renderer._hud()` for the first, and the command README
 quotes — `./lab sim … --frame-max N --screenshot FILE.png`, i.e. `node.main()` — for the second. The
-pictures this writes are the GPS-shadow and the radio-link figures of the handout and of README.
+pictures this writes are the GPS-shadow and the radio-link figures of the handout and of the demos page.
 """
 import collections
 import contextlib
@@ -143,14 +143,18 @@ HEADLESS_ABOVE = 32         # the two text rows: line 1 carries the fps counter,
 
 
 def readme_picture_commands():
-    """The screenshot commands README prints, as argv lists: figure and recipe in one place.
+    """The screenshot commands the documentation prints, as argv lists: figure and recipe in one place.
 
-    A test that carries its own copy of a command proves nothing about the command in the
-    documentation. The two drifted apart here: the README line lost its `--robots`, which drew the hall
-    with nobody in it while the caption underneath went on describing a robot at its spawn pose. So the
-    commands are read out of README and run exactly as a reader would type them.
+    A test that carries its own copy of a command proves nothing about the command in the documentation.
+    The two drifted apart here: the README line lost its `--robots`, which drew the hall with nobody in it
+    while the caption underneath went on describing a robot at its spawn pose. So the commands are read
+    out of the documentation and run exactly as a reader would type them — out of every page, since a
+    figure is allowed to live on the page about its subject (`docs/demos.md` carries the demo figures),
+    and a reader finds that page from the front page.
     """
-    text = (DOCS_IMG.parent.parent / "README.md").read_text()
+    root = DOCS_IMG.parent.parent
+    text = (root / "README.md").read_text() + "\n" + "\n".join(
+        p.read_text() for p in sorted((root / "docs").glob("*.md")))
     found = {}
     for block in re.findall(r"```bash\n(.*?)\n```", text, re.S):
         for line in re.sub(r"\\\n\s*", " ", block).splitlines():
