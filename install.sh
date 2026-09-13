@@ -15,6 +15,7 @@ export PYGAME_HIDE_SUPPORT_PROMPT=1        # pygame otherwise thanks you loudly 
 cd "$here"
 
 check_nur=0; ohne_ros=0; mit_pip_user=0; mit_tests=0
+gebaut=0        # did this run build the ROS package? the final hints are written accordingly
 for a in "$@"; do
   case "$a" in
     --check) check_nur=1 ;;
@@ -91,18 +92,55 @@ if [[ $ohne_ros == 0 ]]; then
         ok "mecanum_lab and mecanum_lab_interfaces installed — ros2 launch mecanum_lab <demo> works"
       elif [[ $check_nur == 1 ]]; then
         wann "not built — in the lab room: ./install.sh (takes ~1 min), then source install/setup.bash"
-      elif command -v colcon >/dev/null 2>&1; then
+      else
         # Both packages in one pass. `--paths .` finds the root package.xml (the lab itself, whose launch
         # files and config/ end up in share/mecanum_lab) and the interfaces below it — which is what makes
         # `ros2 launch mecanum_lab demo_gps_shadow.launch.py` work from any directory: without this build
         # only the *paths* of the source tree launch, and every demo command in the documentation that
-        # starts with a package name is a lie.
-        echo "  building mecanum_lab + mecanum_lab_interfaces (colcon, --symlink-install) …"
-        ( cd "$here" && colcon build --paths . --symlink-install ) \
-          && ok "built — for new shells: source install/setup.bash (it also overlays ROS)" \
-          || wann "colcon build failed — from the source tree everything still works with ros2 launch launch/…"
-      else
-        wann "colcon is missing — the demos still run: ros2 launch launch/demo_gps_shadow.launch.py"
+        # starts with a package name is a promise this machine cannot keep.
+        #
+        # colcon comes from apt (`ros-$ROS_DISTRO-dev-tools`, the way that needs no network) or from pip,
+        # which writes into ~/.local — so the pip route is taken only when --user was asked for, and this
+        # script's promise of leaving the home directory alone holds for a plain run.
+        colcon_bin="$(command -v colcon || true)"
+        if [[ -z "$colcon_bin" && $mit_pip_user == 1 ]]; then
+          echo "        trying: pip3 install --user colcon-common-extensions"
+          python3 -m pip install --user -q colcon-common-extensions \
+            || python3 -m pip install --user --break-system-packages -q colcon-common-extensions \
+            || true
+          if [[ -x "$HOME/.local/bin/colcon" ]]; then
+            colcon_bin="$HOME/.local/bin/colcon"
+          fi
+        fi
+        if [[ -n "$colcon_bin" ]]; then
+          echo "  building the ROS package (colcon, --symlink-install) …"
+          # The lab package is built first and on its own, and the interface package is a second attempt:
+          # one colcon pass over both means a machine without `rosidl_default_generators` reports
+          # "1 package not processed" and ends up with no lab package either — while the lab package is
+          # exactly what makes `ros2 launch mecanum_lab <demo>` work, and the spawn service it would use
+          # has a JSON fallback for precisely this case.
+          # (`--paths` names package paths and does not search below them, so the interface package has to
+          # be spelled out; `--paths .` alone never found it.)
+          if ( cd "$here" && "$colcon_bin" build --paths . --symlink-install ); then
+            ok "built — for new shells: source install/setup.bash (it also overlays ROS)"
+            gebaut=1
+            if ( cd "$here" && "$colcon_bin" build --paths interfaces/mecanum_lab_interfaces \
+                   --symlink-install ) >/dev/null 2>&1; then
+              ok "mecanum_lab_interfaces built — /sim/spawn_robot is a real service"
+            else
+              wann "interfaces not built — /sim/spawn_robot answers over the JSON fallback, which works"
+              hinweise+=("for the real spawn service:  sudo apt install ros-${ROS_DISTRO:-$ros_name}-rosidl-default-generators,"
+                         "  then build it:  colcon build --paths interfaces/mecanum_lab_interfaces --symlink-install")
+            fi
+          else
+            wann "colcon build failed — from the source tree everything still works with ros2 launch launch/…"
+          fi
+        else
+          wann "colcon is missing — the demos still run by path: ros2 launch launch/demo_wifi.launch.py"
+          hinweise+=("for the demos by package name (ros2 launch mecanum_lab demo_wifi.launch.py), build the"
+                     "  package once: sudo apt install ros-${ROS_DISTRO:-$ros_name}-dev-tools — or without sudo, writing to"
+                     "  ~/.local: ./install.sh --user — and then run ./install.sh again")
+        fi
       fi
     else
       wann "ROS 2 is installed, but rclpy is not importable — ROS parts skipped"
@@ -134,11 +172,19 @@ fi
 echo "result: ready. Continue in directory $here with"
 echo "  ./lab run --robot alice --controller student/controller_template.py"
 echo "  ./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv"
-echo "  ros2 launch launch/kf.launch.py            (with ROS 2)"
-# The demos by name — the installed form first, because that is the one that works from any directory
-# and in a terminal that only sourced ROS.
-if ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
-  echo "  ros2 launch mecanum_lab demo_gps_shadow.launch.py     (demos: $(cd "$here" && ls config | sed -n 's/^demo_\(.*\)\.json$/\1/p' | tr '\n' ' '))"
+# Which prefix the hints use: the package name is the form that works from any directory and in a terminal
+# that sourced ROS and the workspace — but only once the package is really installed.
+launch_pref="launch"
+if [[ $gebaut == 1 ]] || ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
+  launch_pref="mecanum_lab"
+fi
+echo "  ros2 launch $launch_pref/kf.launch.py$(
+     [[ $launch_pref == launch ]] && echo '            (with ROS 2)')"
+if [[ $launch_pref == mecanum_lab ]]; then
+  echo "  ros2 launch $launch_pref/demo_gps_shadow.launch.py     (demos: $(cd "$here" && ls config | sed -n 's/^demo_\(.*\)\.json$/\1/p' | tr '\n' ' '))"
+  if [[ $gebaut == 1 ]]; then
+    echo "        in this terminal first: source install/setup.bash (and in every new one)"
+  fi
 else
   echo "  ros2 launch launch/demo_gps_shadow.launch.py          (or ./lab sim --config config/demo_wifi.json)"
 fi
