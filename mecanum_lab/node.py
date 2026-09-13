@@ -155,6 +155,10 @@ def save_picture(rend, path: str, frames: int, sim_t: float) -> None:
         log.warning("--screenshot wants a window to draw into — pass it without --headless, or set "
                     "SDL_VIDEODRIVER=dummy")
         return
+    if not frames:
+        log.error("no frame was drawn before the run ended — %s not written: a PNG of an unpainted "
+                  "window is a picture of nothing", path)
+        return
     import pygame
     try:
         pygame.image.save(rend.screen, path)

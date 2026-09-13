@@ -10,9 +10,13 @@ Both are checked here on the real code path: `Renderer._hud()` for the first, an
 quotes — `./lab sim … --frame-max N --screenshot FILE.png`, i.e. `node.main()` — for the second. The
 pictures this writes are the GPS-shadow and the radio-link figures of the handout and of README.
 """
+import collections
 import contextlib
 import math
 import os
+import pathlib
+import re
+import shlex
 import struct
 from types import SimpleNamespace
 
@@ -20,7 +24,9 @@ import pygame
 import pytest
 
 from mecanum_lab import node, overlays, stub
-from mecanum_lab.render import Renderer, KF_SICHERHEIT
+from mecanum_lab.render import KF_SICHERHEIT, Renderer
+from mecanum_lab.render import rgb as rgb_value
+from support_logging import logged, messages
 from mecanum_lab.types import (Gps, Imu, Kf, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Twist,
                                World)
 
@@ -132,13 +138,102 @@ def png_size(path):
     return struct.unpack(">II", head[16:24])
 
 
-PICTURES = [("gps-shadow", ["--world", "production", "--config", "config/demo_gps_shadow.json",
-                            "--robots", "muster"]),
-            ("radio-link", ["--world", "production", "--config", "config/demo_wifi.json",
-                            "--robots", "alice"])]
+DOCS_IMG = pathlib.Path(__file__).resolve().parent.parent / "docs" / "img"
+HEADLESS_ABOVE = 32         # the two text rows: line 1 carries the fps counter, nothing below it can vary
 
 
-@pytest.mark.parametrize("name,extra", PICTURES, ids=[p[0] for p in PICTURES])
+def readme_picture_commands():
+    """The screenshot commands README prints, as argv lists: figure and recipe in one place.
+
+    A test that carries its own copy of a command proves nothing about the command in the
+    documentation. The two drifted apart here: the README line lost its `--robots`, which drew the hall
+    with nobody in it while the caption underneath went on describing a robot at its spawn pose. So the
+    commands are read out of README and run exactly as a reader would type them.
+    """
+    text = (DOCS_IMG.parent.parent / "README.md").read_text()
+    found = {}
+    for block in re.findall(r"```bash\n(.*?)\n```", text, re.S):
+        for line in re.sub(r"\\\n\s*", " ", block).splitlines():
+            line = line.strip()
+            if "./lab sim" in line and "--screenshot docs/img/" in line:
+                argv = shlex.split(line)
+                assert argv[:2] == ["./lab", "sim"], f"not a sim command: {line}"
+                found[os.path.basename(argv[argv.index("--screenshot") + 1])] = argv[2:]
+    return found
+
+
+def picture_argv(png: str, out, *extra) -> list:
+    """README's command for one figure, aimed at `out` instead of at docs/img, and on the stub bus.
+
+    `--stub` is the only liberty taken: the CI that runs this has no ROS daemon to talk to, and the
+    frame is the same either way — the sim is stepped by `--fixed-step` and every sensor is seeded.
+    """
+    argv = readme_picture_commands()[png]
+    where = [i for i, a in enumerate(argv) if a == "--screenshot"]
+    assert len(where) == 1, f"{png} appears with no --screenshot in README"
+    return (["sim", "--stub"] + argv[:where[0] + 1] + [str(out)] + argv[where[0] + 2:] +
+            list(extra))
+
+
+def pixels(surface) -> tuple:
+    """(width, height, bytes below the two text rows) — the part of a frame that may be compared."""
+    w, h = surface.get_size()
+    raw = pygame.image.tostring(surface, "RGB")
+    return w, h, raw[HEADLESS_ABOVE * w * 3:]
+
+
+PICTURES = sorted(readme_picture_commands())
+assert PICTURES == ["readout-gps-shadow.png", "readout-radio.png"], PICTURES
+
+
+@pytest.mark.parametrize("png", PICTURES)
+def test_the_documentation_picture_is_that_command_run_today(png, tmp_path, capsys):
+    """docs/img/*.png is a build product, so it has to be the documented command's output — today's.
+
+    Everything below the two text rows is compared byte for byte; the fps counter in line 1 is the one
+    number in a frame that no headless run can promise, and the readout line above the map has its own
+    tests. What is left is the hall, the zones, the access point and the robot: if any of them moves,
+    or a drawing changes, the committed picture is wrong and this says so.
+    """
+    out = tmp_path / png
+    assert node.main(picture_argv(png, out)) == 0
+    assert out.exists(), f"{png} was not written"
+    made = pixels(pygame.image.load(str(out)))
+    committed = pixels(pygame.image.load(str(DOCS_IMG / png)))
+    assert made[0] == committed[0] and made[1] == committed[1], \
+        f"{png}: the repository holds a {committed[0]}x{committed[1]} picture, README draws " \
+        f"{made[0]}x{made[1]}"
+    assert made[2] == committed[2], (f"{png} is not what the command in README draws today; regenerate "
+                                     f"it with that command — a stale figure is a figure that lies")
+
+
+@pytest.mark.parametrize("png", PICTURES)
+def test_the_documentation_picture_shows_a_robot(png, tmp_path, capsys):
+    """A figure of a hall with no robot in it passed every size and colour check there was.
+
+    The command that drew it had lost its `--robots`, and the caption described a robot at its spawn
+    pose; the frame said `robots: 0`. So the promise is measured here: the colour a robot is drawn in
+    has to be in the picture, in an amount no wall, zone hatch or goal bullseye contributes — those
+    share no exact colour with a robot, which is why a picture of an empty hall has none of it.
+    """
+    out = tmp_path / png
+    assert node.main(picture_argv(png, out, "--set", "width=640", "--set", "height=400")) == 0
+    frame = pygame.image.load(str(out))
+    bodies = {rgb_value(value) for _, value in PALETTE}
+    seen = collections.Counter(tuple(frame.get_at((x, y))[:3])
+                               for y in range(HEADLESS_ABOVE, frame.get_height())
+                               for x in range(0, frame.get_width(), 2))
+    on_robot = sum(count for colour, count in seen.items() if colour in bodies)
+    assert on_robot > 10, f"no robot drawn in {png}: {seen.most_common(4)}"
+
+
+@pytest.mark.parametrize("name,extra", [("gps-shadow", ["--world", "production",
+                                                        "--config", "config/demo_gps_shadow.json",
+                                                        "--robots", "muster"]),
+                                        ("radio-link", ["--world", "production",
+                                                        "--config", "config/demo_wifi.json",
+                                                        "--robots", "muster"])],
+                         ids=["gps-shadow", "radio-link"])
 def test_the_documented_picture_command_writes_a_picture(tmp_path, name, extra, capsys):
     """`./lab sim … --frame-max N --screenshot FILE.png` draws a frame, not a black rectangle."""
     out, printed = picture(tmp_path, f"{name}.png", extra + ["--set", "width=640", "--set",
@@ -150,6 +245,63 @@ def test_the_documented_picture_command_writes_a_picture(tmp_path, name, extra, 
     assert frame.get_height() == 400
     colours = {tuple(frame.get_at((x, y))[:3]) for x in range(0, 640, 32) for y in range(0, 400, 32)}
     assert len(colours) >= 4, f"only {colours} in the frame"
+
+
+def test_two_picture_runs_in_one_process_both_draw(tmp_path, capsys):
+    """The second `node.main()` in one process used to end before its first frame.
+
+    Teardown hands the process back a stub bus that is shut down and still *the* bus of the process,
+    and `run_loop` reads `bus.ok() == False` as somebody pressing stop. The loop then never draws,
+    `--frame-max` is satisfied by zero drawn frames, and the picture of the unpainted window is saved
+    and announced as if it had been rendered. One `./lab` command per process hides that; a tool that
+    generates two figures in a row does not, and a documentation figure of an empty hall — with a
+    caption about a robot at its spawn pose — is what a run of zero frames looked like in git.
+    """
+    seen = []
+    for name in ("first.png", "second.png", "third.png"):
+        out = tmp_path / name
+        assert node.main(picture_argv("readout-radio.png", out, "--set", "width=320",
+                                     "--set", "height=200")) == 0
+        printed = [line for line in capsys.readouterr().out.splitlines() if line.startswith("picture:")]
+        assert len(printed) == 1, f"{name}: no picture line, so nothing was drawn: {printed}"
+        assert "30 frame(s)" in printed[0], f"{name} drew nothing: {printed[0]}"
+        seen.append(out.read_bytes())
+    assert seen[0] == seen[1] == seen[2], "the same command gave three different frames"
+
+
+def test_a_shut_down_bus_is_no_longer_the_bus_of_the_process():
+    """The rule that the test above depends on, stated where it lives.
+
+    `get_bus()` promises the bus of this process; after `shutdown()` it has to mean a bus that still
+    delivers, or every caller that asks for "the" bus afterwards gets one that answers `ok()` with
+    False — which the run loop cannot tell apart from a request to stop.
+    """
+    saved = stub.get_bus(create=False)
+    try:
+        first = stub.get_bus()
+        first.shutdown()
+        assert not first.ok()
+        second = stub.get_bus()
+        assert second is not first, "a shut-down bus is still what get_bus() hands out"
+        assert second.ok()
+        delivered = []
+        second.sub_topic("test", delivered.append)
+        second.publish("test", 1)
+        assert delivered == [1], "the replacement bus does not deliver"
+    finally:
+        stub.set_bus(saved)
+
+
+def test_a_picture_of_nothing_is_not_written(tmp_path):
+    """An unpainted window is not a picture: refuse it, and say why.
+
+    Without this the failure above stayed invisible — a PNG appeared, with a line about it on stdout.
+    """
+    target = tmp_path / "never.png"
+    with logged("mecanum.node") as records:
+        node.save_picture(SimpleNamespace(screen=None), str(target), frames=0, sim_t=0.0)
+    assert not target.exists(), "a run that drew nothing still wrote a PNG"
+    assert any("not written" in text for text in messages(records)), messages(records)
 
 
 def test_the_picture_command_is_reproducible(tmp_path, capsys):

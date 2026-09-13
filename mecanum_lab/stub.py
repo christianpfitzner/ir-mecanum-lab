@@ -90,7 +90,18 @@ class StubBus:
         return self._ok
 
     def shutdown(self) -> None:
+        """Stop delivery, and give back the role of "the bus of this process".
+
+        A shut-down bus that stays the singleton hands every later `get_bus()` in the same process a bus
+        that answers `ok()` with False. The run loop reads that as "stopped from outside" and ends before
+        its first frame — invisible while one `./lab` command owns one process, and a run of zero frames
+        for a tool that runs two of them in a row. Which is how a picture of an empty hall came to be
+        committed as a documentation figure, under a caption that described a robot.
+        """
+        global _BUS
         self._ok = False
+        if _BUS is self:
+            _BUS = None
 
     def topics(self) -> list:
         return sorted(set(self._last) | set(self._subs))
