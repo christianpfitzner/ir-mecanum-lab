@@ -87,7 +87,7 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
 | `/<robot>/mission_state` | `std_msgs/msg/String` | students → sim/grader | `"idle"`, `"running"`, `"done"`, `"failed:<reason>"` |
-| `/sim/robots` | `std_msgs/msg/String` | sim → everyone | JSON: list of robots including color/marker/mode |
+| `/sim/robots` | `std_msgs/msg/String` | sim → everyone | JSON: list of robots including color/marker/mode, plus `steer_deg` — the two rack angles in degrees — on a steering robot (§5.1), empty on a mecanum one |
 | `/sim/task` | `std_msgs/msg/String` | grader → sim → everyone | active task (`kinematik`, `quadrat`, …) |
 | `/sim/spawn_robot` | *service*, see §4 | student/supervisor → sim | add a robot |
 | `/sim/despawn_robot` | *service*, see §4 | same | remove a robot |
@@ -156,6 +156,33 @@ omega =  r/(4*a) * (-w_FL + w_FR - w_RL + w_RR)
 Unit test `tests/test_kinematics.py` checks `fk(ik(v)) == v` for random values
 *and* the signs above explicitly (y arrow points left!).
 
+### 5.1 The steering variant (`--variant steering`, `mecanum_lab/steering.py`, §6.12)
+
+Same frame, same axis directions, same wheel order and labels — but one driven axle and one steered
+axle instead of four mecanum wheels. The body velocity therefore has **one** degree of freedom
+(metres per second along the body x-axis) and the turn rate is not free: it follows from the angle
+the rack took. `vy` has no solution on this car; `cmd_vel` drops it with one warning per robot and
+keeps driving.
+
+```
+omega = v * tan(delta) / L                    # L = wheel_base, delta = rack angle, + = left
+R     = L / tan(delta)                        # the radius this angle drives
+R_min = L / tan(delta_max)                    # 1.60 m by default: no tighter corner exists
+delta = atan2(omega * L, max(|v|, 0.05))      # cmd_vel input, solved backwards
+tan(delta_inner) = L / (R - W/2)              # W = track: the two front wheels cannot share one angle
+tan(delta_outer) = L / (R + W/2)              # both axles turn about one point on the rear axle line
+```
+
+`R` is `inf` straight ahead (`tan 0 = 0`), which is why the code works with `1/R` throughout.
+The numbers are measured in `tests/test_steering_w4.py` as the **chord of a half turn** in a
+wall-free world — not as `v/omega`, which would compare the model with itself: demanded
+14°/22°/30° drive 4.011/2.475/1.732 m against `L/tan(delta)`, ratio 1.0000 for each, and demanding
+45° still drives `R_min` = 1.600 m. The rack is rate-limited (`steer_rate_deg_s`, 60°/s = 1.2° per
+1/50 s step), so a step command arrives as a ramp of 16 steps; that is the second reason a steering
+car brakes before a corner. `w = v/r` still holds per wheel: the rear pair rolls at `v(1 − W/2R)`
+and `v(1 + W/2R)`, so their mean is exactly `v`, and the four speeds go out on `/<robot>/wheel_speeds`
+with the old labels (§3).
+
 ## 6. Interfaces between modules (implement exactly like this)
 
 ### 6.1 `mecanum_lab/types.py` [MINE, already written — read only]
@@ -200,6 +227,13 @@ modelled at the obstacle only**: the body velocity becomes 0 while the wheels ke
 is the one place where odometry may lie — it integrates wheel speeds — and it is there on purpose
 so that T1's drift is visible without turning any noise up. Everywhere else four wheel speeds give
 the body velocity uniquely.
+
+Four members exist for the second drive train, which subclasses `Chassis` instead of duplicating the
+collision and the motor lag: `geom` (the geometry, so the view draws the car it simulates),
+`wheel_headings` (always `[0,0,0,0]` here — a mecanum wheel never turns), `reset_motion()` (speeds
+and targets to zero) and `set_twist(vx, vy, omega)` / `odo_feed()` (the two ends of the `cmd_vel`
+path: in through the kinematics, out to the integrator). All four are behaviour-neutral: a mecanum
+robot computes what it computed before, line for line, and `steering.py` overrides them (§6.12).
 
 ### 6.4 `mecanum_lab/sensors.py` [A]
 ```python
@@ -326,6 +360,17 @@ so the stamps stay in order — §6.4), and `gps_health()` answers quality, sate
 for a robot from the receiver and its counters instead of from the last message, which is the only
 way to show "no fix here" and "the radio lost it" apart while neither produces a message.
 
+`spawn()` has one branch for the second drive train, and only one: `steering.is_steering(variant)`
+builds `steering.make_chassis(cfg["steering"], variant, pose)` and `steering.build_odometer(...)`
+where the lines above build geometry, chassis and integrator. Everything after that is shared,
+because both cars answer the same five calls (`set_wheels`, `set_twist`, `step`, `odo_feed`,
+`reset_motion`) and both integrators take one argument whose meaning the chassis decides: four wheel
+speeds on the mecanum side, the pair `(wheels, commanded_rack_angle)` on the car (§6.12). That is why
+`_drive()` hands `cmd_vel` to `chassis.set_twist()` instead of computing inverse kinematics itself,
+and why `robots_info()` carries `steer_deg` next to `wheels` — two rack angles are not wheel speeds.
+`config_json()` publishes the `steering` block for the same reason: the corner a student plans comes
+from the car that is really driving.
+
 
 ### 6.6 `mecanum_lab/render.py` [C]
 ```python
@@ -387,11 +432,22 @@ class RobotIO:
     def spawn(self, name, variant="") -> dict ; def robots(self) -> list[dict]
 def run_loop(node: RobotIO, on_tick, hz: float = 50) -> None
 ```
+`serve(module)` runs one of three things per tick: `module.mission(rob, task)` when the task is not
+the kinematics one, `module.drive(rob)` **once** when the module defines a `drive` and the task is the
+kinematics one (no task at all, or `kinematik`), and otherwise the
+`cmd_vel -> inverse_kinematics -> send_wheels` pass-through. The middle
+one is for a module that waits for no task — a drive demo for the second drive train (§6.12) has no
+kinematics to hand over, so running the node *is* the request. It sets `running`, then `done` (or
+`failed:<type>`) like a mission does, and after it the pass-through stays switched off: replaying the
+demo's last `cmd_vel` through a kinematics forever would drive a parked car into the shelf in front of
+it. A module without `drive` — every template, both reference solutions — takes the same path it
+took before, in the same order.
 
 ### 6.9 CLI `python -m mecanum_lab.node <command>` [B]
 ```
 run     sim + one/many controllers in ONE process (stub, no ROS)   -> quick start
         --world maze --robot alice --controller student/controller_template.py [--headless]
+        [--variant steering]     # the Ackermann car instead of a mecanum robot (§5.1, §6.12)
 sim     sim alone (rclpy if ROS is present, otherwise stub + a message)
         --world maze --gui --robots alice,bob --task kinematik
 controller  one student node only (needs ROS or a running stub bus) --robot alice
@@ -422,6 +478,7 @@ def zones(rend) -> None                    # gps.zones as hatched shadow, red wh
 def odom_ghost(rend, robot) -> None        # where odometry thinks the robot is + Δ in m
 def skid_marks(rend, robot, dt) -> None    # rubber on the floor while the wheels slip
 def sensor_readout(rend, robot) -> list    # [(text, color)]: the gps, lidar and imu segments
+def steer_readout(rend, robot) -> list     # the two rack angles of a steered car + the radius
 ```
 `sensor_readout()` returns text for `render._hud()` to place — it draws nothing itself. It is the
 place where the sensor's own opinion becomes visible without a second terminal: `gps x=+7.31 y=+6.02
@@ -434,6 +491,12 @@ bus and never touches physics. State (the fading skid marks) lives on the render
 globals, so two windows in one process stay apart. `render.py` calls these functions and owns the
 layers (`s` shadow, `o` ghost). `import render` happens inside the functions because
 `render` imports this module — no import cycle at load time.
+
+`steer_readout()` is the fourth overlay function and the readout of the second drive train: two rack
+angles in degrees plus the radius they imply, `steer +26.6/+22.9 deg  R=1.90 m`. Nothing else on the
+HUD says that the car in front of you is turning, and `R = L/tan(delta)` is the one number a driver
+of that car has to keep in mind. The wheels themselves are drawn by `render._wheel()`, which gets
+their angles from `chassis.wheel_headings` — the mount point stays on the body, only the stroke turns.
 
 ### 6.11 English names, deprecated aliases (`tools/germanids.py`) [MINE]
 
@@ -496,6 +559,48 @@ handout. `physics.WHEELS_EN` gives the English reading of the same four indices
 (`FL, FR, RL, RR`) and the handout prints both spellings side by side.
 
 
+### 6.12 `mecanum_lab/steering.py` [integrator] — the second drive train
+
+```python
+def is_steering(variant: str) -> bool                     # "steering", "steering-big", ...
+def make_geometry(cfg: dict, variant: str) -> SteeringGeometry   # degrees in, radians out
+def ackermann(g, delta) -> list            # [front left, front right] in rad, from §5.1
+def wheel_speeds(g, v, delta) -> list      # [VL, VR, HL, HR] rad/s, the rolling wheels
+def make_chassis(cfg, variant, pose, seed=None) -> Chassis      # what SimEngine.spawn() calls
+def build_odometer(true_g, noise, cfg) -> Odometry              # what SimEngine._make_odometer() calls
+class SteeringGeometry:   # wheel_base, track, steer_max, steer_rate, v_max, max_accel, tau,
+    .lx .ly .r_min        #                      r, footprint_r, slip, name  (all from the config)
+class Chassis(physics.Chassis):                                  # state: one speed, one rack angle
+    v, delta, steer       # m/s, rad, the two front wheel angles
+    def set_wheels(w)  # mean of the four -> v, rack untouched; def set_twist(vx, vy, omega)
+    def odo_feed() -> (wheels, commanded_rack_angle) ; def reset_motion() ; def step(dt, walls)
+    .wheel_headings -> [delta_L, delta_R, 0, 0]                  # what the view turns each wheel by
+class Odometry(sensors.OdometrySensor):                          # integrates its own (v, delta)
+    def update(feed, dt) -> Odom
+```
+
+A subclass of `physics.Chassis`, not a second file of mechanics: `step()` reuses the collision and
+the slip rule of the mecanum chassis (`_collide`), which is the whole point — a car that drives into a
+shelf behaves like the robot the students already know, `steering.slip` included. `physics.py` grew
+the four hooks for it (§6.3) and stayed behaviour-neutral.
+
+The rate-limited rack is `approach(delta, clamp(command, steer_max), steer_rate * dt)`; the drive is a
+first-order lag with `tau` plus `max_accel`, clamped to `v_max`, all from `DEFAULT_CONFIG["steering"]`
+so that a variant entry (`steering-big` in `steering.variants`) can change one car without touching the
+other. `set_twist` is where `vy` dies: `delta = atan2(omega * L, max(|v|, 0.05))`, one `log.warning`
+per robot, and the drive keeps going — a steering car that refused to move would turn a student's one
+stray `vy` into an unexplainable standstill. `set_wheels` (four speeds, the lab 1 exercise) takes their
+mean as `v` and leaves the rack alone, so a mecanum inverse kinematics aimed at this car produces a
+straight line at the average speed instead of an unexplained motion.
+
+`Odometry` is why this file exists at all: four wheel speeds do not carry a steering angle, so the
+integrator takes the pair from `odo_feed()` and replays the rack angle it was *told* to take, with the
+`steer_max_scale` it believes. There is no encoder that could contradict it — which is the lesson:
+measured over 20 s at full lock with the other noise off, scale 1.0 gives 0.0° and 0.00 m of error,
+1.1 gives **+44.9°** and 1.12 m, 0.9 gives −42.0° and 1.34 m. `student/steering_example.py` is the
+controller that goes with it (rounded rectangle, then LIDAR parking), and the reason the example is a
+`drive()` demo: §6.8.
+
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 
 Authoritative list is `BUDGET` in `tools/loc.py` (`python3 tools/loc.py` prints the tally).
@@ -503,16 +608,17 @@ Current frame after the view and TF work:
 
 | Module | LOC | | Module | LOC |
 |---|---|---|---|---|
-| types.py | 395 | | ros_bridge.py | 490 |
+| types.py | 420 | | ros_bridge.py | 490 |
 | stub.py | 115 | | tf_bcast.py | 135 |
-| engine.py | 415 | | node.py | 615 |
-| worlds.py | 135 | | robot_io.py | 255 |
-| physics.py | 140 | | tasks.py | 210 |
+| engine.py | 435 | | node.py | 613 |
+| worlds.py | 135 | | robot_io.py | 259 |
+| physics.py | 180 | | tasks.py | 210 |
 | sensors.py | 560 | | grade.py | 620 |
-| render.py | 470 | | logbook.py | 110 |
+| render.py | 472 | | logbook.py | 110 |
 | cam.py | 115 | | menu.py | 90 |
-| overlays.py | 190 | | | |
-| **simulator core (mecanum_lab/)** | **≤ 5000** | | | |
+| overlays.py | 213 | | | |
+| steering.py | 290 | | | |
+| **simulator core (mecanum_lab/)** | **≤ 5400** | | | |
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
 layer menu, and because `tf_bcast.py` is new. `tasks.py` grew with `_LEGACY_KEYS` (§6.11), the
@@ -535,6 +641,18 @@ and the columns that make the new fields provable, and `render.py` got **3 lines
 466) because its two readout segments moved into the overlay kit. `grade.py`, `physics.py`,
 `node.py` and `robot_io.py` did not change at all: no graded number, no wheel equation, no CLI
 option and no student-facing call moved.
+
+The newest growth is a second drive train (§5.1, §6.12), and `steering.py` is new rather than
+`physics.py` bigger: 290 lines of bicycle, Ackermann axle and a second integrator, next to the
+mecanum equations every graded task of experiment 1 runs on, instead of inside them. Where it did
+reach into an existing file, it stayed at the seam — `physics.py` +41 for four hooks and the sentence
+saying they are behaviour-neutral, `engine.py` +21 for one branch in `spawn()`/`_make_odometer()` and
+the two fields the view and the students need, `types.py` +28 for the `steering` config block with one
+line of meaning per number, `robot_io.py` +15 for the `drive()` demo branch, `overlays.py` +26 for the
+rack readout, `render.py` +6 to draw the front wheels at their own angles, `node.py` +1 because
+`--variant` existed but never reached `spawn()`. `sensors.py`, `grade.py`, `tasks.py`, `logbook.py` and
+both reference solutions are untouched: no sensor, no graded threshold and no wheel equation of
+experiment 1 changed, which is also why 100/100 and 90/90 are the same numbers they were.
 
 ## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
 

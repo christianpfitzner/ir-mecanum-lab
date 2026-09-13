@@ -416,3 +416,91 @@ the default config and with `demo_gps_shadow.json` and `demo_odom_error.json` lo
 test now (`tests/test_sensor_reality.py`), so the next person who reads a knob that is switched off
 fails loudly instead of moving a graded threshold by a millimetre. Line counts and the reason for
 each: CONTRACT §7 and the addendum in `tools/loc.py`; `render.py` came out of this 3 lines shorter.
+
+## 11. A second drive train: `--variant steering` (this pass)
+
+**A new module, not a bigger `physics.py`.** 290 lines of bicycle geometry, rate-limited rack,
+Ackermann axle, four rolling wheel speeds and a second integrator — put next to the mecanum equations
+instead of inside them, because `physics.py` is what every graded task of experiment 1 runs on and a
+student reading `fk(ik(v)) == v` should not have to skip a car to find it. The subclass reuses
+`physics.Chassis._collide`, so a car that touches a shelf behaves exactly like the robot the students
+know, `steering.slip` included (measured, 30 s of 0.6 m/s into a wall: body 4.38 m, wheels still at
+12.0 rad/s, odometry 17.91 m — and with `steering.slip=0` the wheels stand still and the odometry is
+honest to 1 cm).
+
+**The engine stopped solving kinematics; the chassis does.** `_drive()` called
+`physics.inverse_kinematics(chassis.geometry, …)` for the `cmd_vel` path, which quietly made the
+engine a mecanum engine. It calls `chassis.set_twist()` now, and the odometry is handed
+`chassis.odo_feed()` instead of `chassis.wheels`: on the car that pair is `(wheel speeds, commanded
+rack angle)`, because four wheel speeds cannot carry a steering angle and only the chassis knows which
+quantity its integrator needs. `spawn()` and `_make_odometer()` each got one branch. The claim that
+nothing else changed is checked two ways: `tests/test_steering_w4.py` drives a `""` robot and a
+`"steering"` robot in one engine and asserts the first is still `physics.Chassis` with
+`sensors.OdometrySensor`, and `tools/check.sh` still grades 100/100, 90/90 and 30/30.
+
+**What `vy` does, and why that is a warning.** `set_twist` takes `v = vx` and
+`delta = atan2(omega * L, max(|v|, 0.05))`; the `vy` that cannot be fulfilled is logged once per robot
+(`steering robot cannot strafe, vy=0.25 dropped`) and the car keeps driving. Not an exception and not
+a silent drop: a student who sends one strafe component must learn in one sentence that this car has
+one degree of freedom, and must not spend the lab period debugging a robot that stands still because
+of it. The test counts the log records: one, not two hundred. `set_wheels` — the lab 1 exercise, four
+speeds — cannot steer either; it takes their mean as `v` and leaves the rack straight, which is the
+legible answer to a student who points the old inverse kinematics at this car.
+
+**The numbers, measured as geometry and not as `v/omega`.** The radius test drives a half turn in a
+world without walls and takes the chord between the two poses: demanded 14°/22°/30° give
+4.011/2.475/1.732 m against `L/tan(delta)`, ratio 1.0000 each, and 45° still drives `R_min` = 1.600 m.
+The rack step response is 16 steps of 1.2° (= 60°/s at 50 Hz) and clamps at the stop. The Ackermann
+pair is asserted against `atan(L/(R − W/2))`/`atan(L/(R + W/2))` and the four wheel speeds against the
+state, with the identity the model rests on: the mean of the rear pair *is* `v`. The body-frame
+lateral component of every one of 600 random steps is below 1e-9 m, and the reported `vy` is exactly
+`0.0` — that is the "no sideways motion ever" test, and it would catch a future "improvement" that
+lets the car slide.
+
+**The odometry of this car replays what it was told.** `steering.Odometry` integrates `(v, delta)`
+with the `delta` the rack was *commanded* to take, rate-limited by the believed rate, because there is
+no steering encoder to contradict it. `odom.steer_max_scale` is that belief. Over 20 s at full lock,
+the other noise off: 1.0 → 0.0° yaw error and 0.00 m; 1.1 → **+44.9°** and 1.12 m; 0.9 → **−42.0°**
+and 1.34 m. Both directions are in the test, next to the honest case, because "it drifts" without the
+reference number proves nothing. This is the same teaching shape as `odom.geometry` from §10 — the
+integrator believes a model, and the model can be wrong — but here it is a yaw error that no amount of
+driving averages out, which is why the handout says it too (`anleitung.tex`, "A second drive train:
+the steering car").
+
+**`--variant` was a dead flag.** In `node.py` it was parsed, printed in `--help` and never passed to
+`spawn()`: `./lab run --variant slow` has been starting a stock robot the whole time. Three lines
+(mine, in a file this package does not own — `make_engine()` and `cmd_run()` now forward it, and the
+help text names both drive trains). Worth knowing because the flag is now load-bearing for a variant
+that visibly cannot do what the mecanum robot can.
+
+**Two fields the students read, and where they had to go.** `wheels` in `/sim/robots` stays a list of
+four speeds — that is what every existing reader of it assumes — so the rack angles arrived as the new
+`steer_deg` (two numbers, degrees, empty list on a mecanum robot). The car's geometry travels on
+`/sim/config` as the `steering` block, for the same reason the sensor profile does: a node that plans
+corners from `R = L/tan(delta_max)` has to ask the simulation which car it is driving, not its own
+local copy of the config. Both are `String` topics, so the ROS bridge forwards them unchanged and
+needed no change. The view: `overlays.steer_readout()` builds the HUD text (`steer +26.6/+22.9 deg
+R=1.90 m`, in wheel-label order, because "inner/outer" swaps sides with the steering direction), and
+the wheels themselves are turned by `render._wheel()` from `chassis.wheel_headings` — the mount point
+stays on the body, only the stroke turns.
+
+**A node that waits for no task.** `serve()` had two shapes: mission, or `cmd_vel` → inverse
+kinematics forever. A drive demo for a car has no kinematics to hand over, so a module that defines
+`drive(rob)` gets that called once, with the same `running`/`done`/`failed:<type>` handling a mission
+gets, and the pass-through stays switched off afterwards — replaying the demo's last `cmd_vel` through
+a kinematics would push a parked car into the shelf in front of it. Every module without `drive` (both
+templates, both reference solutions) takes the old path in the same order.
+
+**The example, and the four things it got wrong before it drove.** `student/steering_example.py` is
+one idea — point the wheels at the next waypoint with `omega = v · 2 sin(alpha) / distance` — in
+214 lines. Measured on the command from the brief: mission `done` after **45.2 s** of the 60 s budget,
+**0** wall contacts, 20.3 m driven, final gap to the shelf **0.959 m**, odometry within 5 mm of the
+truth. Four findings from getting there, all of them in the file as comments: the lookahead has to be
+the *actual* distance to the waypoint (a fixed 0.5 m under-commanded every corner by a decimetre);
+the commanded curvature has to be clamped at `tan(delta_max)/L`, otherwise the controller asks freely
+and the rack simply sits on its end stop while the log says nothing; the route has to start on the
+spawn's own line, because a car that cannot turn on the spot needs "getting onto the route" as a
+maneuver; and every plan has to be mapped through the start pose, since the odometry starts at the
+spawn and not at (0, 0). The 60 s of the brief's command is enough but not generous — the lap is
+20 m at ≤0.75 m/s plus a parking maneuver that approaches by LIDAR.
+

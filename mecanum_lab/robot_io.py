@@ -202,11 +202,13 @@ def serve(module, name: str | None = None, hz: float = 50.0, argv: list | None =
           bus=None, startup: float = 60.0) -> None:
     """Runner behind the one line in the template: for task ""/"kinematik" it converts
     cmd_vel into four wheel speeds every tick, otherwise module.mission(rob, task) runs
-    once. Ends when the robot disappears or the bus closes."""
+    once. A module that defines drive(rob) — a demo controller that waits for no task — has that
+    called once instead. Ends when the robot disappears or the bus closes."""
     name = (name or _name_from_argv(sys.argv[1:] if argv is None else argv)
             or os.environ.get("MECANUM_ROBOT") or "student")
     rob, tick_time = RobotIO(name, bus=bus), 1.0 / min(max(float(hz), 1.0), 200.0)
     rob.ik = getattr(module, "inverse_kinematics", None)   # publish_cmd_vel -> own IK
+    autodrive, drove = getattr(module, "drive", None), False
     started, last_task, last_error, saw_robot = time.monotonic(), None, 0.0, False
     log.info("node '%s' starting for robot '%s' (%s).", getattr(module, "__name__", "?"),
              rob.name, "ROS" if rob.owns_bus else "in-process bus")
@@ -232,7 +234,20 @@ def serve(module, name: str | None = None, hz: float = 50.0, argv: list | None =
                     rob.set_mission_state(f"failed:{type(exc).__name__}: {exc}")
                 continue
         command = rob.cmd_vel() if kinematik else None
-        if command is not None:
+        if kinematik and autodrive is not None and not drove:
+            # The demo drive asks for no task to start it: running the node *is* the request. The
+            # pass-through below stays off after it, because replaying the demo's last cmd_vel
+            # through a kinematics forever would drive it into a wall once it has parked.
+            drove = True
+            rob.set_mission_state("running")
+            try:
+                autodrive(rob)
+                rob.set_mission_state("done")
+            except Exception as exc:                        # show errors, do not swallow them
+                log.exception("drive demo failed")
+                rob.set_mission_state(f"failed:{type(exc).__name__}: {exc}")
+            continue
+        if command is not None and not drove:
             try:
                 rob.send_wheels(module.inverse_kinematics(command.vx, command.vy, command.omega))
             except Exception as exc:

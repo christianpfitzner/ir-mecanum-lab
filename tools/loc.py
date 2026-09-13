@@ -115,25 +115,60 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   CORE_TOTAL 4750 -> 5000  sensors +151, overlays +37, types +27, engine +17, logbook +4, render
 #                            -3. grade.py, physics.py, node.py and robot_io.py did not grow at all:
 #                            nothing about a graded measurement or about the CLI changed.
+#
+# Addendum, the second drive train `--variant steering` (numbers measured, before -> after):
+#   steering.py new, 290   a whole drive train next to the mecanum one instead of 290 lines inside
+#                          physics.py: the bicycle geometry with the config's degrees turned into
+#                          radians, the rate-limited rack, the Ackermann pair, the four rolling wheel
+#                          speeds, and the integrator that replays the angle the rack was *told* to
+#                          take. Whoever reads the mecanum equations of CONTRACT §5 should not have
+#                          to skip a car to find them.
+#   student/steering_example.py new, 214   one lap of a rounded rectangle, then one parking spot by
+#                          LIDAR — in the readable-in-five-minutes size of controller_template.py
+#                          (123), not in solution.py's (304): it is an example, not a reference.
+#   physics.py 139 -> 180  the hooks a subclass needs (geom, wheel_headings, reset_motion,
+#                          set_twist, odo_feed) and one sentence each on what they are for. Every one
+#                          of them is an alias or a no-op for a mecanum robot; that is the claim
+#                          tests/test_steering_w4.py checks by driving both cars in one engine.
+#   types.py   392 -> 420  the `steering` config block with one line of meaning per number (what a
+#                          metre of wheel base does, what 32 degrees of rack does), the `steering-big`
+#                          variant table and `odom.steer_max_scale`.
+#   engine.py  414 -> 435   one branch each in spawn() and _make_odometer(), cmd_vel handed to
+#                          chassis.set_twist() instead of solved into four wheel speeds at the call
+#                          site, and the two additions to /sim/robots and /sim/config (steer_deg, the
+#                          steering block) that let a node ask which car it is driving.
+#   overlays.py 187 -> 213  steer_readout(): the two rack angles and the radius they make — text, not
+#                          drawing, same rule as sensor_readout(). It is also why render.py grew 6
+#                          lines instead of 20: the view now turns each wheel by
+#                          chassis.wheel_headings and appends the segment, both in one line each.
+#   robot_io.py 244 -> 259  the drive(rob) branch of serve() for a node that waits for no task, with
+#                          the cmd_vel pass-through switched off after it (CONTRACT §6.8).
+#   node.py    612 -> 613   --variant was parsed, printed in the help and never passed to spawn().
+#   CORE_TOTAL 5000 -> 5400  steering.py's 290 plus the seams: physics +41, types +28, engine +21,
+#                          overlays +26, robot_io +15, render +6, node +1. sensors.py, grade.py,
+#                          tasks.py, logbook.py and both reference solutions did not change at all —
+#                          which is the same fact the unchanged 100/100 and 90/90 of check.sh show
+#                          from the other side.
 # The names of the fields students read (report, CSV) cost nothing here: they are strings.
 BUDGET = {
-    "mecanum_lab/types.py": 395, "mecanum_lab/stub.py": 115,
-    "mecanum_lab/engine.py": 415, "mecanum_lab/worlds.py": 135,
-    "mecanum_lab/physics.py": 140, "mecanum_lab/sensors.py": 560,
-    "mecanum_lab/overlays.py": 190,
-    "mecanum_lab/render.py": 470, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
+    "mecanum_lab/types.py": 420, "mecanum_lab/stub.py": 115,
+    "mecanum_lab/engine.py": 435, "mecanum_lab/worlds.py": 135,
+    "mecanum_lab/physics.py": 180, "mecanum_lab/sensors.py": 560,
+    "mecanum_lab/steering.py": 290, "mecanum_lab/overlays.py": 213,
+    "mecanum_lab/render.py": 472, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
-    "mecanum_lab/node.py": 615, "mecanum_lab/robot_io.py": 255,
+    "mecanum_lab/node.py": 615, "mecanum_lab/robot_io.py": 259,
     "mecanum_lab/tasks.py": 210, "mecanum_lab/grade.py": 620,
     "mecanum_lab/logbook.py": 110,
     "student/controller_template.py": 125, "student/solution.py": 310,
     "student/kf_template.py": 200, "student/kf_solution.py": 310,
+    "student/steering_example.py": 220,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
     "launch/lab.launch.py": 60, "launch/kf.launch.py": 185,
     "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 240,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 5000
+CORE_TOTAL = 5400
 
 
 def loc(path):

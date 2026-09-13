@@ -10,7 +10,7 @@ import json
 import logging
 import math
 
-from . import physics, sensors
+from . import physics, sensors, steering
 from .types import (Gps, Pose, Robot, RobotSpec, Twist, cfg_get, load_config, merge,
                     sanitize_name, PALETTE, MARKERS, VARIANTS)
 
@@ -68,10 +68,17 @@ class SimEngine:
 
         Not the chassis geometry — `odom.geometry` is what makes a wrong wheel radius or a wrong
         lever arm expressible at all (sensors.odom_geometry). Empty config -> the true geometry.
+
+        The steered car gets its own integrator (steering.Odometry): four wheel speeds do not carry
+        a steering angle, and a bicycle model has to be integrated from `(v, delta)`.
         """
-        odometer = sensors.OdometrySensor(
-            sensors.odom_geometry(r.chassis.geometry, cfg_get(self.cfg, "odom.geometry")),
-            self._noise, cfg_get(self.cfg, "odom"))
+        if isinstance(r.chassis.geometry, steering.SteeringGeometry):
+            odometer = steering.build_odometer(r.chassis.geometry, self._noise,
+                                               cfg_get(self.cfg, "odom"))
+        else:
+            odometer = sensors.OdometrySensor(
+                sensors.odom_geometry(r.chassis.geometry, cfg_get(self.cfg, "odom.geometry")),
+                self._noise, cfg_get(self.cfg, "odom"))
         odometer.reset(r.chassis.pose)                 # odom origin = spawn pose, not (0,0)
         return odometer
 
@@ -90,9 +97,15 @@ class SimEngine:
         color, rgb = PALETTE[idx % len(PALETTE)]
         spec = RobotSpec(name=name, index=idx, color=color, rgb=rgb,
                          marker=MARKERS[idx % len(MARKERS)], variant=variant)
-        geometry = physics.make_geometry(cfg_get(self.cfg, "robot"), variant)
-        r = Robot(spec=spec, chassis=physics.Chassis(geometry, pose or self.world.spawn_pose(idx),
-                                                     seed=idx + (self._index or 1)))
+        spawn_pose = pose or self.world.spawn_pose(idx)
+        # The second drive train brings its own geometry and its own chassis; one `if` here and the
+        # rest of the engine does not care which of the two it is looking at.
+        chassis = (steering.make_chassis(cfg_get(self.cfg, "steering"), variant, spawn_pose,
+                                         seed=idx + (self._index or 1))
+                   if steering.is_steering(variant) else
+                   physics.Chassis(physics.make_geometry(cfg_get(self.cfg, "robot"), variant),
+                                   spawn_pose, seed=idx + (self._index or 1)))
+        r = Robot(spec=spec, chassis=chassis)
         r.odometer = self._make_odometer(r)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
         self._clock_to_sim(r)
@@ -139,7 +152,7 @@ class SimEngine:
             return False
         home = self.world.spawn_pose(r.spec.index)
         r.chassis.pose = Pose(home.x, home.y, home.theta)
-        r.chassis.wheels = [0.0] * 4
+        r.chassis.reset_motion()                       # a steered car also has to straighten up
         r.chassis.contacts = 0
         r.odometer.reset(r.chassis.pose)
         r.inertial.reset()
@@ -156,7 +169,7 @@ class SimEngine:
         for r in self.robots.values():
             home = self.world.spawn_pose(r.spec.index)
             r.chassis.pose = Pose(home.x, home.y, home.theta)
-            r.chassis.wheels = [0.0] * 4
+            r.chassis.reset_motion()
             r.chassis.contacts = 0
             r.odometer.reset(r.chassis.pose)
             r.inertial.reset()
@@ -297,7 +310,7 @@ class SimEngine:
             r.wheels = list(r.chassis.wheels)
             r.contacts = r.chassis.contacts
             r.distance += math.hypot(p.x - x0, p.y - y0)
-            odo = r.odometer.update(r.chassis.wheels, dt)      # integrate every step
+            odo = r.odometer.update(r.chassis.odo_feed(), dt)      # integrate every step
             for msg in r.inertial.sample(r.pose, r.twist, dt):  # IMU runs faster than the physics
                 self._push("imu", r.spec.name, msg)
                 r.imu = msg
@@ -331,8 +344,7 @@ class SimEngine:
             r.chassis.set_wheels(r.wheel_cmd)
         elif r.mode == "pass-through" and vel_ok:
             v = r.vel_cmd
-            r.chassis.set_wheels(physics.inverse_kinematics(
-                r.chassis.geometry, v.vx, v.vy, v.omega))
+            r.chassis.set_twist(v.vx, v.vy, v.omega)       # the chassis maps it, not the engine
         else:
             r.chassis.set_wheels([0.0] * 4)          # radio silence -> let the motors coast down
 
@@ -373,6 +385,10 @@ class SimEngine:
                  "marker": r.spec.marker, "variant": r.spec.variant, "mode": r.mode,
                  "pose": [round(r.pose.x, 3), round(r.pose.y, 3), round(r.pose.theta, 3)],
                  "wheels": [round(w, 2) for w in r.wheels],
+                 # The two front wheel angles of a steered car, in degrees — they are not wheel
+                 # speeds and would not fit into the list above. Empty on a mecanum robot.
+                 "steer_deg": [round(math.degrees(a), 1) for a in
+                               getattr(r.chassis, "steer", [])],
                  "kf": None if not r.kf else [round(r.kf.x, 3), round(r.kf.y, 3),
                                               round(r.kf.sx, 3), round(r.kf.sy, 3)],
                  "kf_err": None if r.kf_err is None else round(r.kf_err, 3),
@@ -407,8 +423,13 @@ class SimEngine:
                            "walls": len(self.world.walls)})
 
     def config_json(self) -> str:
-        """Sensor profile of the running simulation — the grader checks its test profile here."""
+        """Sensor profile of the running simulation — the grader checks its test profile here.
+
+        `steering` travels along because the drive geometry is a fact of the running car, not a
+        recommendation: a student node that plans corners from `R = L / tan(delta_max)` has to ask
+        the simulation which car it is driving, not its own local config file.
+        """
         profile = {k: cfg_get(self.cfg, k) for k in
-                  ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth")}
+                  ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth", "steering")}
         profile["seed"] = self.seed
         return json.dumps(profile)

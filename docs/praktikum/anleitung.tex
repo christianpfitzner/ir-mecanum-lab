@@ -280,6 +280,34 @@ So that the first day does not fail on the kinematics, every robot starts in
 \thema{/sim/robots} and in the HUD). A broken sign is visible immediately —
 and that is exactly the intention.
 
+\subsection{A second drive train: the steering car}
+\label{sec:steering}
+The option \thema{--variant} does double duty. Besides the four mecanum motor variants
+(stock, slow, fast, agile) it selects a \emph{different kinematic world}: \thema{steering} is a car
+with one driven axle and one steered axle, so its velocity has one degree of freedom instead of
+three. Its turn rate is not free but follows from the angle the rack took,
+\(\omega = v \tan\delta / L\), and with it the radius it is driving,
+\(R = L/\tan\delta\); with the default wheel base \(L = 1.00\,\mathrm{m}\) and the rack end stop at
+\(\delta_{\max} = 32^\circ\) that is \(R_{\min} = 1.60\,\mathrm{m}\), and a tighter corner is not a
+driving mistake but a car that does not exist. Two consequences are the point of the exercise: a
+steering car \emph{cannot strafe} — \thema{vy} has no solution here, and the simulator answers
+\texttt{steering robot cannot strafe, vy=0.25 dropped} once per robot and simply keeps driving — and
+its odometry integrates the steering angle it \emph{believes}, because there is no steering encoder on
+the car: with \thema{--set odom.steer\_max\_scale=1.1} (an end stop \(10\,\%\) off) the same drive
+that was exact returns \(45^\circ\) of yaw error and \(1.1\,\mathrm{m}\) of place error after
+\(20\,\mathrm{s}\), and nothing ever cancels it out. The four wheel speeds stay on the same topic with
+the same labels; the rear pair rolls, and their mean is exactly \(v\).
+
+\begin{lstlisting}[language=bash]
+./lab run --world production --robot car --variant steering \
+          --controller student/steering_example.py --headless --seconds 60 --truth
+\end{lstlisting}
+
+That controller drives one lap of a rounded rectangle — every corner \(R_{\min} + 0.15\,\mathrm{m}\),
+because the rack needs half a second to reach \(30^\circ\) — and then parks in front of a shelf by
+LIDAR. Read it before you write your own: it is one idea (point the wheels at the next waypoint) and
+forty lines.
+
 \section{Getting started}
 \subsection{Installation}
 \begin{lstlisting}[language=bash]

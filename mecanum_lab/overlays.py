@@ -11,6 +11,9 @@ Four small effects that make the invisible visible, none of which changes physic
   visible twin of the phantom distance that `robot.slip` produces.
 * `sensor_readout()` builds the gps/lidar/imu parts of the per-robot readout line, quality and
   satellite count and chip temperature included — the sensor's own opinion, not its number.
+* `steer_readout()` is the same for the second drive train: the two front wheel angles and the
+  turning radius that follows from them. A steered car is drawn with its wheels turned by
+  `render._wheel()`; what belongs here is the number next to the picture.
 
 Stdlib + pygame only, no state in the module (marks live on the renderer), stdlib drawing calls
 only (CONTRACT section 1). Text uses the renderer's own blit so both use the same fonts.
@@ -159,6 +162,29 @@ def _gps_view(rend, robot) -> tuple:
     if probe is not None and robot.spec.name in getattr(eng, "robots", {}):
         return probe(robot.spec.name)
     return (robot.gps.quality, robot.gps.sats, 0) if robot.gps else (0, 0, 0)
+
+
+def steer_readout(rend, robot) -> list:
+    """The steered front axle in the readout line: both angles and the radius they make.
+
+    The two angles are printed in the order of the wheel labels (`VL` then `VR`, CONTRACT §3) and not
+    as "inner/outer": on a left turn the inner wheel is VL and turns further, on a right turn it is
+    VR, and a readout that swaps its own labels with the steering direction explains nothing.
+    Next to them the radius, because `R = wheel_base / tan(delta)` is what the driver has to slow
+    down for. A mecanum robot returns an empty list, so the readout line of every graded run stays
+    exactly as long as it was.
+
+    Like `sensor_readout()` this builds text and draws nothing — placing it is `render._hud()`.
+    """
+    angles = getattr(robot.chassis, "steer", None)
+    if not angles:
+        return []
+    from .render import GREY                                # lazy: render imports this module
+    base = float(getattr(getattr(robot.chassis, "geom", None), "wheel_base", 0.0) or 0.0)
+    delta = (angles[0] + angles[1]) / 2.0
+    radius = f"  R={base / math.tan(delta):.2f} m" if base and abs(delta) > 1e-3 else ""
+    return [(f"steer {math.degrees(angles[0]):+.1f}/{math.degrees(angles[1]):+.1f} deg{radius}",
+             GREY)]
 
 
 def above_bar(rend, y: float) -> float:

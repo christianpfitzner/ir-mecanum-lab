@@ -202,6 +202,9 @@ PALETTE = [
 ]
 MARKERS = ["triangle", "square", "diamond", "circle", "pentagon", "hexagon",
            "star", "cross"]
+# Motor variants a robot is cycle-assigned when `--variant` is empty. The steered cars of
+# steering.py are deliberately not in this list: a run without `--variant` stays a mecanum run,
+# which is what every threshold in config/tasks.json is calibrated on.
 VARIANTS = ["stock", "agile", "slow", "fast"]        # motor variants, visible in the HUD
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,23}$")
@@ -294,7 +297,13 @@ DEFAULT_CONFIG = {
              #                       (wrong radius, honest gyro): a circle becomes a spiral
              #   bias_xy             constant offset of the reported pose (wrong odom origin)
              # {} means: the integrator believes the true geometry, i.e. perfect wheel constants.
-             "geometry": {}},
+             "geometry": {},
+             # Only the steering car reads this one (steering.Odometry): the rack end stop its
+             # model believes, as a factor of the true `steering.steer_max_deg`. There is no
+             # steering encoder on a car like this, so an end stop that is 10 % off (linkage play,
+             # a stop bolt in the wrong hole) cannot be noticed and turns every corner the same
+             # wrong way. 1.0 = the model knows the car; only then is the odometry exact.
+             "steer_max_scale": 1.0},
     "lidar": {"rate": 20.0, "beams": 360, "range_max": 8.0, "range_min": 0.05,
               "sigma": 0.015, "max_walls": 400,   # max_walls: segments one scan may use
               # Weakest echo a beam may return, as |cos| of the incidence angle on the surface it
@@ -330,6 +339,25 @@ DEFAULT_CONFIG = {
     # exception is gps_delay: that is the delay their filter has to live with, so the engine
     # simulates it as a late GPS fix (equivalent to gps.delay_ticks, in seconds).
     "kf": {"rate": 20.0, "q_acc": 0.6, "q_turn": 0.02, "gps_delay": 0.0},
+    # Second drive train (`--variant steering`, `spawn(name, variant="steering")`): a kinematic
+    # bicycle with Ackermann geometry on the front axle, modelled in steering.py. The angles are
+    # in degrees here because that is what a workshop speaks; the code turns them into radians.
+    # Nothing in this block is read for the mecanum robot, so no graded number depends on it.
+    "steering": {
+        "wheel_base": 1.0,            # m, front axle to rear axle: the L of R = L / tan(delta)
+        "track": 0.62,                # m, distance between the two front wheels (Ackermann arm)
+        "steer_max_deg": 32,          # deg, physical end stop of the rack -> R_min = 1.60 m below
+        "steer_rate_deg_s": 60,       # how fast the rack moves: a corner needs lead, not a step
+        "v_max": 0.8,                 # m/s, the one drive
+        "max_accel": 2.0,             # m/s^2 — metres here, not rad/s: one motor instead of four
+        "tau": 0.08,                  # s, first-order lag of that drive
+        "r": 0.05,                    # m, drive wheel radius (rad/s of the encoders <-> m/s)
+        "footprint_r": 0.62,          # m, collision circle: half the diagonal of the body
+        "slip": 1.0,                  # 1 = the drive wheels spin on against an obstacle
+        # Sizes a student can ask for later with `rob.spawn("car", variant="steering-big")`.
+        "variants": {"steering": {},
+                     "steering-big": {"wheel_base": 1.4, "track": 0.8,
+                                      "v_max": 1.2, "footprint_r": 0.85}}},
     # Cell size per world: the robot is the same size everywhere, but the maze is built on a
     # coarser grid, so its corridors are wide enough to drive and to see. See worlds.py.
     "worlds": {"cell": 0.5, "cell_by_world": {"maze": 1.0}},

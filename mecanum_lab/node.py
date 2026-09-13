@@ -221,7 +221,7 @@ def make_engine(args):
                      if k != "world"}
     for name in [r for r in (args.robots or "").split(",") if r.strip()]:
         try:
-            eng.spawn(name.strip())
+            eng.spawn(name.strip(), getattr(args, "variant", ""))
         except (SpawnError, ValueError) as exc:
             log.error("robot '%s': %s", name, exc)
     if args.task:
@@ -355,7 +355,7 @@ def cmd_run(args):
         # `--robot` is the name of your own robot — without spawning it explicitly the arena
         # would stay empty, and the student would see a blank map with a running node.
         try:
-            eng.spawn(args.robot)
+            eng.spawn(args.robot, getattr(args, "variant", ""))
         except (SpawnError, ValueError) as exc:
             log.error("robot '%s': %s", args.robot, exc)
     graders = [_grader(args.robot, args.task, bus, eng)] if args.grade else []
@@ -559,7 +559,8 @@ def parser():
                    help="Run the grader too: tasks or group for --robot (default: alle)")
     p.add_argument("--json", default=None, help="Write the grading report as JSON")
     p.add_argument("--name", default="", help="Robot name for spawn/despawn")
-    p.add_argument("--variant", default="", help="Motor variant: stock|slow|fast|agile")
+    p.add_argument("--variant", default="", help="Drive variant: stock|slow|fast|agile, "
+                   "steering|steering-big (Ackermann car, see README)")
     return p
 
 

@@ -10,6 +10,11 @@ the wheels keep the speed the motor demands (`robot.slip`, 1 = full slip) — th
 place where odometry may lie, because it integrates wheel speeds. Everywhere else four wheel
 speeds give the body velocity uniquely (pseudo-inverse of the kinematics). Noise does not belong
 in the mechanics but in sensors.py — the truth stays deterministic.
+
+The four small hooks `geom`, `set_twist()`, `odo_feed()` and `wheel_headings()` are what the
+second drive train (`steering.py`, a subclass of `Chassis`) overrides. They stay behaviour-neutral
+here: a mecanum robot does exactly what it did before, and the engine can drive both cars through
+the same three calls.
 """
 from dataclasses import dataclass, fields
 import math
@@ -39,7 +44,11 @@ class Geometry:
 
 
 def make_geometry(cfg: dict, variant: str = "stock") -> Geometry:
-    """Layer a motor variant ("", stock, slow, fast, agile) over the base configuration."""
+    """Layer a motor variant ("", stock, slow, fast, agile) over the base configuration.
+
+    Names that start with "steering" belong to the other drive train and are built by
+    `steering.make_geometry()` — this one would silently hand back a stock mecanum robot for them.
+    """
     base = {k: v for k, v in (cfg or {}).items() if isinstance(v, (int, float))}
     for key, val in ((cfg or {}).get("variants") or {}).get(variant, {}).items():
         base[key] = val
@@ -79,6 +88,38 @@ class Chassis:
         self.cmd = [0.0] * 4                # target speed (clamped)
         self.contacts = 0                   # number of wall contacts (new ones only)
         self.touching = False
+
+    @property
+    def geom(self) -> Geometry:
+        """The geometry itself — the view sizes the chassis from this, not from the config.
+
+        Only an alias, but it is the difference between drawing the robot the simulation drives
+        and drawing whatever `config/default.json` says (which is wrong for every other variant).
+        """
+        return self.geometry
+
+    @property
+    def wheel_headings(self) -> list:
+        """Turn angle of every wheel in the body frame — a mecanum wheel never turns."""
+        return [0.0] * 4
+
+    def reset_motion(self) -> None:
+        """Stand still: measured speeds and targets at zero (used by the engine's reset)."""
+        self.wheels = [0.0] * 4
+        self.cmd = [0.0] * 4
+
+    def set_twist(self, vx: float, vy: float, omega: float) -> None:
+        """Body velocity command — the `cmd_vel` path, through the mecanum kinematics of CONTRACT §5."""
+        self.set_wheels(inverse_kinematics(self.geometry, vx, vy, omega))
+
+    def odo_feed(self):
+        """What the odometry integrator is handed: here the four measured wheel speeds.
+
+        A method rather than `chassis.wheels` at the call site because the second drive train
+        (`steering.py`) measures one quantity more than the wheel speeds carry — the angle the
+        steering was told to take — and only the chassis knows which one that is.
+        """
+        return self.wheels
 
     def set_wheels(self, wheels) -> None:
         """Set target speeds, clamped to ±max_speed per wheel."""

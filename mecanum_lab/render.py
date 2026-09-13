@@ -288,7 +288,7 @@ class Renderer:
                               [self.px(x, y) for x, y in pts], 2)
 
     def _robot(self, robot, dt: float) -> None:
-        """Chassis, marker, heading, four mecanum wheels with rolling strokes, name label."""
+        """Chassis, marker, heading, four wheels with rolling strokes, name label."""
         pose, col = robot.pose, rgb(robot.spec.rgb)
         sc = self.screen
         lx, ly, wr, fp_m = self._geom(robot)
@@ -302,9 +302,10 @@ class Renderer:
         pygame.draw.polygon(sc, col, chassis_body, 1)
         pygame.draw.circle(sc, mix(col, self.col_floor, .82), centre, fp, 1)  # collision circle
         if self.show_wheels:
+            headings = getattr(robot.chassis, "wheel_headings", [0.0] * 4)
             for i, (sx, sy) in enumerate(CORNERS):
-                self._wheel(robot, pose.theta, sx * (half_l - wheel_r * .7), sy * (be - wheel_r * .45),
-                            pose, wheel_r, i, col, dt)
+                self._wheel(robot, pose.theta + headings[i], sx * (half_l - wheel_r * .7),
+                            sy * (be - wheel_r * .45), pose, wheel_r, i, col, dt)
         pygame.draw.polygon(sc, col, shape(robot.spec.marker, centre, min(half_l, half_w) * .6,
                                            pose.theta))
         pygame.draw.line(sc, col, centre,
@@ -324,12 +325,16 @@ class Renderer:
         `wheel_r` is the drawn wheel radius in metres: `gui_style.wheel_scale` times the real 5 cm,
         but never more than 42 % of the chassis — an aid for the eye, like the roller speed that
         is scaled to 0.25 because 12 rad/s at 30 fps would only flicker. Physics untouched.
+
+        `theta` is the heading of **this wheel**, not of the body: the mount point comes from
+        `pose.theta`, so a steered front wheel is drawn where it sits but turned by its own angle
+        (for a mecanum robot both are the same angle, see `physics.Chassis.wheel_headings`).
         """
         sc = self.screen
         phase = self.phase.setdefault(robot.spec.name, [0.0] * 4)
         phase[index] = (phase[index] + (robot.wheels[index] if index < len(robot.wheels) else 0.0)
                         * dt * WHEEL_SPIN_GAIN) % math.tau
-        center = self.px(*_add((pose.x, pose.y), body(theta, dx, dy)))
+        center = self.px(*_add((pose.x, pose.y), body(pose.theta, dx, dy)))
         half_l = max(2.2, wheel_r * self.s)                                # half length of the wheel
         half_w = max(1.4, half_l * .6)                                   # half width of the wheel
         u, v = body(-theta, 1, 0), body(-theta, 0, 1)
@@ -374,6 +379,7 @@ class Renderer:
                           (f"|v|={math.hypot(r.twist.vx, r.twist.vy):.2f} m/s", GREY),
                           (f"w={r.twist.omega:+.2f}", GREY), ("odom " + o, GREY),
                           *overlays.sensor_readout(self, r),
+                          *overlays.steer_readout(self, r),
                           ("kf " + (f"x={r.kf.x:+.2f} y={r.kf.y:+.2f} "
                                     f"σ=({r.kf.sx:.2f},{r.kf.sy:.2f}) "
                                     f"Δ={r.kf_err:.2f} m" if r.kf else "-"), KF_COLOR),
