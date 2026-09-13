@@ -39,3 +39,31 @@ def test_the_arena_picture_is_linked_by_a_page_and_present():
     """
     assert where("docs/img/worlds.png"), "no documentation page links docs/img/worlds.png"
     assert os.path.getsize(IMAGE) > 5000, "run: python3 tools/worldpic.py"
+
+
+def test_the_hall_pictures_of_the_front_page_are_the_tool_run_today(tmp_path):
+    """The README shows one picture per hall, so every one of them is a build product of this tool.
+
+    A linked figure that nobody regenerates is a figure that lies: `worlds/*.txt` changes and the hall on
+    the front page stays as it was. Compared as decoded pixels rather than as file bytes, because the PNG
+    encoder differs between machines while the drawing does not — the same reason the readout figures in
+    `tests/test_readout_pictures_w7.py` are compared below their text rows.
+    """
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init()
+
+    for name in ("arena", "maze", "open", "production", "track"):
+        committed = os.path.join(ROOT, "docs", "img", f"world_{name}.png")
+        fresh = tmp_path / f"world_{name}.png"
+        result = subprocess.run([sys.executable, WERKZEUG, "--worlds", name, "--out", str(fresh)],
+                                capture_output=True, text=True, timeout=120, cwd=ROOT)
+        assert result.returncode == 0, f"{name}: {result.stderr[-300:]}"
+        drew, holds = (pygame.image.load(str(p)) for p in (fresh, committed))
+        assert drew.get_size() == holds.get_size(), \
+            f"world_{name}.png: the README holds {holds.get_size()}, the tool draws {drew.get_size()}"
+        drew_px = pygame.image.tostring(drew, "RGB")
+        holds_px = pygame.image.tostring(holds, "RGB")
+        assert drew_px == holds_px, \
+            f"world_{name}.png is not what the tool draws today — regenerate: python3 tools/worldpic.py " \
+            f"--worlds {name} --out docs/img/world_{name}.png"
