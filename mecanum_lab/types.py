@@ -89,6 +89,27 @@ class World:
             return Pose(self.size[0] / 2, self.size[1] / 2, 0.0)
         return self.spawns[min(index, len(self.spawns) - 1)]
 
+    def free(self, what: str, x: float, y: float, why: str = "") -> None:
+        """Refuse a spot that is not open floor, with the reason a person can act on.
+
+        One rule for everything that gets placed into the hall: a radiation source (`pois`) and a robot
+        that is picked up and put down again (`engine.teleport`). Both used to decide for themselves, and
+        the two decisions differed in exactly the way that matters — one checked the border, the other
+        the racks — so a spot could be good for a source and impossible for a robot in the same hall.
+
+        Raises rather than returns False, for the reason CONTRACT §6.13 gives for a source: a spot that
+        is inside a wall is not a corner case to ignore, it is a scenario nobody can solve, and the
+        answer has to name it.
+        """
+        wide, high = self.size
+        if not 0.0 < x < wide or not 0.0 < y < high:
+            raise ValueError(f"{what} at ({x:g}, {y:g}) is outside the walls of world "
+                             f"'{self.name}' ({wide:g} x {high:g} m)")
+        for wall in self.walls or []:
+            if wall.x0 <= x <= wall.x1 and wall.y0 <= y <= wall.y1:
+                raise ValueError(f"{what} at ({x:g}, {y:g}) sits inside a wall of world "
+                                 f"'{self.name}'{why}")
+
 
 @dataclass
 class RobotSpec:

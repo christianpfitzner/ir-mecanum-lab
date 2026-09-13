@@ -425,6 +425,7 @@ wonder which of them a screenshot shows.
 \thema{f} & whole world & \thema{x} & GPS shadow zones \\
 \thema{1}..\thema{9} & follow one ($\thema{0}$: all) & \thema{o} & odometry ghost + drift \\
 \thema{0} & follow all & \thema{p} & radiation source + field \\
+& & \thema{i} & radiation dose map \\
 \thema{shift} & both speeds $\times$2 & \thema{h} & readout lines \\
 \thema{=} / \thema{-} & zoom & \thema{n} & radio link + access point \\
 \bottomrule
@@ -455,7 +456,9 @@ Three runs of that command ended the 100 s of simulation time at a window mean o
 arcing near the source; the spread is the node's own loop being paced by the host, which is exactly why
 that file compares means over a second instead of two single readings. \ordner{poi.csv} holds the same
 series in \thema{intensity\_poi} and \thema{name\_poi} — \kommando{python3 tools/kfplot.py poi.csv
---list} prints every column of it. Layer \thema{p} of the window draws the source itself, and
+--list} prints every column of it. Layer \thema{p} of the window draws the source itself, layer
+\thema{i} the field around it (amber where a counter barely ticks, red at the source, and \emph{no}
+wall in the model, so it runs through the racks), and
 \thema{--set poi.publish\_distance=true} puts the true metres into the message: switch it on to check an
 answer afterwards, not to find one.
 \subsection{Creating a robot through a service}\label{sec:service}

@@ -104,25 +104,16 @@ def load_sources(value, world, d0_default: float = 1.0) -> list:
                              f"(got range {reach:g} m, d0 {d0:g} m)")
         if activity < 0.0:
             raise ValueError(f"poi '{name}': activity has to be >= 0 (got {activity:g})")
-        _inside(name, x, y, world)
+        # The same rule a teleported robot is checked against (`World.free`), so a spot cannot be legal
+        # for a source and impossible for a robot in the same hall; the reason says what a source in a
+        # rack would cost: a scenario nobody can solve.
+        world.free(f"poi '{name}'", x, y, " — a source needs open floor around it")
         if any(s.name == name for s in out):
             raise ValueError(f"poi name '{name}' is used twice — the counter reports one number, so "
                          "the window and the log could not say which of the two made it")
         out.append(Source(name=name, kind=kind, x=x, y=y, activity=activity,
                           range_m=reach, d0=d0))
     return out
-
-
-def _inside(name: str, x: float, y: float, world) -> None:
-    """Reject a source that is not in the open area of `world`, with a readable reason."""
-    wide, high = world.size
-    if not 0.0 < x < wide or not 0.0 < y < high:
-        raise ValueError(f"poi '{name}' at ({x:g}, {y:g}) is outside the walls of world "
-                         f"'{world.name}' ({wide:g} x {high:g} m)")
-    for wall in world.walls or []:
-        if wall.x0 <= x <= wall.x1 and wall.y0 <= y <= wall.y1:
-            raise ValueError(f"poi '{name}' at ({x:g}, {y:g}) sits inside a wall of world "
-                             f"'{world.name}' — a source needs open floor around it")
 
 
 def loudest(sources, pose):
@@ -136,6 +127,45 @@ def loudest(sources, pose):
     if not sources or pose is None:
         return None
     return max(sources, key=lambda s: s.intensity(pose.x, pose.y))
+
+
+def field_map(sources, world) -> list:
+    """The hall sampled on a grid — `[(x, y, level)]`, the data of the radiation dose layer.
+
+    `level` is what every source together adds up to at that spot, divided by the strongest activity
+    in the list, so it is the number the counter is built on and not a second scale: 1.0 at a source,
+    0.5 at its `d0`, 0.1 at `3·d0`, 0.0 beyond its range. A second scale for the map would be a second
+    thing to explain, and this ratio is the one a student follows between two readings anyway.
+
+    Two sources that each read 0.5 at a spot come to 1.0 there: dose is a field and adds, which is the
+    difference to `loudest()` above — that one answers *which* source a counter hears, this one answers
+    *how much*. Nothing here knows a wall: `Source.intensity()` is a distance law and nothing else, so
+    the map of it does not either, and the rack that hides a source from the LIDAR leaves its dose
+    untouched. That is the model talking, and the layer says it out loud rather than drawing what a
+    student would expect.
+
+    Same shape and cost argument as `wifi.coverage()`: `production` (40 × 24 m at 0.5 m) is 3840 spots
+    with one division each, so the window samples this once and keeps the answer. The grid is the map
+    grid (`world.cell`) and not a knob of its own: the square the layer paints is the square that was
+    sampled, and a coarser picture would be a picture of another model.
+    """
+    if not sources or not world or not world.size:
+        return []
+    strongest = max(float(s.activity) for s in sources)
+    if strongest <= 0.0:
+        return []
+    step = float(world.cell or 0.5)
+    wide, high = world.size
+    out = []
+    y = step / 2.0
+    while y < high:
+        x = step / 2.0
+        while x < wide:
+            total = sum(s.intensity(x, y) for s in sources) / strongest
+            out.append((x, y, min(total, 1.0)))
+            x += step
+        y += step
+    return out
 
 
 class PoiSensor:

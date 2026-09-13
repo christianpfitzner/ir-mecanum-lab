@@ -5,18 +5,35 @@ a wheel radius that is not what the drawing says — could not be expressed at a
 the integrator build a geometry of its own while the chassis keeps the correct one
 (`sensors.odom_geometry`).
 
+Drive a straight line and watch `o`: the ghost pulls ahead by 5 cm per metre while the truth stays on
+its line. The hall of this file is `production`, with the tables the graded tasks drive between:
+
 ```bash
-./lab sim --world track --config config/demo_odom_error.json           # drive a straight line
-./lab run --world production --config config/demo_odom_error.json \
-          --robot muster --controller student/solution.py --seconds 30  # the ghost of the reference
-ros2 launch mecanum_lab demo_odom_error.launch.py                       # same through ROS, plus RViz
+ros2 launch mecanum_lab demo_odom_error.launch.py
 ```
 
-What it does to the graded tasks is the interesting run, and it is one command:
+For a lane with nothing in it, the track hall is one argument:
+
+```bash
+ros2 launch mecanum_lab demo_odom_error.launch.py world:=track
+```
+
+The same error on the ghost of the reference solution, with no keyboard in the way:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_odom_error.json \
+    controller:=student/solution.py seconds:=30
+```
+
+What it does to the graded tasks is the interesting run, and grading is the one-process command — same
+config file, one clock for grader, simulator and node:
 
 ```bash
 ./lab grade --config config/demo_odom_error.json --task alle --controller student/solution.py
 ```
+
+Without ROS 2 the drives above are `./lab sim --config config/demo_odom_error.json`, with `--world track`
+or `--controller student/solution.py --seconds 30` on the end.
 
 ## What it changes
 

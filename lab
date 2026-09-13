@@ -34,6 +34,9 @@ case "${1:-}" in
     cat <<'HILFE'
 
 Lab 1 examples (all of it without ROS, with pygame only):
+  In the lab room the usual door is the launch file (simulator + your node + RViz at once):
+    ros2 launch mecanum_lab lab.launch.py controller:=student/solution.py
+  Everything below is the same simulator without ROS 2, on one process and one clock.
   ./lab run --robot alice --controller student/controller_template.py
       Simulator + your node in one process, with a window. Quit with q.
   ./lab run --robot alice --controller student/solution.py --world track --seconds 60

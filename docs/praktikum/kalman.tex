@@ -457,7 +457,7 @@ source /opt/ros/kilted/setup.bash          # if ROS is not found automatically
 ros2 launch launch/kf.launch.py --show-args               # list every argument
 ros2 launch launch/kf.launch.py headless:=true task:=kf_fusion \\
     controller:=student/kf_template.py log:=messung.csv
-ros2 launch launch/kf.launch.py grade:=kf_alle \\
+ros2 launch launch/kf.launch.py task:=kf_dynamik \\
     controller:=student/kf_solution.py "gps_gap:=[10,14]" imu_rate:=200
 ros2 launch launch/kf.launch.py rviz:=true                # view with covariance ellipse
 \end{lstlisting}

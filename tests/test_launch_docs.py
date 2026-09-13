@@ -17,6 +17,7 @@ tables (name, default, one line of help) without ROS; what is checked here is th
 """
 import ast
 import glob
+import json
 
 from support_docs import pages
 import os
@@ -31,7 +32,7 @@ sys.path.insert(0, REPO)
 
 from mecanum_lab import node as node_module                          # noqa: E402
 from mecanum_lab import rviz_view                                   # noqa: E402
-from mecanum_lab.types import MSG_SPECS, topic                      # noqa: E402
+from mecanum_lab.types import MSG_SPECS, load_config, topic              # noqa: E402
 from mecanum_lab.tf_bcast import frames                             # noqa: E402
 
 import importlib.util                                               # noqa: E402
@@ -365,3 +366,170 @@ def test_every_demo_has_its_own_launcher():
                 if line.strip() and not line.strip().startswith("#")]
         assert len(code) < 20, f"demo_{name}.launch.py has grown logic: {len(code)} non-comment lines"
         assert "ExecuteProcess" not in text, f"demo_{name}.launch.py starts processes of its own"
+
+
+# ------------------------------------------- typed arguments and the config they sit on
+
+
+def sim_argv(**typed) -> list:
+    """The simulator's argv as `ros2 launch launch/lab.launch.py <typed>` would hand it over.
+
+    Read from the launch description itself, because the argument table a reader sees in `--show-args`
+    and the process list that is really started are two different pieces of code — and a launch file
+    that passes its own default for something nobody typed has already outbid the config file the
+    reader named. `typed` stands for what was given on the command line; everything else keeps the
+    default `--show-args` prints.
+    """
+    from launch.actions import ExecuteProcess
+    from launch.launch_context import LaunchContext
+    from launch.utilities import perform_substitutions
+
+    module = load("lab.launch.py")
+    ctx = LaunchContext()
+    ctx.launch_configurations.update(
+        {name: default for name, (default, _help) in declared_arguments(module).items()}
+        | {name: str(value) for name, value in typed.items()})
+    for action in module.start(ctx):
+        if isinstance(action, ExecuteProcess) and perform_substitutions(ctx, action.name) == "mecanum_sim":
+            return [perform_substitutions(ctx, part) for part in action.cmd]
+    raise AssertionError("lab.launch.py describes no simulator process")
+
+
+def option_value(argv: list, option: str) -> str:
+    """The value that follows one option in an argv list."""
+    assert option in argv, f"{option} is not in {argv}"
+    return argv[argv.index(option) + 1]
+
+
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
+def test_an_argument_that_was_not_typed_reaches_neither_the_node_nor_the_config():
+    """`ros2 launch mecanum_lab demo_poi.launch.py` opened `production`, and the page said `open`.
+
+    `lab.launch.py` used to hand over `--world production --view clean --seconds 0` for arguments no
+    one had typed, and the command line is the layer that always wins (CONTRACT §2) — so the demo
+    config's own `"world": "open"` was outbid by a launch file's default, in silence. Empty now means
+    "not typed": the argument table keeps its defaults for the things a run cannot do without (a robot
+    name, the clock, RViz), and every knob a config file can set is passed only when it carries a value.
+    """
+    argv = sim_argv()
+    assert argv[:4] == [sys.executable, "-m", "mecanum_lab.node", "sim"], argv
+    for option in ("--world", "--view", "--layers", "--seconds", "--config", "--task",
+                   "--log", "--json", "--seed", "--truth"):
+        assert option not in argv, f"{argv}: an untyped argument is passed on and outbids the config"
+    assert option_value(argv, "--robots") == "muster", "one person, one robot — that default stays"
+
+    given = sim_argv(world="track", view="sensors", layers="ghost", seconds="30", log="m.csv",
+                     json="bericht.json", seed="7", truth="true", headless="true")
+    for option, value in (("--world", "track"), ("--view", "sensors"), ("--layers", "ghost"),
+                         ("--seconds", "30"), ("--log", "m.csv"), ("--json", "bericht.json"),
+                         ("--seed", "7")):
+        assert option_value(given, option) == value, f"{option} was typed and did not reach the run"
+    assert "--truth" in given and "--headless" in given, given
+
+
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
+def test_a_config_typed_by_hand_is_the_file_of_this_source_tree():
+    """`config:=config/demo_wifi.json` means the same from the clone and from /tmp.
+
+    `ros2 launch` is typed from whatever directory the shell happens to be in, and after a
+    `colcon build` there is no such directory that contains `config/` — which is why the demo launcher
+    passes an absolute path. A relative path typed by a student is resolved the same way, or the
+    documented command works in one directory and FileNotFoundError in the next.
+    """
+    path = option_value(sim_argv(config="config/demo_wifi.json"), "--config")
+    assert os.path.isabs(path) and os.path.exists(path), path
+    assert option_value(sim_argv(config="/tmp/other.json"), "--config") == "/tmp/other.json"
+
+
+def test_a_demo_names_its_hall_and_nothing_outbids_it():
+    """Every demo config that names a hall gets it — the same question from the node's side.
+
+    The launch half of this is `test_an_argument_that_was_not_typed_...`; this half is the config
+    layering, which needs no ROS and is what the reader of the demo page actually gets: the hall of
+    the file, or the hall of the site config when the file says nothing.
+    """
+    from test_config_layering import cli_args
+    from mecanum_lab import demo_launch
+    site = json.load(open(os.path.join(REPO, "config", "default.json"), encoding="utf-8"))["world"]
+    for name in demo_launch.demos():
+        path = demo_launch.config_of(name)
+        named = json.load(open(path, encoding="utf-8")).get("world") or site
+        cfg = load_config(path, {"world": None})
+        assert node_module.cfg_get_world(cfg, cli_args(), {}) == named, (
+            f"config/demo_{name}.json is driven in '{named}' by ./lab and in "
+            f"'{cfg['world']}' by a run that passes no --world")
+
+
+@pytest.mark.skipif(not HAVE_LAUNCH, reason="needs the launch files' own module")
+def test_a_demo_launcher_offers_the_hall_of_its_demo():
+    """Moving a demo to another hall is an argument, not a copy of a config file.
+
+    `world:=production` on a demo launcher is what the demo pages print for "the same source, with
+    tables", so it has to be a declared argument of that launcher — an undeclared one happens to work
+    through an include and is nobody's promise — and it has to be in the list the helper forwards.
+    """
+    from mecanum_lab import demo_launch
+    declared = declared_arguments(load("demo_poi_exploration.launch.py"))
+    assert "world" in declared, f"the launcher offers {sorted(declared)}"
+    default, help_line = declared["world"]
+    assert default == "", f"world:= defaults to {default!r} and outbids the demo's own hall"
+    assert "open" in help_line, f"--show-args does not name the halls: {help_line}"
+    assert "world" in [name for name, _default, _text in demo_launch.ARGS], \
+        "the argument is declared but never forwarded to lab.launch.py"
+    assert all(default == "" for name, default, _text in demo_launch.ARGS
+               if name in ("world", "view", "layers", "log", "seconds")), (
+        "a demo launcher that defaults a config knob to a value outbids the demo config it exists for")
+
+
+def load_tool(name):
+    """A checker from `tools/` as a module, so the test asks the same code the build asks."""
+    spec = importlib.util.spec_from_file_location(name[:-3], os.path.join(REPO, "tools", name))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_documentation_block_holds_one_command():
+    """Because a reader copies the whole block and types it blind, with one hand on a robot.
+
+    A fence with two commands in it is a fence where half the readers type one of the two and get
+    something else than the sentence above it promised — a `ros2 launch …` followed by a `./lab …` in one
+    block does not read as "or this one without ROS", it reads as two steps. So one command per block,
+    continued over lines with `\\` when it is long; `tools/docblocks.py` is the check, and it is in the
+    build (`tools/check.sh`) so a page cannot drift back.
+    """
+    docblocks = load_tool("docblocks.py")
+    problems = [problem for page in pages() for problem in docblocks.scan(page)]
+    assert not problems, "more than one command in these blocks: " + "; ".join(problems[:6])
+
+
+def test_no_documentation_block_grades_through_a_launch_file():
+    """A page may explain `grade:=`, it must not tell anyone to type it.
+
+    A grade is a one-process measurement — grader, simulator and node on one clock, which is what the
+    thresholds of `config/tasks.json` are calibrated on (`docs/CONTRACT.md` §9.2). Through a launch file
+    the node is a second process on a real network, and the same reference solution is measured at 70/100
+    instead of 100/100 (T3 gives up on its own estimate after 4.64 m of a 12.87 m corridor) and, for
+    experiment 2, at 0/90 because the graded `/<robot>/kf/pose` arrives at nothing a rate counter can see.
+    Prose names that; a fenced block is copied, so it only ever shows `./lab grade`.
+    """
+    typed = [path.relative_to(REPO).as_posix() for path in pages()
+             if any("grade:=" in block for block in
+                    re.findall(r"```bash\n(.*?)\n```", path.read_text(encoding="utf-8"), re.S))]
+    assert not typed, f"{typed} tell a reader to grade with `grade:=` — grade with `./lab grade`"
+
+
+def test_every_launch_file_the_documentation_names_exists():
+    """Every page names launch files now that `ros2 launch` is the way the lab room starts things.
+
+    The demo pages used to be the only place with launcher names, and one guard covered them. A page that
+    tells a reader to start `lab.launch.py` is making the same kind of claim, so it is looked up the same
+    way: as a file in `launch/`.
+    """
+    named = set()
+    for path in pages():
+        named |= set(re.findall(r"ros2 launch\s+(?:\S+/)?([\w.-]+\.launch\.py)",
+                                path.read_text(encoding="utf-8")))
+    assert {"lab.launch.py", "kf.launch.py"} <= named, "the pages stopped naming the launch files at all"
+    missing = sorted(name for name in named if not os.path.exists(os.path.join(LAUNCH, name)))
+    assert not missing, f"the documentation starts {missing}, `launch/` has {sorted(os.listdir(LAUNCH))}"

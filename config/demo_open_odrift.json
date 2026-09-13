@@ -7,7 +7,7 @@
     "constant behind a collision; here the same wrong constant stays what it is: a number.",
     "",
     "Drive 20 m straight and watch the odometry ghost (`o` in the window):",
-    "    ./lab sim --world open --config config/demo_open_odrift.json",
+    "    ros2 launch mecanum_lab demo_open_odrift.launch.py",
     "then hold `Up`. The readout counts the metres the odometry believes, the dot on the screen is",
     "where the robot really is, and the label between them is the drift in metres: measured `odom off",
     "0.60 m` after 12 m of driving, `1.00 m` after 20 m -- the same 5 cm per metre, all the way.",
@@ -28,10 +28,11 @@
     "Nothing else is turned on: no slip, no odom jitter, no GPS dropout, no thermal IMU drift. One",
     "wrong wheel constant and nothing beside it, so the 5 % in the file is the 5 % on the screen.",
     "",
-    "To hand, without this file: ./lab sim --world open --set odom.geometry.wheel_radius_scale=1.05",
-    "and the same drive recorded instead of watched:",
-    "    ./lab run --world open --config config/demo_open_odrift.json --robot muster \\",
-    "            --controller student/solution.py --seconds 60 --truth"
+    "To hand, with no file and no ROS 2 in the way: ./lab sim --world open --set",
+    "odom.geometry.wheel_radius_scale=1.05 - the same one wrong number, written on the command line.",
+    "The same drive recorded instead of watched:",
+    "    ros2 launch mecanum_lab lab.launch.py config:=config/demo_open_odrift.json \\",
+    "        controller:=student/solution.py seconds:=60 truth:=true"
   ],
   "world": "open",
   "gps": {

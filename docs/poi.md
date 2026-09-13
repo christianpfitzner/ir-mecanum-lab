@@ -32,13 +32,34 @@ metres on the bus; there used to be one, and it was the exercise with an off but
 in the defaults, so no detector is built, no message is published and no random number is drawn in any
 graded run.
 
+Drive past the source and look at the reading; the hall of this demo is the empty one:
+
 ```bash
-./lab sim --world open --config config/demo_poi_exploration.json         # drive past it, watch `p`
-./lab sim --world production --config config/demo_poi_exploration.json   # same source, tables between
-./lab sim --world open --config config/demo_poi_exploration.json --truth # + the field rings
+ros2 launch mecanum_lab demo_poi_exploration.launch.py
 ```
 
-Model, validation (a source outside the walls is refused, not dropped) and the noise model:
-`docs/CONTRACT.md` §6.13.
+The same source with the tables of `production` between you and it:
+
+```bash
+ros2 launch mecanum_lab demo_poi_exploration.launch.py world:=production
+```
+
+The rings around the source — where the reading is half the activity and a tenth — are drawn from the
+truth, so they cost `truth:=true`, which also puts the exact pose on `/<robot>/truth`. That is the
+supervisor's view, not the exercise:
+
+```bash
+ros2 launch mecanum_lab demo_poi_exploration.launch.py truth:=true
+```
+
+Without ROS 2: `./lab sim --config config/demo_poi_exploration.json`, with `--world production` or
+`--truth` on the end.
+
+A counter answers *how much*, and the window can also show *where*: key `p` draws the source, key `i`
+paints the field around it one map cell at a time — amber where a counter would barely tick, red at the
+source, on the same scale the readout line speaks (`1.0` at the source, `0.5` at `d0`, `0.1` at `3·d0`).
+Off by default like the coverage map, because it is a picture of a model, and of a model with no wall in
+it: `Source.intensity()` is a distance law, so the paint runs through the racks and the wall is drawn
+over it. A student who expects a shadow there has found the assumption worth discussing.
 
 Model, validation (a source outside the walls is refused, not dropped) and the noise model: `docs/CONTRACT.md` §6.13.

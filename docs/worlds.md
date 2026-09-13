@@ -15,11 +15,23 @@ Measured on 20 m driven straight at 0.5 m/s (seed 1, 40.1 s):
 | 1.0 (default) | 20.01 m | 0.01 m | 0 |
 | 1.05 — `config/demo_open_odrift.json`, GPS switched off | 21.01 m | **1.00 m** | 0 |
 
+Two commands, the first with the wrong wheel constant and GPS switched off — hold `Up` and watch the `o`
+ghost walk away from the robot while the truth stays on the line:
+
+
 ```bash
-./lab sim --world open --config config/demo_open_odrift.json    # hold Up, watch `o` walk away
-./lab sim --world open                                          # the same hall with honest wheels
+ros2 launch mecanum_lab demo_open_odrift.launch.py --show-args
 ```
 
+(That file asks for `"world": "open"` itself, so the hall needs no argument — and `--show-args` says so.)
+The same hall with honest wheels, to see what the 1.00 m above are compared against:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py world:=open
+```
+
+Without ROS 2 the same two runs are `./lab sim --world open --config config/demo_open_odrift.json` and
+`./lab sim --world open`.
 
 ## Task and arena belong together
 
@@ -28,6 +40,16 @@ Measured on 20 m driven straight at 0.5 m/s (seed 1, 40.1 s):
 `config/tasks.json` (`"world"`); `./lab` and `tools/fastgrade.py` follow that setting,
 `--world` overrides it. Grading in the wrong arena gets you wall contacts
 instead of points.
+
+This is why **a run that grades announces the task it grades**, whatever door it came in through. Naming
+only the grade — `./lab sim --grade alle`, or `ros2 launch … grade:=alle` before this was fixed — left the
+announcement empty, and an empty announcement means the hall of `config/default.json`, which is `maze`.
+That run is one command long to reproduce, `./lab grade --task alle --world maze --controller
+student/solution.py`, and it answers **40/100**: T1 and T4 still pass, `quadrat` falls to 0/30 over three
+wall contacts and `korridor` to 0/30 over thirty-one — the 12.9 m corridor of `production` is a zigzag
+between 0.55 m walls there. Nothing in the report is lying; it is a correct measurement of the wrong hall.
+`node.graded_task()` is the one place where that rule lives; `--world` on top of a grade still wins,
+because an override is the point of an override.
 
 ![The five arenas at one common scale, in three columns: arena (24 × 16 m, open hall, the four
 state-estimation tasks), maze (13 × 11 m built on 1 m grid cells), open (30 × 20 m, border walls

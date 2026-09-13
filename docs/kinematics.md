@@ -1,13 +1,19 @@
-# Experiment 1: what `./lab run` does with your node
+# Experiment 1: how your node gets into the loop
 
-Two commands start it:
+Your node and the simulator, one command:
 
 ```bash
-./lab run --robot alice --controller student/controller_template.py   # window, drive yourself
-./lab grade --task v1 --controller student/solution.py               # grade all of v1 at once
+ros2 launch mecanum_lab lab.launch.py controller:=student/controller_template.py
 ```
 
-`./lab run` is the one-process form of the lab: the simulator, your node as a thread and the keyboard,
+Graded, the four tasks of the experiment at once:
+
+```bash
+./lab grade --task alle --controller student/solution.py
+```
+
+`./lab run` is the one-process form of the lab — the same launch command without ROS 2 is
+`./lab run --robot alice --controller student/controller_template.py`: the simulator, your node as a thread and the keyboard,
 all three publishing the same `/<robot>/cmd_vel`. A node publishes every tick and the keys publish only
 while one is held, so **your node drives and the keys interrupt it**. The readout line says which of the
 two was last heard from — `cmd topic 0.04 s`, `cmd keys 0.02 s`, and `cmd none` once `cmd_timeout` has

@@ -29,6 +29,10 @@ step "Language (CONTRACT section 1: written prose is English)"
 # Not cosmetics: handouts, comments and report text are what students read, and German creeps
 # back in with every new feature. langcheck reports umlauts anywhere and German words in prose.
 run "python3 tools/langcheck.py --quiet"
+# One command per code block: the pages are read at a machine with one hand on a robot, and a block with
+# two commands in it is a block where a reader types one of them and gets something else than the sentence
+# above it promised. Same reason the pages lead with `ros2 launch`: it is what the lab room types.
+run "python3 tools/docblocks.py"
 step "Identifiers (CONTRACT section 1: names are English too)"
 # The prose was English long before the identifiers were. This parses every module and fails on a
 # German identifier or dict key outside the documented exceptions (ROS names, the wheel labels,

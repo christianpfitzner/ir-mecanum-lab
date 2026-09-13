@@ -48,12 +48,24 @@ budget is computed on and a quality bar over each; the readout line prints
 (`wifi.ap_by_world`), and `--set wifi.ap=[10,6]` moves it for one run — `wifi.effective_ap` on
 `/sim/config` names whichever layer won, so nobody has to guess.
 
+Drive it yourself, or let the example node do it — it leaves the covered corner on its own once the RSSI
+falls under its limit:
+
 ```bash
-./lab sim --world production --config config/demo_wifi.json          # drive it, look at layer n
-./lab run --world production --config config/demo_wifi.json --robot muster \
-        --controller student/link_autonomy_example.py --seconds 60    # it drives into the shadow
-./lab sim --world production --config config/demo_wifi.json --set wifi.autonomy=dead_reckoning
-ros2 launch launch/wifi.launch.py wall_db:=20 ap:=[10,6]             # the same knobs as --set
+ros2 launch mecanum_lab demo_wifi.launch.py
+```
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_wifi.json \
+        controller:=student/link_autonomy_example.py seconds:=60
+```
+
+One knob of this config for a single run, without editing the file — the launcher names every key of
+`config/demo_wifi.json` as an argument (`--show-args` lists them; without ROS 2 the same is
+`./lab sim --config config/demo_wifi.json --set wifi.wall_db=20`):
+
+```bash
+ros2 launch mecanum_lab wifi.launch.py wall_db:=20 ap:=[10,6]
 ```
 
 `wifi.enabled` is false in `mecanum_lab/types.py`, and that is not a hint but a guarantee: with the

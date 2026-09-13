@@ -124,3 +124,34 @@ def test_a_task_profile_switches_an_outage_off_with_an_empty_list():
         open_now = eng._gps.gap is not None
         assert open_now == (task["id"] == "kf_fusion"), \
             f"{task['id']} is graded with gap={eng._gps.gap}"
+
+
+def test_a_run_that_grades_announces_the_task_it_grades():
+    """`--grade alle` without `--task` used to grade in the hall of `config/default.json`.
+
+    The arena of a run is picked from the *announced* task (`cfg_get_world`), and the grading option is a
+    second word for the same thing. `./lab grade --task alle` has always said both; `./lab sim --grade alle`
+    and `ros2 launch … grade:=alle` say one — and an empty announcement meant the hall of
+    `config/default.json`, which is `maze`. Measured: 40/100 with `korridor` at 0/30 over thirty-one wall
+    contacts, where the same solution in the `production` its tasks name reaches 100/100.
+    """
+    def arguments(**named):
+        fields = dict(world=None, task="", grade="")
+        fields.update(named)
+        return argparse.Namespace(**fields)
+
+    def hall_of(**named):
+        args = arguments(**named)
+        args.task = node.graded_task(args)          # what cmd_sim does before it builds the engine
+        return node.cfg_get_world(load_config(), args, {})
+
+    assert node.graded_task(arguments(grade="alle")) == "alle"                 # only the grade typed
+    assert node.graded_task(arguments(grade="v1")) == "v1"
+    assert node.graded_task(arguments(task="quadrat", grade="alle")) == "quadrat"    # typed wins
+    assert node.graded_task(arguments(task="korridor")) == "korridor"          # driving, not grading
+    assert node.graded_task(arguments()) == ""                                 # the keyboard drives
+
+    assert load_config()["world"] == "maze"                     # the hall of nobody typing anything
+    assert hall_of(grade="alle") == "production"                # graded: the hall of the four tasks
+    assert hall_of(grade="kf_alle") == "arena"                  # the same rule for experiment 2
+    assert hall_of(task="korridor", world="track") == "track"    # an override stays an override

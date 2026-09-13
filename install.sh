@@ -87,6 +87,14 @@ if [[ $ohne_ros == 0 ]]; then
     set +u; source "$ros_setup" 2>/dev/null || true; set -u
     if python3 -c 'import rclpy' >/dev/null 2>&1; then
       ok "ROS 2 (${ROS_DISTRO:-$ros_name}) — ros2 launch and ros2 topic work"
+      # `ros2 run` is an optional CLI extension (ros2run), not part of a ROS base install. The lab is
+      # started with launch files, so this is only the note that says which of the two words a reader
+      # of `ros2 run mecanum_lab mecanum-lab …` may type here.
+      if ros2 run --help >/dev/null 2>&1; then
+        ok "ros2 run works too — 'ros2 run mecanum_lab mecanum-lab <command>' is ./lab under its own name"
+      else
+        wann "ros2 run is not in this ROS base (apt install ros-$ros_name-ros2run) — every documented command here is a ros2 launch"
+      fi
       if python3 -c 'import mecanum_lab_interfaces' >/dev/null 2>&1 \
          && ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
         ok "mecanum_lab and mecanum_lab_interfaces installed — ros2 launch mecanum_lab <demo> works"
@@ -170,16 +178,15 @@ if [[ $problems == 1 ]]; then
   exit 1
 fi
 echo "result: ready. Continue in directory $here with"
-echo "  ./lab run --robot alice --controller student/controller_template.py"
-echo "  ./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv"
 # Which prefix the hints use: the package name is the form that works from any directory and in a terminal
 # that sourced ROS and the workspace — but only once the package is really installed.
 launch_pref="launch"
 if [[ $gebaut == 1 ]] || ros2 pkg prefix mecanum_lab >/dev/null 2>&1; then
   launch_pref="mecanum_lab"
 fi
-echo "  ros2 launch $launch_pref/kf.launch.py$(
-     [[ $launch_pref == launch ]] && echo '            (with ROS 2)')"
+echo "  ros2 launch $launch_pref/lab.launch.py                (experiment 1: window, the keys drive)"
+echo "  ros2 launch $launch_pref/kf.launch.py                 (experiment 2: every knob an argument)"
+echo "  ./lab run --robot alice --controller student/controller_template.py     (the same run, no ROS 2)"
 if [[ $launch_pref == mecanum_lab ]]; then
   echo "  ros2 launch $launch_pref/demo_gps_shadow.launch.py     (demos: $(cd "$here" && ls config | sed -n 's/^demo_\(.*\)\.json$/\1/p' | tr '\n' ' '))"
   if [[ $gebaut == 1 ]]; then

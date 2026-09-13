@@ -905,12 +905,25 @@ does not work against itself.
 
 ## 9. Quality gate (run it yourself before submitting)
 
+From the repository root, four commands in this order. First the tests — green without ROS and without a
+window:
+
 ```bash
-cd mecanum-lab
-python3 -m pytest tests -q                     # must be green, without ROS, without a window
+python3 -m pytest tests -q
+```
+
+Then the node beside a simulator that runs it headless:
+```bash
 SDL_VIDEODRIVER=dummy ./lab run --robot test --controller student/solution.py --headless
+```
+
+And the grade itself, in the one-process form — grader, simulator and node on one clock, which is what
+the thresholds of `config/tasks.json` are calibrated on (§9.1):
+
+```bash
 ./lab grade --robot test --task alle           # the reference solution passes all
 ```
+
 Testability is part of the task: every agent ships its tests in `tests/`,
 file name `test_<module>_<agent>.py`, so nothing gets overwritten.
 
@@ -944,3 +957,33 @@ One honest footnote: in none of those 18 runs did the loss warning fire — not 
 processes pinned to the single core the simulation ran on. What varied here was the *timing
 granularity* of the loop, not a stall beyond the 0.25 s per round that may be made up; the warning
 is covered by a test with a scripted clock (`tests/test_grading_speed.py`) rather than by this host.
+
+### 9.2 Two things a grade is not
+
+**A grade is not a run across two processes.** `grade:=` in a launch file starts the grader in the
+simulator and the controller in a second process on a real network; `./lab grade` starts both in one
+process on one bus. That is not a detail, because two of the four drive tasks are measured from what the
+node *believes* about its own position. Measured on one seed, reference solutions, one command each:
+
+| how the grade was started | experiment 1 | experiment 2 |
+|---|---|---|
+| `./lab grade` (the gate above) | **100/100** | **90/90** |
+| `ros2 launch … grade:=alle` | 70/100 | 0/90 |
+
+Experiment 1 loses T3: its `drive_to()` gives up on its odometry estimate after 4.64 m of the 12.87 m
+the corridor is long, so `target_error` comes out at 8.03 m against a limit of 0.30 m — while `path`,
+`time` and `contacts` for the same task are within their limits, which is how a run that drove correctly
+is graded as a run that arrived nowhere. Experiment 2 is worse: its report for the same reference solution reads `rate of kf/pose 0.0` against
+`rate_min = 5.0` — the estimate that is graded, `/<robot>/kf/pose`, arrives in the other process at
+nothing a rate counter can see, all four KF tasks read "never estimated", and 90 points become 0. Neither is a reason to change the measurement — a second process on a real network is what
+the robot in the lab room is, and the limits were calibrated on the one-process run, so that is what is
+handed in and what `tools/check.sh` grades. `grade:=` is for a supervisor who wants to see the wiring.
+
+**A grade is not a grade of a hall nobody named.** The arena and the sensor profile of a task are picked
+from the *announced* task, so a run that names only the grade (`./lab sim --grade alle`) announces
+nothing and lands in the hall of `config/default.json` — `maze`. Measured:
+`./lab grade --task alle --world maze --controller student/solution.py` gives **40/100**, with
+`korridor` at 0/30 over thirty-one wall contacts, while the same solution in the `production` its tasks
+name gives 100/100. Nothing in that report is wrong; it measures another hall. Since
+`node.graded_task()` a run that grades announces what it grades, through every door, and `--world` still
+overrides — an override is the point of an override.

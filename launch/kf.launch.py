@@ -3,10 +3,17 @@
     ros2 launch launch/kf.launch.py                                  # K1 with the reference solution
     ros2 launch launch/kf.launch.py task:=kf_fusion \
         controller:=student/kf_template.py gps_gap:=[14,8] gps_sigma:=1.2
-    ros2 launch launch/kf.launch.py grade:=kf_alle headless:=true \
-        controller:=student/kf_solution.py log:=messung.csv
     ros2 launch launch/kf.launch.py task:=kf_dynamik imu_rate:=400 \
         imu_accel_bias:=0.12 rviz:=true
+    ros2 launch launch/kf.launch.py headless:=true task:=kf_fusion \
+        controller:=student/kf_template.py log:=messung.csv
+
+**Graded is `./lab grade --task kf_alle --controller student/kf_solution.py --log messung.csv`, not this
+file.** `grade:=` runs the grader in the simulator and your node in a second process, and a KF grade is
+measured from the estimate your node publishes — through this door the reference solution is graded at
+**0/90** with `rate of kf/pose 0.0` in its report, where the same file reaches **90/90** in the one-process
+run. Every threshold of `config/tasks.json` is calibrated on that run (`docs/CONTRACT.md` §9.2), so
+`grade:=` is here for a supervisor checking the wiring over ROS, not for the number on a sheet.
 
 Every sensor argument is the same setting you would give without ROS:
 `./lab sim --set gps.sigma_xy=1.2 --set imu.rate=400` (table below in SETTINGS, also in
@@ -71,7 +78,8 @@ BASICS = [
     ("robots", "", "robots to spawn at start (empty = only your robot)"),
     ("controller", "student/kf_template.py", "your filter node (file relative to the source tree)"),
     ("task", "kf_gps", "kf_gps | kf_fusion | kf_kovarianz | kf_dynamik (empty = free driving)"),
-    ("grade", "", "task or group to grade, e.g. kf_alle (empty = do not grade)"),
+    ("grade", "", "task or group to grade inside the sim process, e.g. kf_alle (empty = do not "
+                  "grade) — the number for the sheet comes from ./lab grade, see the note above"),
     ("seconds", "0", "end after N seconds of simulation time (0 = until q/ctrl-C)"),
     ("headless", "false", "without Pygame window (sets SDL_VIDEODRIVER=dummy)"),
     ("truth", "true", "exact pose on /<robot>/truth — needed for grading"),

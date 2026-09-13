@@ -5,13 +5,29 @@ the world, `pois.py` gives it a field, and the robot gets one counter reading pe
 `open` — 30 × 20 m, border wall, nothing else — so the first exercise is about the reading and not about
 the map.
 
+Drive it yourself — the demo brings its own hall (`open`), its window, and RViz when rviz2 is installed:
+
 ```bash
-./lab sim --world open --config config/demo_poi_exploration.json        # drive it yourself
-./lab sim --world production --config config/demo_poi_exploration.json  # the same source, with tables
-./lab run --world open --config config/demo_poi_exploration.json \
-          --controller student/poi_seek_example.py --seconds 100 --log poi.csv   # a controller does it
-ros2 launch mecanum_lab demo_poi_exploration.launch.py                   # same through ROS, plus RViz
+ros2 launch mecanum_lab demo_poi_exploration.launch.py
 ```
+
+The same source with tables standing between the robot and the source:
+
+```bash
+ros2 launch mecanum_lab demo_poi_exploration.launch.py world:=production
+```
+
+A controller instead of a hand, for 100 s, with the series written out — the exercise at the bottom of
+this page. Grading and logging are arguments of `lab.launch.py`, which every demo run goes through, so
+this one names the config instead of the demo:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_poi_exploration.json \
+    controller:=student/poi_seek_example.py seconds:=100 log:=poi.csv
+```
+
+Without ROS 2 all three are the same with `./lab sim --config config/demo_poi_exploration.json` in front
+of them, `--world production` and `--controller … --seconds 100 --log poi.csv` behind.
 
 From the other side the reading is one topic: `ros2 topic echo /alice/poi`.
 

@@ -7,11 +7,17 @@ exists only when an optional package was compiled is not an interface, it is a m
 `/sim/spawn_next` (`std_srvs/srv/Trigger`, no argument to format), and tests for what the handlers say.
 
 CONTRACT §4.
+
+The last block is the supervisor's hand: `teleport()` puts one robot down somewhere else — same heading,
+same run, and the same "no floor, no" answer a radiation source gets — and one test runs the whole chain
+from a right click in the window to the pose in the engine.
 """
+import math
+
 import pytest
 
 from mecanum_lab import ros_bridge
-from mecanum_lab.engine import SimEngine
+from mecanum_lab.engine import SpawnError, SimEngine
 from mecanum_lab.types import MSG_SPECS, load_config, topic
 from mecanum_lab.worlds import load_world
 
@@ -90,3 +96,101 @@ def test_the_two_trigger_services_are_in_the_table_the_whole_lab_reads():
         assert MSG_SPECS[kind][0] == "std_srvs/srv/Trigger", \
             f"{kind} has to be a Trigger: std_srvs has no service with a string in it (Kilted)"
         assert MSG_SPECS[kind][2] == "sim", "the robots are the simulator's, so is the request"
+
+
+# ----------------------------------------------------------- putting one down somewhere else
+
+
+def free_floor(world, spot) -> bool:
+    """Does the world itself accept this spot for a robot? (The rule, asked, not guessed.)"""
+    try:
+        world.free("test robot", spot[0], spot[1])
+        return True
+    except ValueError:
+        return False
+
+
+def test_a_teleported_robot_arrives_where_it_was_put_and_keeps_the_heading_it_had():
+    """`teleport()` is the hand of the supervisor: place it there, do not turn it, do not reset it."""
+    eng = hall()
+    eng.spawn("alice")
+    before_pose = eng.robots["alice"].pose
+    moved = eng.teleport("alice", 3.0, 2.0)
+    assert (round(moved.x, 2), round(moved.y, 2)) == (3.0, 2.0)
+    assert moved.theta == pytest.approx(before_pose.theta), "placement moves, turning is a command"
+    assert eng.robots["alice"].pose == moved, "the truth pose moves with it, not one step later"
+    assert (eng.robots["alice"].chassis.pose.x, eng.robots["alice"].chassis.pose.y) == (3.0, 2.0)
+    believed = eng.robots["alice"].odometer.pose
+    assert (round(believed.x, 2), round(believed.y, 2)) == (3.0, 2.0), \
+        "the odometry still believes the old spot: the exercise would start with a 20 m lie"
+
+
+def test_a_teleport_leaves_the_rest_of_the_run_alone():
+    """Time, task, the other robot, and the counters of the drive that happened stay as they were."""
+    eng = hall()
+    alice, bob = eng.spawn("alice"), eng.spawn("bob")
+    eng.step(0.5)
+    alice.contacts, alice.distance, alice.mission_state, alice.kf = 3, 4.5, "running", object()
+    clock, bob_was = eng.t, bob.pose
+    eng.teleport("alice", 3.0, 2.0)
+    assert eng.t == clock and bob.pose == bob_was, "one robot was picked up, the run was not"
+    assert (alice.contacts, alice.distance, alice.mission_state) == (3, 4.5, "running"), \
+        "a robot that drove into three walls before it was moved has not un-driven them"
+    assert alice.kf is None, "the estimate of the old drive says nothing about the new spot"
+
+
+def test_a_spot_that_is_no_floor_is_refused_for_a_robot_as_it_is_for_a_source():
+    """The same `World.free()` answers for both, and a refused placement has moved nothing."""
+    eng = hall()
+    eng.spawn("alice")
+    stand = eng.robots["alice"].pose
+    rack = eng.world.walls[0]
+    for blocked in (((rack.x0 + rack.x1) / 2, (rack.y0 + rack.y1) / 2), (0.0, 1.0),
+                    (eng.world.size[0] + 1.0, 1.0)):
+        with pytest.raises(ValueError, match="robot 'alice'"):
+            eng.teleport("alice", *blocked)
+        assert eng.robots["alice"].pose == stand, "refused, and still refused: not moved at all"
+    with pytest.raises(SpawnError, match="ghost"):
+        eng.teleport("ghost", 3.0, 2.0)
+
+
+def test_a_right_click_in_the_window_moves_the_robot_all_the_way_through_the_engine():
+    """Window → run loop → engine, once through. Each of the three ends has its own tests already.
+
+    The renderer only ever reports a spot (it is a view, and a test guards that it moves nothing), and
+    the engine only ever knows a spot; what joins them is `node.run_loop`. A chain tested at its two ends
+    is a chain nobody has run — the middle is where the name of one field and the order of two calls live.
+    """
+    import pygame
+
+    from mecanum_lab import node, render, stub
+
+    eng = hall()
+    eng.spawn("alice")
+    # A spot the world itself calls free, so this test does not hard-code the arena's racks.
+    wide, high = eng.world.size
+    candidates = [(wide * fx, high * fy) for fy in (.3, .5, .7) for fx in (.3, .5, .7)]
+    spot = next(p for p in sorted(candidates, key=lambda p: math.dist(p, (wide / 2, high / 2)))
+                if free_floor(eng.world, p))
+
+    rend = render.Renderer(eng, eng.cfg)
+    try:
+        pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=rend.px(*spot)))
+        rend.show_trails = True
+        node.run_loop(eng, stub.StubBus(), rend=rend, fixed_step=True, frame_max=3)
+        assert rend.pick.open, "the right click never reached the window"
+        row = rend.pick.row_rect(0)
+        pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1,
+                                             pos=(row.x + 10, row.y + 5)))
+        node.run_loop(eng, stub.StubBus(), rend=rend, fixed_step=True, frame_max=1)
+    finally:
+        rend.close()
+
+    got = eng.robots["alice"].pose
+    assert (round(got.x, 2), round(got.y, 2)) == (round(spot[0], 2), round(spot[1], 2)), \
+        f"asked for {spot}, the robot stands at ({got.x:.2f}, {got.y:.2f})"
+    # `forget()` drops the old history and the frame drawn right after it starts a new one *here*, so
+    # what must never appear again is a point from the way to the old spot.
+    remembered = rend.trails.get("alice", [])
+    assert all(math.dist(p, spot) < 0.02 for p in remembered), \
+        f"the trail still draws the way from the old spot: {remembered}"

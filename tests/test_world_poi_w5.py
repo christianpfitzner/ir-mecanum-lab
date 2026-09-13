@@ -426,22 +426,93 @@ def fake_engine(sources, size=(12.0, 9.0)):
 
 
 def ring_pixels(rend, centre, radius_px, band=5):
-    """How many of 36 angles see something that is not floor at about that distance.
+    """How many of 36 angles see something **brighter than the floor** at about that distance.
 
     A band of a few pixels around the radius instead of the exact circle: `pygame.draw.circle` places a
     1 px outline at a radius of its own choosing (and not at every angle the same one), so a test that
     samples one pixel wide would fail on the drawing routine rather than on the overlay.
+
+    Brighter rather than "anything that is not floor": both rings are mixed out of the floor upwards,
+    so every ring pixel is lighter than what it lies on. Asking for "not floor" counted the dark edge
+    behind the source's own name as a ring — the label crosses that circle, and since a label carries
+    a dark outline to stay readable on a wall, it leaves pixels *darker* than the floor there.
     """
     hits = 0
+    untergrund = sum(rend.col_floor[:3])
     for step in range(0, 360, 10):
         for offset in range(-band, band + 1):
             radius = radius_px + offset
             x = int(round(centre[0] + radius * math.cos(math.radians(step))))
             y = int(round(centre[1] - radius * math.sin(math.radians(step))))
-            if rend.screen.get_at((x, y))[:3] != rend.col_floor[:3]:
+            if sum(rend.screen.get_at((x, y))[:3]) > untergrund:
                 hits += 1
                 break
     return hits
+
+
+def test_the_field_map_is_the_counter_scale_and_nothing_else():
+    """1.0 at a source, the fall-off of the counter, and two fields that add — `pois.field_map()`.
+
+    Checked against the model at every sampled spot rather than at three hand-picked ones, and as a
+    ratio rather than a colour: the layer is meant to be read with the numbers the readout line prints
+    (`0.5` at `d0`, `0.1` at `3·d0`), so a second scale for the picture would be a second thing to
+    explain, and the first comparison a student makes is picture against counter.
+    """
+    hall = World(name="fieldone", cell=0.5, walls=[], spawns=[Pose(1, 1, 0.0)], size=(10, 8))
+    # On a sample point on purpose: `field_map()` starts its grid half a cell into the world, so a source
+    # at whole metres is never sampled at its own centre and "1.0 at the source" could only be asserted
+    # as "0.89 somewhere near it" — a statement about the grid rather than about the model.
+    ort = (5.25, 4.25)
+    src = source(x=ort[0], y=ort[1], activity=1.0, range_m=4.0, d0=1.0)
+    samples = pois.field_map([src], hall)
+    assert samples, "a world with a source in it produced no samples"
+    for x, y, level in samples:
+        assert level == pytest.approx(min(1.0, src.intensity(x, y) / src.activity), abs=1e-9)
+    assert max(level for _x, _y, level in samples) == pytest.approx(1.0), "not 1.0 at the source"
+    outside = [level for x, y, level in samples if math.dist((x, y), ort) > src.range_m]
+    assert outside and all(level == 0.0 for level in outside), "dose painted beyond the range"
+
+    pair = [source(name="a", x=4.25, y=4.25), source(name="b", x=6.25, y=4.25)]
+    alone = min(pois.field_map([pair[0]], hall), key=lambda s: math.dist(s[:2], ort))
+    both = min(pois.field_map(pair, hall), key=lambda s: math.dist(s[:2], ort))
+    assert alone[2] == pytest.approx(0.5), "one source at its own d0 should read 0.5"
+    assert both[2] == pytest.approx(1.0), "two sources reading 0.5 each did not add to 1.0"
+
+
+def test_the_dose_layer_paints_the_field_and_the_clean_view_does_not():
+    """Layer `i` is a picture of a model, so it is off until asked for — and on, it is that field.
+
+    Three radii and one wall: the paint has to fall off with distance (a field, not a blob), the clean
+    view must show none of it, and the border wall inside the field has to keep the colour of a wall.
+    The wall is the interesting assertion — the dose map is drawn **under** the walls, which is the
+    opposite argument from the radio coverage map (a rack should stay visible above the shadow it
+    casts). It comes out of the model: `Source.intensity()` knows no wall, so the field runs straight
+    through the rack, and the wall painted over the field is the one thing left that tells a student
+    where in the hall a painted cell lies.
+    """
+    src = [source(x=3.0, y=2.0, range_m=4.0, d0=1.0)]
+    rend = render.Renderer(fake_engine(src), load_config(None, {"gui": True, "width": 900,
+                                                               "height": 600}))
+    try:
+        seen = lambda spot: rend.screen.get_at(spot)[:3]            # noqa: E731 - reads inline
+        paint = lambda spot: sum(abs(a - b) for a, b in zip(spot, rend.col_floor[:3]))
+        radii = [tuple(int(v) for v in rend.px(3.0, 2.5)),          # 0.5 m from the source
+                 tuple(int(v) for v in rend.px(3.0, 3.0)),          # 1 m: its d0
+                 tuple(int(v) for v in rend.px(3.0, 5.9))]          # 3.9 m: a hint of a field
+        at_field, at_wall = radii[1], tuple(int(v) for v in rend.px(0.1, 2.0))
+
+        rend.draw(cap=False)                                  # the clean view: nobody asked for it
+        assert seen(at_field) == rend.col_floor[:3], "the clean view paints a model over the floor"
+
+        rend.show_dose = True
+        rend.draw(cap=False)
+        painted = [paint(seen(spot)) for spot in radii]
+        assert painted[0] > painted[1] > painted[2] > 0, \
+            f"no fall-off with distance, {[round(v) for v in painted]} at 0.5, 1 and 3.9 m"
+        assert seen(at_wall) == rend.col_wall[:3], \
+            "the dose map is painted over the walls instead of under them"
+    finally:
+        rend.close()
 
 
 def test_the_p_layer_draws_the_source_and_debug_truth_adds_the_field_rings():

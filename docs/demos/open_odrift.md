@@ -4,15 +4,24 @@
 goal, two spawns on the centre line. Every other arena hides a wrong wheel constant behind a collision.
 Here the same wrong constant stays what it is: a number.
 
+Hold `Up` and watch `o`: the ghost walks east along the lane while the dot stays where the robot really
+is. One command, and the hall of this file is the empty one:
+
 ```bash
-./lab sim --world open --config config/demo_open_odrift.json           # hold `Up`, watch `o`
-./lab run --world open --config config/demo_open_odrift.json \
-          --robot muster --controller student/solution.py --seconds 60 --truth   # record it instead
-ros2 launch mecanum_lab demo_open_odrift.launch.py                     # same through ROS, plus RViz
+ros2 launch mecanum_lab demo_open_odrift.launch.py
 ```
 
-Without the file, the same run is `./lab sim --world open --set
-odom.geometry.wheel_radius_scale=1.05`.
+The same drive recorded instead of watched — 60 s of the reference solution, with the truth on the bus so
+the log holds both of them:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_open_odrift.json \
+    controller:=student/solution.py seconds:=60 truth:=true
+```
+
+Without the file, the same run is one wrong number on a command line, which is what `--set` is for:
+`./lab sim --world open --set odom.geometry.wheel_radius_scale=1.05`. Without ROS 2 the two runs above are
+`./lab sim --config config/demo_open_odrift.json` and the same arguments given to `./lab run`.
 
 ## What it changes
 

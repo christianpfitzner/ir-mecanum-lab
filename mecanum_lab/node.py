@@ -129,8 +129,19 @@ def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0
                     pubs.setdefault(("twist", name), bus.pub("twist", name))(Twist(*tw))
                     eng.note_keys(name)
         if rend is not None:
-            if rend.poll()["quit"]:
+            report = rend.poll()
+            if report["quit"]:
                 break
+            if report["teleport"]:
+                # The window only offers a spot — moving a robot is the engine's job, from here and
+                # from anywhere else that asks. `forget()` then drops the drawn history of where it
+                # used to be, otherwise the trail draws a journey nobody drove.
+                name, new_x, new_y = report["teleport"]
+                try:
+                    eng.teleport(name, new_x, new_y)
+                    rend.forget(name)
+                except (ValueError, SpawnError) as err:
+                    log.warning("no robot moved: %s", err)
             rend.draw()
             frames += 1
         for g in graders:
@@ -548,8 +559,24 @@ def _grader(robot, task, bus, eng):
     return g.start()
 
 
+def graded_task(args) -> str:
+    """The task a run announces: what was named, or — when only a grade was named — what is graded.
+
+    The arena and the sensor profile of a run are picked from the task (`cfg_get_world`,
+    `task_profiles`), so a run that grades `alle` without announcing it grades in the hall of
+    `config/default.json` — `maze` — and not in the `production` the four tasks name. One command to
+    see it, `./lab grade --task alle --world maze --controller student/solution.py`: 40/100, with
+    `korridor` at 0/30 over thirty-one wall contacts where the same solution is 100/100 in its own
+    hall. `./lab grade --task alle` has always named both, because there the grading command *is* the
+    task; `./lab sim --grade alle` and `ros2 launch … grade:=alle` name one of the two, and nobody
+    typing them can know that the other one decided the hall.
+    """
+    return args.task or args.grade or ""
+
+
 def cmd_sim(args):
     """Simulator alone — with real ROS when available (the normal case in the lab room)."""
+    args.task = graded_task(args)
     eng = make_engine(args)
     bus = bus_for(args, "mecanum_sim", eng.cfg)
     if hasattr(bus, "enable_tf"):

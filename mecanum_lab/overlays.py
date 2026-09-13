@@ -55,10 +55,16 @@ def running_zones(rend) -> list:
 
 def zones(rend) -> None:
     """Hatched shadow where the fix degrades, red hatch where there is no fix at all."""
-    from .render import mix                                   # lazy: render imports this module
+    from .render import GREY, mix                             # lazy: render imports this module
     sc, s = rend.screen, rend.s
     fur_schatten = mix(rend.col_floor, (250, 210, 90), .11)     # hint, not a second floor
     fur_dunkel = mix(rend.col_floor, (240, 120, 120), .26)
+    # The label must not wear the colour of its own hatch. `fur_schatten` is 11 % amber on the
+    # floor, so the name of the zone was 1.3:1 against the floor it sits on — the fill is meant to
+    # recede behind the map, the word "multipath" is meant to be read. Same two hues, mixed away
+    # from the floor instead of towards it; bright enough over floor, wall and hatch alike.
+    schrift_schatten = mix(GREY, (250, 210, 90), .55)
+    schrift_dunkel = mix(GREY, (240, 120, 120), .55)
     for zone in running_zones(rend):
         x0, y1 = rend.px(*zone["rect"][:2])                   # world metres -> pixels
         x1, y0 = rend.px(*zone["rect"][2:])
@@ -67,6 +73,7 @@ def zones(rend) -> None:
         if half_l < 2 or be < 2:
             continue
         color = fur_dunkel if zone["block"] else fur_schatten
+        schrift = schrift_dunkel if zone["block"] else schrift_schatten
         schritt = 26 if zone["block"] else 46                 # blackout reads denser than shadow
         for cross_offset in range(-int(be), int(half_l), schritt):  # 45° hatch: shadow over there
             started, end = max(0.0, -cross_offset), min(be, half_l - cross_offset)
@@ -77,7 +84,7 @@ def zones(rend) -> None:
         _dashed(sc, corner, (half_l, be), mix(color, (255, 255, 255), .45))
         if half_l > 90 * max(s / 40, 0.25):
             rend._text(zone_label(zone), max(6, corner[0] + 6),
-                       above_bar(rend, corner[1] + 14), color)
+                       above_bar(rend, corner[1] + 14), schrift)
 
 
 def zone_label(zone: dict) -> str:

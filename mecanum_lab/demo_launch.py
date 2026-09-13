@@ -25,17 +25,25 @@ from .types import ROOT
 #: launch/lab.launch.py, next to this file in the source tree and in `share/mecanum_lab/launch`
 LAB = os.path.join(ROOT, "launch", "lab.launch.py")
 
-#: The arguments a demo run is typed with. Everything else — `task`, `grade`, the sensor knobs — belongs to
-#: a whole experiment and is listed by `launch/lab.launch.py --show-args`, which is also where it is applied.
+#: The arguments a demo run is typed with — the driving ones. **An empty default means "not typed"** and
+#: is then not forwarded, so the config of the demo keeps its say about hall, view and layers: the rule
+#: of `launch/lab.launch.py`, whose module docstring says why a launcher must not outbid its own demo.
+#: What belongs to a whole experiment instead — `task`, `grade`, the sensor knobs of `kf.launch.py` — is
+#: listed by `launch/lab.launch.py --show-args`, which is also where a demo is graded with a task.
 ARGS = (
+    ("world", "", "hall to drive: production | track | maze | open (empty = the hall of the demo)"),
     ("robot", "muster", "your robot name — RViz and the topics of this one"),
     ("robots", "", "extra robots to spawn (comma-separated, empty = only yours)"),
     ("controller", "", "your node (empty = the keyboard alone drives)"),
-    ("seconds", "0", "end after N s of simulation time (0 = until q or Ctrl-C)"),
-    ("view", "", "what the window shows: clean (default) or sensors"),
+    ("seconds", "", "end after N s of simulation time (empty = until q or Ctrl-C)"),
+    ("view", "", "what the window shows: clean | sensors (empty = what the demo config says)"),
     ("layers", "", "single layers over that view, e.g. scan,ghost or -hud"),
     ("rviz", "auto", "RViz 2 beside the window: auto = when installed, true = insist, false = no"),
     ("headless", "false", "no pygame window (CI, or a machine without a screen)"),
+    ("truth", "false", "publish the exact pose on /<robot>/truth (and the field rings of a POI)"),
+    ("log", "", "measurement log as CSV, e.g. messung.csv — tools/kfplot.py reads it (empty = no log)"),
+    ("json", "", "report of a graded run as JSON, e.g. bericht.json (empty: on screen only)"),
+    ("seed", "", "noise seed: the same seed, the same measurement series (empty = the simulator's 1)"),
 )
 
 

@@ -6,8 +6,8 @@ files under `config/` because the graded tasks are calibrated on the plain senso
 experiment, and a default that lies would move what every filter is graded against.
 
 Each file changes one block of the config and leaves the graded defaults alone, so starting a demo is a
-`--config` and not an edit — in the window of one process, or beside RViz through the launch file named in
-the table. One page each, with the commands, the keys, what the window shows and what was measured:
+launch file and not an edit: six demos, six launchers, one command each — and one page each, with the
+commands, the keys, what the window shows and what was measured:
 
 | demo | what it changes | page |
 |---|---|---|
@@ -35,13 +35,14 @@ with honest odometry. Measured in `arena`, 4 s of full throttle east into the wa
 | `1` (default) | 0.69 m | 1.55 m | **+0.86 m** |
 | `0` | 0.69 m | 0.69 m | −0.003 m |
 
-By hand: `./lab sim --world arena`, then `Up` into the east wall — the `odom x` in the readout
+By hand: `ros2 launch mecanum_lab lab.launch.py world:=arena` (without ROS 2: `./lab sim --world arena`),
+then `Up` into the east wall — the `odom x` in the readout
 climbs while the robot's dot stays where it is. To drive it yourself with nothing but the counter —
 no `/gps`, no truth, no `distance` field — `student/poi_seek_example.py` is the worked example:
 
 ```bash
-./lab run --world open --config config/demo_poi_exploration.json \
-          --controller student/poi_seek_example.py --seconds 100 --log poi.csv
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_poi_exploration.json \
+    controller:=student/poi_seek_example.py seconds:=100 log:=poi.csv
 ```
 
 It climbs while the reading rises, arcs when it stops rising, and drives back to where it was loudest
@@ -62,9 +63,24 @@ the true one. Default `{}` = correct wheel constants, so nothing graded moved.
 `config/demo_odom_error.json` is the demo (radius 1.05, lever 0.97):
 
 ```bash
-./lab sim --world track --config config/demo_odom_error.json      # drive straight, watch `o`
+ros2 launch mecanum_lab demo_odom_error.launch.py
+```
+
+and what the same five per cent does to the graded tasks:
+
+```bash
 ./lab grade --config config/demo_odom_error.json --task alle --controller student/solution.py
 ```
+
+Grading is a one-process run — grader, simulator and node on one clock, which is what the thresholds of
+`config/tasks.json` are calibrated on ([CONTRACT §9](CONTRACT.md)). Measured on one seed: the reference
+solution is 100/100 here and 70/100 through `grade:=alle` in a launch file, where the node is a second
+process and T3 gives up after 4.6 m of the 12.9 m it needs. What the odometry does to a drive is on the
+figure, not on the sheet: with this file the corridor of T3 runs 8.03 m wide of the lane, and `quadrat`
+and `korridor` fall out.
+
+Without ROS 2 those two are `./lab sim --config config/demo_odom_error.json` and `./lab grade --config
+config/demo_odom_error.json --task alle --controller student/solution.py`.
 
 Measured with the reference solution: after 12 m of straight lane the ghost is **0.61 m** ahead of
 the robot (5 % too many metres), one commanded revolution ends **28°** rotated, and the graded run
@@ -80,10 +96,24 @@ the sensors of the graded tasks did not draw — measured message for message, n
 so one drive shows what a real sensor delivers on top of its number:
 
 ```bash
-./lab sim --world production --config config/demo_sensor_reality.json    # drive it yourself
-./lab grade --world production --config config/demo_sensor_reality.json \
-            --task kinematik --controller student/solution.py --log messung.csv
+ros2 launch mecanum_lab demo_sensor_reality.launch.py
 ```
+
+and the same drive as a graded task, with everything in the CSV the report is written from:
+
+```bash
+./lab grade --config config/demo_sensor_reality.json --task kinematik \
+        --controller student/solution.py --log messung.csv
+```
+
+Grading is the one-process command, for the same reason as in the demo before — and here it is the row of
+`kinematik` that asks for `q_gps ≥ 0.45` and `lost_gps ≤ 8%` twice as often as the clean field of
+`config/default.json` does. What the dropped messages cost is also visible without a grade: on a straight
+line 5.56 m of GPS error against 0.18 m without the dropouts, and every one of them in the `lost` column
+of the log.
+
+Without ROS 2: `./lab sim --config config/demo_sensor_reality.json` and `./lab grade --config
+config/demo_sensor_reality.json --task kinematik --controller student/solution.py --log messung.csv`.
 
 | knob in the demo | what it changes | measured on one 25 s straight drive |
 |---|---|---|
@@ -123,19 +153,36 @@ speed (`rate_hz` is the node's message rate per **sim** second): `docs/CONTRACT.
 `docs/CONTRACT-KF.md` §5.1.
 
 ```bash
-./lab grade --task alle --controller student/solution.py --speed 4      # 104 s of sim in 26 s
-./lab grade --task alle --controller student/solution.py --fixed-step   # the same in 5 s
-python3 tools/fastgrade.py --task kf_alle --speed 8                     # without the window at all
+./lab grade --task alle --controller student/solution.py --speed 4
+```
+
+— 104 s of simulated drive in 26 s of wall. The same run stepped as fast as the CPU allows, for a CI box
+without a window (it also switches the sleeps of the in-process bus off, so a student node can keep up):
+
+```bash
+./lab grade --task alle --controller student/solution.py --fixed-step
+```
+
+— the same report in 5 s. And the same measurement without Pygame at all, for a loop over many seeds
+(`tools/fastgrade.py`, one section above):
+
+```bash
+python3 tools/fastgrade.py --task kf_alle --speed 8
 ```
 
 The same determinism is what makes a **screenshot** reproducible, and these two pictures are built
 that way rather than photographed off a monitor: `--frame-max N` stops after N drawn frames and
 `--screenshot FILE.png` saves the last one through `pygame.image.save`, so a figure is a build product
-of the build that checks it —
+of the build that checks it — the GPS-shadow figure first:
 
 ```bash
 ./lab sim --world production --config config/demo_gps_shadow.json --robots muster \
           --headless --fixed-step --frame-max 30 --screenshot docs/img/readout-gps-shadow.png
+```
+
+and the radio figure, same recipe with the Wi-Fi demo:
+
+```bash
 ./lab sim --world production --config config/demo_wifi.json --robots muster \
           --headless --fixed-step --frame-max 30 --screenshot docs/img/readout-radio.png
 ```

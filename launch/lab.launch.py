@@ -1,11 +1,21 @@
 """Everything at once: simulator + your node + (optional) grader + (optional) RViz.
 
-    ros2 launch launch/lab.launch.py robot:=alice config:=config/demo_wifi.json rviz:=true
+    ros2 launch mecanum_lab lab.launch.py                                     # the window, keys drive
+    ros2 launch launch/lab.launch.py controller:=student/solution.py          # a node drives
+    ros2 launch launch/lab.launch.py robot:=alice config:=config/demo_wifi.json
 
-The grader runs inside the sim process (`--grade`), its report comes at the end. `config:=` is any file
-under config/, the same one `./lab sim --config …` takes; `rviz:=auto` (the default) opens the ROS-side
-view when rviz2 is installed and says one line when it is not; `controller:=<file>` hands the wheel from
-the keyboard to a node.
+`config:=` is any file under config/, the same one `./lab sim --config …` takes; `rviz:=auto` (the
+default) opens the ROS-side view when rviz2 is installed and says one line when it is not;
+`controller:=<file>` hands the wheel from the keyboard to a node. Grading is asked for with `grade:=`,
+but the number that goes on a sheet comes from `./lab grade` — see the note under "Two things a grade
+is not" in `docs/CONTRACT.md` §9.2, and the same section for why a graded run announces its task.
+
+**An argument that is empty was not typed, and is not passed on.** That is the whole argument table
+below: defaults belong to the simulator's config layers (`docs/CONTRACT.md` §2), not to a launch file.
+A file that hands over its own `world:=production` for a hall nobody asked for outbids the
+`"world": "open"` of a demo config, and the reader of `ros2 launch mecanum_lab demo_poi.launch.py`
+stands in a hall full of tables while the page beside it promises an empty one. Say nothing and the
+config decides; say something and it wins — the rule of `launch/kf.launch.py`, applied here too.
 """
 import os
 import sys
@@ -24,22 +34,45 @@ if REPO not in sys.path:
 from mecanum_lab import rviz_view                           # noqa: E402
 TRUE = ("true", "1", "yes", "on")
 # Every argument, its default and one line of help: `--show-args` prints a row per entry, and
-# `tools/launchargs.py` fails the build when a row would be empty.
+# `tools/launchargs.py` fails the build when a row would be empty. Empty default = "not typed", which
+# is a value of its own here — see the module docstring.
 BASICS = [
-    ("world", "production", "hall to drive: production | track | maze | arena | open"),
+    ("world", "", "hall to drive: production | track | maze | open (empty = the config file's hall)"),
     ("robot", "muster", "your robot name (one person, one robot)"),
-    ("robots", "muster", "robots to spawn at start (comma-separated)"),
+    ("robots", "", "robots to spawn at start, comma-separated (empty = only yours)"),
     ("controller", "", "your node (empty = the keyboard alone drives)"),   # empty is the point
-    ("task", "", "task or group announced to the students (empty = the grader decides)"),
-    ("grade", "", "grade this task or group inside the simulator (empty = do not grade)"),
-    ("seconds", "0", "end after N s of simulation time (0 = until q/Ctrl-C, as in ./lab)"),
+    ("task", "", "task or group announced to the students (empty = the grader decides, see grade:=)"),
+    ("grade", "", "grade inside the sim process (empty = do not grade) — not the ./lab grade "
+                  "measurement, see the note below and CONTRACT §9"),
+    ("seconds", "", "end after N s of simulation time (empty = until q or Ctrl-C, as in ./lab)"),
     ("headless", "false", "without the Pygame window (sets SDL_VIDEODRIVER=dummy)"),
     ("use_sim_time", "true", "use simulation time (/clock) for the timestamps"),
     ("config", "", "config file under config/ (a demo: config/demo_wifi.json), empty = the defaults"),
-    ("view", "clean", "what the window shows at start: clean | sensors"),
+    ("view", "", "what the window shows at start: clean | sensors (empty = what the config says)"),
     ("layers", "", "single layers on/off over that view, e.g. scan,ghost or -hud (empty = nothing)"),
     ("rviz", "auto", "RViz 2 beside the window: auto starts it when installed, true insists, false not"),
+    ("truth", "false", "publish the exact pose on /<robot>/truth (the ghost to compare an estimate with)"),
+    ("log", "", "measurement log as CSV, e.g. messung.csv — tools/kfplot.py reads it (empty = no log)"),
+    ("json", "", "grading report as JSON, e.g. bericht.json (empty = the report on screen only)"),
+    ("seed", "", "noise seed: the same seed, the same measurement series (empty = the simulator's 1)"),
 ]
+
+# launch argument -> the option of `mecanum_lab.node` it stands for. Everything here is passed only when
+# it carries a value, so one table replaces nine `if` blocks and the empty-means-not-typed rule holds for
+# every one of them instead of being decided per argument.
+PASSTHROUGH = (("world", "--world"), ("config", "--config"), ("seconds", "--seconds"),
+               ("view", "--view"), ("layers", "--layers"), ("task", "--task"),
+               ("log", "--log"), ("json", "--json"), ("seed", "--seed"))
+
+
+def path_of(given: str) -> str:
+    """Relative to the source tree, absolute stays absolute — `ros2 launch` is typed from anywhere.
+
+    After `colcon build` there is no working directory that holds `config/`, which is why the demo
+    launcher passes an absolute path (see `mecanum_lab/demo_launch.py`); a path typed by a student in
+    their own clone is relative and has to mean the same thing.
+    """
+    return given if os.path.isabs(given) else os.path.join(REPO, given)
 
 
 def start(context, *args, **kwargs):
@@ -49,17 +82,14 @@ def start(context, *args, **kwargs):
            "MECANUM_USE_SIM_TIME": "1" if read_arg("use_sim_time").lower() in TRUE else "0"}
     child = lambda command: [sys.executable, "-m", "mecanum_lab.node", command]  # noqa: E731
     robot = read_arg("robot")
-    controller = os.path.join(REPO, read_arg("controller")) if read_arg("controller") else ""
-    sim_cmd = child("sim") + ["--world", read_arg("world"),
-                              "--robots", read_arg("robots") or robot,   # else: only your robot
-                              "--seconds", read_arg("seconds"),
-                              "--view", read_arg("view")]
-    if read_arg("config"):
-        sim_cmd += ["--config", read_arg("config")]
-    if read_arg("layers"):
-        sim_cmd += ["--layers", read_arg("layers")]
-    if read_arg("task"):
-        sim_cmd += ["--task", read_arg("task")]
+    controller = path_of(read_arg("controller")) if read_arg("controller") else ""
+    sim_cmd = child("sim") + ["--robots", read_arg("robots") or robot]   # empty: only your robot
+    for argument, option in PASSTHROUGH:
+        given = read_arg(argument)
+        if given:
+            sim_cmd += [option, path_of(given) if argument == "config" else given]
+    if read_arg("truth").lower() in TRUE:
+        sim_cmd.append("--truth")           # a flag of its own, so it is not in the table
     if read_arg("grade"):
         sim_cmd += ["--grade", read_arg("grade"), "--robot", robot]
     controller_cmd = child("controller") + ["--robot", robot, "--controller", controller]

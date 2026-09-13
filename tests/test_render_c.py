@@ -16,6 +16,7 @@ import pytest
 from mecanum_lab import keys, physics, render
 from mecanum_lab.types import (MARKERS, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Scan,
                                Twist, World)
+from support_contrast import leucht, ratio
 
 CFG = {"width": 900, "height": 600, "gui_rate": 30,
        "robot": {"lx": 0.14, "ly": 0.13, "r": 0.05, "footprint_r": 0.21},
@@ -104,6 +105,11 @@ def press(key):
     name = {"plus": "+", "minus": "-"}.get(key, key)
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(name),
                                          mod=0, unicode=name))
+
+
+def click(button: int, pos) -> None:
+    """Post a MOUSEBUTTONDOWN at a screen position — `press` for the other hand."""
+    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=button, pos=tuple(pos)))
 
 
 # ------------------------------------------------------------------------ drawing
@@ -203,8 +209,8 @@ def test_a_body_direction_becomes_the_direction_it_is_drawn_as():
     `px()` turns a world position into a screen position with exactly one sign change. A *direction*
     needs the same sign change, which the helper that stood here for years left out: it rotated body
     vectors by `-theta`, a reflection composed with a rotation. The two agree on every vector along the
-    body x-axis — the long axis of the chassis plate, the heading line, the velocity arrow, and the
-    direction the collision circle is measured in — which is why the difference survived as long as it
+    body x-axis — the long axis of the chassis plate, the velocity arrow, the marker of a robot facing
+    forward, and the direction the collision circle is measured in — which is why the difference survived as long as it
     did. The ones it got wrong were the diagonals: the roller axes of the wheels.
     """
     for theta in (0.0, 0.7, math.pi / 2, 2.3, -1.1):
@@ -321,6 +327,67 @@ def test_roller_axes_match_the_kinematics_that_drive_the_wheels():
         assert math.hypot(*point) > 1e-6, "a wheel that drives nothing explains nothing"
 
 
+def test_a_hud_colour_written_0_1_is_not_the_black_it_looks_like():
+    """pygame truncates a 0..1 colour instead of scaling it: `(1, .85, .3)` came out `(1, 0, 0)`.
+
+    Both spaces are in use here — `types.PALETTE` and the literal HUD colours are 0..1, `rgb()` and
+    `mix()` hand back 0..255 — so `to255()` is where the two meet, and `_text()` goes through it.
+    A black that was meant as black is untouched by the conversion.
+    """
+    assert render.to255((1, .85, .3)) == (255, 216, 76)             # the amber of the goal
+    assert render.to255((1, .92, .70)) == (255, 234, 178)           # the pointer coordinate
+    assert render.to255(render.GREY) == render.GREY                 # 0..255 passes through
+    assert render.to255((0, 0, 0)) == (0, 0, 0)                     # black on purpose, stays black
+
+
+def test_the_goal_label_is_readable_on_the_floor():
+    """Measured where the letters are, not where the colour claims to be bright.
+
+    The word `goal` stands above its bullseye, on the floor — (33, 35, 43). The truncated amber
+    reached 1.3:1 against that floor, which is not a dim label but no label: not one pixel of it
+    stood 3:1 out from what it was painted over.
+    """
+    with gui() as rend:
+        rend.draw(cap=False)
+        ziel = rend.engine.world.goal
+        px, py = rend.px(ziel.x, ziel.y)
+        boden = rend.col_floor
+        gemalt = [rend.screen.get_at((x, y))[:3]
+                  for y in range(int(py) - 32, int(py) - 18)
+                  for x in range(int(px) - 12, int(px) + 44)
+                  if rend.screen.get_at((x, y))[:3] != tuple(boden[:3])]
+        assert len(gemalt) > 20, "not a single pixel of the word 'goal' was drawn"
+        beste = max(ratio(c, boden) for c in gemalt)
+        assert beste >= 4.5, f"'goal' reaches only {beste:.2f}:1 against the floor"
+
+
+def test_a_label_gets_a_dark_edge_because_no_robot_colour_survives_a_wall():
+    """The map under a label is not its background — the dark edge behind it is.
+
+    A wall is (86, 91, 107) and no colour of `types.PALETTE` reaches 4.5:1 on that: the name of a red
+    robot was 1.98:1, and in a hall built out of walls a robot drives along them most of the time. So
+    `_text()` darkens the pixels behind the letters before painting the letters — which is invisible
+    on floor and void (dark on dark) and rescues every hue on a wall. Both halves are asserted: the
+    edge has to be there, and the number has to come from it rather than from the hue.
+    """
+    rot = tuple(int(255 * v) for v in dict(PALETTE)["red"])
+    with gui() as rend:
+        for halo, hintergrund in ((False, rend.col_wall), (True, rend.col_void)):
+            rend.screen.fill(rend.col_wall)
+            breit = rend._text("alice", 60, 40, rot, halo=halo)
+            feld = [rend.screen.get_at((x, y))[:3] for y in range(38, 58)
+                    for x in range(58, 62 + int(breit))]
+            dunkelster, hellster = min(feld, key=leucht), max(feld, key=leucht)
+            assert tuple(dunkelster) == tuple(hintergrund[:3]), (
+                f"halo={halo}: the darkest pixel is {tuple(dunkelster)}, expected the edge "
+                f"{tuple(hintergrund[:3])} — the edge behind a label is what makes it readable")
+            kontrast = ratio(hellster, dunkelster)
+            if halo:
+                assert kontrast >= 4.5, f"red on the edge reaches only {kontrast:.2f}:1"
+            else:
+                assert kontrast < 3.0, f"red on a wall alone should NOT reach 4.5:1 ({kontrast:.2f})"
+
+
 def test_trail_is_capped_at_configured_length():
     engine = make_engine()
     robot = engine.robots["alice"]
@@ -340,6 +407,73 @@ def test_trail_of_removed_robot_is_dropped():
         engine.t += 0.1
         rend.draw(cap=False)
         assert "alice" not in rend.trails and "alice" not in rend.phase
+        assert "alice" not in rend.ghost_trail, "the believed trail belongs to a robot that is gone"
+
+
+def test_the_ghost_trail_follows_the_believed_pose_and_not_the_true_one():
+    """Layer `o` used to show where odometry stands *now*; the drift it is about is a history.
+
+    The same three rules as the truth trail, and for the same reasons: written while hidden (a line
+    that starts at the moment the layer is switched on tells the student the error began now), the same
+    spacing and cap (so what lies between the two lines is the odometry error and nothing else), and
+    pruned with the robot.
+    """
+    engine = make_engine()
+    robot = engine.robots["alice"]
+    with gui(engine) as rend:
+        for i in range(12):
+            robot.pose.x = 1.0 + 0.05 * i                # the truth drives further than the odometer
+            robot.odom.x = 1.0 + 0.04 * i
+            engine.t += 0.1
+            rend.draw(cap=False)
+        geglaubt = rend.ghost_trail["alice"]
+        assert geglaubt, "no ghost trail at all"
+        assert geglaubt[-1] == pytest.approx((robot.odom.x, robot.odom.y)), "followed the truth"
+        assert [p[0] for p in geglaubt] == sorted(p[0] for p in geglaubt), "grew backwards"
+        assert rend.trails["alice"][-1][0] - geglaubt[-1][0] > 0.1, "both lines on top of each other"
+
+        rend.show_ghost = False                          # hidden: the line stops, the history does not
+        punkte = len(geglaubt)
+        robot.odom.x += 0.5
+        engine.t += 0.1
+        rend.draw(cap=False)
+        assert len(rend.ghost_trail["alice"]) == punkte + 1, "hidden layer threw the history away"
+
+        for i in range(60):                              # and the cap holds, same as the truth trail
+            robot.odom.x = 2.0 + 0.05 * i
+            engine.t += 0.1
+            rend.draw(cap=False)
+        assert len(rend.ghost_trail["alice"]) == rend.trail_len
+
+
+def test_the_believed_line_is_drawn_only_while_its_layer_is_on():
+    """A layer that is switched off must leave no pixel behind — and one that is on must leave its own.
+
+    The colour of the believed line is the robot colour pulled towards the floor, so it is not the
+    ghost plate and not the truth trail: counting that exact colour over the screen is the difference
+    between "the history is kept" and "something was painted", which the state dict alone cannot tell.
+    """
+    engine = make_engine()
+    robot = engine.robots["alice"]
+    with gui(engine) as rend:
+        farbe = render.mix(render.rgb(robot.spec.rgb), rend.col_floor, .60)[:3]
+        rend.show_ghost = True            # the clean view keeps the raw layers off, this one included
+        for i in range(30):
+            robot.pose.x = 1.0 + 0.06 * i
+            robot.odom.x = 1.0 + 0.05 * i
+            engine.t += 0.1
+            rend.draw(cap=False)
+
+        def spuren():
+            return sum(1 for y in range(0, rend.size[1], 2) for x in range(0, rend.size[0], 2)
+                       if rend.screen.get_at((x, y))[:3] == farbe)
+
+        assert spuren() > 20, "the believed line is not drawn with the layer on"
+        rend.show_ghost = False
+        robot.odom.x += 0.6
+        engine.t += 0.1
+        rend.draw(cap=False)
+        assert spuren() == 0, "the believed line is still painted with the layer off"
 
 
 def test_frame_time_for_eight_robots_with_lidar():
@@ -424,3 +558,83 @@ def test_caption_names_the_world():
     with gui(make_engine({"a": make_robot("a", 0), "b": make_robot("b", 1)})) as rend:
         rend.draw(cap=False)
         assert "fake" in pygame.display.get_caption()[0]
+
+
+# --------------------------------------------------------------- right button: place a robot
+
+
+def test_the_right_button_offers_every_robot_for_the_spot_under_the_pointer():
+    """Right click opens the menu, a click on a row reports the placement — and moves nothing here.
+
+    The window is a *view*: the assertion that matters most is the last one. Everything a robot is made
+    of belongs to the engine, and a renderer that moved robots would be a second place that decides what
+    a pose is — while `node.run_loop` is the one place that asks the engine for it.
+    """
+    bots = {name: make_robot(name, i) for i, name in enumerate(("alice", "bob"))}
+    engine = make_engine(bots)
+    with gui(engine) as rend:
+        spot = (3.0, 3.0)                                   # open floor, between rack and goal
+        click(3, rend.px(*spot))
+        assert rend.poll()["teleport"] is None, "opening the menu is not placing anything"
+        assert rend.pick.open and [row[0] for row in rend.pick.rows] == ["alice", "bob"]
+        rend.draw(cap=False)                                # the menu is drawn, chips and all
+        assert rend.pick.rect.right <= rend.size[0] and rend.pick.rect.bottom <= rend.size[1], \
+            "the menu hangs over the edge of the window — a row off screen is a robot off limits"
+
+        click(1, (rend.pick.rect.x + 10, rend.pick.row_rect(1).y + 5))    # the row of 'bob'
+        reported = rend.poll()["teleport"]
+        assert reported and reported[0] == "bob", reported
+        assert (round(reported[1], 2), round(reported[2], 2)) == spot, "the spot of the right click"
+        assert not rend.pick.open, "a menu that answered has nothing to say a second time"
+        assert engine.robots["bob"].pose.x == pytest.approx(1.3), \
+            "the renderer moved a robot — it is a view, not a second engine"
+
+
+def test_the_right_button_stays_quiet_where_no_robot_can_stand():
+    """On the rack and out in the void the menu does not appear: an offer that can only answer "no"."""
+    with gui() as rend:
+        for blocked in ((2.5, 2.0), (-1.0, 2.0), (3.0, -1.0)):
+            click(3, rend.px(*blocked))
+            flags = rend.poll()
+            assert not rend.pick.open, f"a menu opened at {blocked}, which is no floor"
+            assert flags["teleport"] is None
+
+
+def test_escape_over_an_open_robot_menu_closes_it_instead_of_ending_the_run():
+    """The hand that reaches for esc there has just decided against placing — the window stays open."""
+    with gui() as rend:
+        click(3, rend.px(4.5, 3.5))
+        rend.poll()                                         # the click is worked off in the poll
+        assert rend.pick.open
+        press("escape")
+        flags = rend.poll()
+        assert flags["quit"] is False and flags["key"] == "", "esc closed the menu, not the run"
+        assert not rend.pick.open
+        press("escape")
+        assert rend.poll()["quit"] is True, "the second esc is the one that means it"
+
+
+def test_a_second_right_click_moves_the_menu_instead_of_needing_a_close_click():
+    bots = {name: make_robot(name, i) for i, name in enumerate(("alice", "bob"))}
+    with gui(make_engine(bots)) as rend:
+        click(3, rend.px(1.0, 3.5))
+        click(3, rend.px(5.0, 3.5))
+        rend.poll()                                         # both clicks, in the order they came
+        assert rend.pick.open
+        click(1, (rend.pick.rect.x + 10, rend.pick.row_rect(0).y + 5))
+        reported = rend.poll()["teleport"]
+        assert round(reported[1], 2) == 5.0, "the menu is about the spot it was last opened at"
+
+
+def test_forget_drops_the_drawn_history_of_one_robot_and_keeps_the_others():
+    """After a placement the old part of the hall must not be drawn as if it had been driven."""
+    bots = {name: make_robot(name, i) for i, name in enumerate(("alice", "bob"))}
+    with gui(make_engine(bots)) as rend:
+        for name in bots:
+            rend.trails[name] = [(0.0, 0.0), (1.0, 1.0)]
+            rend.ghost_trail[name] = [(0.0, 0.0)]
+            rend.kf_trail[name] = [(0.0, 0.0)]
+            rend.phase[name] = [0.0] * 4
+        rend.forget("alice")
+        for history in (rend.trails, rend.ghost_trail, rend.kf_trail, rend.phase):
+            assert "alice" not in history and "bob" in history

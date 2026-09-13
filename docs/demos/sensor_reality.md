@@ -5,19 +5,30 @@ sensors of the graded tasks did not draw — measured message for message, not a
 (`tests/test_sensor_reality.py`). This file asks for all six at once, so one drive shows what a real
 sensor delivers on top of its measurement.
 
-```bash
-./lab sim --world production --config config/demo_sensor_reality.json   # drive the arena yourself
-./lab run --world production --config config/demo_sensor_reality.json \
-          --robot muster --controller student/solution.py --seconds 30   # the readout from outside
-ros2 launch mecanum_lab demo_sensor_reality.launch.py                    # same through ROS, plus RViz
-```
-
-To get the same numbers into the CSV the report is written from:
+Drive the arena yourself, with every one of the six knobs on at once:
 
 ```bash
-./lab grade --world production --config config/demo_sensor_reality.json \
-            --task kinematik --controller student/solution.py --log messung.csv
+ros2 launch mecanum_lab demo_sensor_reality.launch.py
 ```
+
+The readout from outside, while the reference solution drives — `q2 8 sats`, `lost 7`, the chip
+temperature and the empty beams come from the same numbers the topics carry:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_sensor_reality.json \
+    controller:=student/solution.py seconds:=30
+```
+
+To get the same numbers into the CSV the report is written from — grading is the one-process command, so
+grader, sensors and node are measured on one clock:
+
+```bash
+./lab grade --config config/demo_sensor_reality.json --task kinematik \
+            --controller student/solution.py --log messung.csv
+```
+
+Without ROS 2 the drives above are `./lab sim --config config/demo_sensor_reality.json`, with
+`--controller student/solution.py --seconds 30` on the end.
 
 ## What it changes
 

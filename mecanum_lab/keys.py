@@ -91,6 +91,7 @@ LAYERS = (
     ("x", "show_zones", "gps shadow zones", ""),
     ("o", "show_ghost", "odometry ghost + drift", ""),
     ("p", "show_pois", "radiation source + field", ""),
+    ("i", "show_dose", "radiation dose map", ""),
     ("n", "show_network", "radio link + access point", ""),
     ("c", "show_coverage", "radio coverage map", ""),
 )

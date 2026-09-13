@@ -6,15 +6,29 @@ things that kill a real link kill it here: distance, and walls in the straight l
 option off no radio is built, no random number is drawn for it and no `/link` is published, so a graded
 run's command stream is byte for byte what it was before a radio existed.
 
+Drive it yourself and look at layer `n`: the access point as a box with two arcs, the line from it to
+your robot, and the quality bar over its head.
+
 ```bash
-./lab sim --world production --config config/demo_wifi.json           # drive it, look at layer `n`
-./lab run --world production --config config/demo_wifi.json --robot muster \
-          --controller student/link_autonomy_example.py --seconds 60   # it drives into the shadow
-ros2 launch mecanum_lab demo_wifi.launch.py                            # same through ROS, plus RViz
+ros2 launch mecanum_lab demo_wifi.launch.py
 ```
 
-The same file with the other onboard rule: add `--set wifi.autonomy=dead_reckoning`. Over ROS the knobs
-are launch arguments — `ros2 launch launch/wifi.launch.py wall_db:=20 ap:=[10,6]`.
+The shipped example drives instead — away from the access point until the link gives out, 60 s of it:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_wifi.json \
+    controller:=student/link_autonomy_example.py seconds:=60
+```
+
+The radio has a launcher of its own, in which every knob of the budget above is an argument — here a
+thicker wall, an access point in the middle of the hall and the rule that keeps driving:
+
+```bash
+ros2 launch mecanum_lab wifi.launch.py wall_db:=20 ap:=[10,6] autonomy:=dead_reckoning
+```
+
+Without ROS 2: `./lab sim --config config/demo_wifi.json`, the same arguments on `./lab run`, and
+`--set wifi.autonomy=dead_reckoning` for the third.
 
 ## What it changes
 

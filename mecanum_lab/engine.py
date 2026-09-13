@@ -19,7 +19,7 @@ MAX_OUTBOX = 20000
 
 
 class SpawnError(Exception):
-    """Robot name invalid, already taken, or limit reached."""
+    """Robot name invalid, already taken, limit reached — or nobody of that name is driving."""
 
 
 class SimEngine:
@@ -242,6 +242,44 @@ class SimEngine:
         r.imu, r.kf, r.kf_err = None, None, None
         r.contacts, r.distance, r.mission_state = 0, 0.0, "idle"
         return True
+
+    def teleport(self, name: str, x: float, y: float) -> Pose:
+        """Pick one robot up and put it down somewhere else — same heading, new belief.
+
+        The window's right-button menu and a supervisor's hand both want this: start an exercise where
+        it is supposed to start, without editing a config and without a `reset()` that throws the run —
+        and the other robots — away. `theta` is kept on purpose: turning is a command, placement is not.
+
+        What moves with it, and what that costs: the pose the physics steps from, the truth pose the log
+        records, and **the odometry**, whose origin goes to the new spot (`_make_odometer` puts it at the
+        spawn pose, `reset_robot` at the start pose). Leaving the belief behind would be the honest
+        physics of a robot that was carried — but this is a supervisor placing a robot *before* a run, and
+        a belief 20 m away would be the thing the student's filter fights for the rest of the exercise.
+        The drift lesson survives, it simply starts over at the new place, which is what `reset_robot`
+        does a few lines above. The estimate of the old drive goes for the same reason: at the moment of
+        placement nothing about the new spot is known yet. Everything else stays — simulation time, task,
+        the other robots, the radio link, the GPS losses of the last second.
+
+        Raises `ValueError` for a spot that is not open floor (the same `World.free()` a radiation source
+        is checked against: a robot in a rack is stuck in the rack) and `SpawnError` for a name that is
+        not driving.
+        """
+        r = self.robots.get(name)
+        if r is None:
+            raise SpawnError(f"No robot named '{name}' is driving.")
+        self.world.free(f"robot '{name}'", x, y, " — it would stand stuck in the rack")
+        r.chassis.pose = Pose(x, y, r.chassis.pose.theta)
+        r.chassis.reset_motion()                       # put down, not thrown: standing still at rest
+        r.pose = Pose(x, y, r.chassis.pose.theta)       # the truth, and not only from the next step on
+        r.odometer.reset(r.chassis.pose)               # the belief starts at the new spot, see above
+        r.inertial.reset()
+        self._clock_to_sim(r)                          # ... on this run's clock, not from 0 again
+        r.kf, r.kf_err = None, None                    # the old drive's estimate describes this one not
+        # `contacts` and `distance` are deliberately not touched: they are facts about this run, and a
+        # robot that drove three walls before it was picked up has not un-driven them.
+        log.info("teleported '%s' to (%.2f, %.2f), heading kept at %.0f deg",
+                 name, x, y, math.degrees(r.chassis.pose.theta))
+        return r.pose
 
     def reset(self) -> None:
         """Return all robots to their start pose, counters at zero (names stay).

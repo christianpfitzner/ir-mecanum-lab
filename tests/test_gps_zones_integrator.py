@@ -8,6 +8,7 @@ ending a lab run.
 import math
 import os
 import statistics
+import unittest.mock as mock
 
 import pytest
 
@@ -16,6 +17,7 @@ from mecanum_lab.engine import SimEngine
 from mecanum_lab.sensors import GpsSensor, Noise
 from mecanum_lab.types import Odom, Pose, cfg_get, load_config
 from mecanum_lab.worlds import load_world
+from support_contrast import ratio
 
 CFG = load_config()
 SIGMA = cfg_get(CFG, "gps.sigma_xy")
@@ -150,6 +152,36 @@ def test_drawing_overlays_changes_nothing(renderer):
     assert renderer.skid_trail == []
     assert (rob.pose.x, rob.pose.y, rob.spec.rgb[0]) == vorher  # drawing draws, nothing else
     assert overlays.running_zones(renderer)[1]["block"] is True  # read from the live profile
+
+
+def test_a_zone_is_labelled_in_a_colour_of_its_own(renderer):
+    """A label may not wear the colour of its own hatch.
+
+    The hatch is mixed *towards* the floor (11 % amber on it) because it is meant to recede behind
+    the map — the name of the zone is meant to be read, and 11 % of a colour is 1.3:1 on the floor
+    it sits on, an invisible word. Judged against the dark edge every map label is drawn on, which
+    is what decides legibility; a hatch colour is too dark for that edge as well.
+    """
+    gesammelt = []
+    echt = renderer._text
+
+    def sammle(txt, x, y, color, **kwargs):
+        gesammelt.append((txt, color))
+        return echt(txt, x, y, color, **kwargs)
+
+    # Both kinds of zone, each wide enough to be labelled at all — a 1 m square is deliberately
+    # left without text by `zones()`, and that rule is not what this test is about.
+    zwei = [{"name": "regal", "rect": [2.0, 1.0, 6.0, 3.0], "sigma_scale": 4,
+             "bias": (0.0, 0.0), "block": False},
+            {"name": "ladedock", "rect": [2.0, 3.2, 6.0, 4.2], "block": True}]
+    with mock.patch.object(renderer, "_text", side_effect=sammle), \
+            mock.patch.object(overlays, "running_zones", return_value=zwei):
+        overlays.zones(renderer)
+    assert len(gesammelt) >= 2, f"both zones are drawn, labelled: {[t for t, _c in gesammelt]}"
+    for txt, farbe in gesammelt:
+        kante = ratio(farbe, renderer.col_void)
+        assert kante >= 4.5, (f"'{txt}' in {tuple(farbe)} reaches {kante:.2f}:1 on the dark edge a "
+                              f"map label sits on — that is a zone nobody can find")
 
 
 def test_odometry_starts_at_the_spawn_pose_not_at_zero():

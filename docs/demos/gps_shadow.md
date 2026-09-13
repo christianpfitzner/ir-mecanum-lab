@@ -4,16 +4,32 @@
 multiplies its σ, adds an offset, or takes the sky away entirely. The default is an empty list, so this
 only happens in a run that asks for it.
 
+Drive into the shadow yourself. The hall comes with the file, because the three zones below are
+rectangles in production's metres; the window opens at the spawn pose, RViz beside it when installed:
+
 ```bash
-./lab sim --world production --config config/demo_gps_shadow.json      # drive into it yourself
-./lab run --world production --config config/demo_gps_shadow.json \
-          --robot muster --controller student/solution.py --seconds 30  # watch it from outside
-ros2 launch mecanum_lab demo_gps_shadow.launch.py                      # same through ROS, plus RViz
+ros2 launch mecanum_lab demo_gps_shadow.launch.py
 ```
 
-The window starts at the spawn pose; `--world arena` works too. To make it a measured exercise rather
-than a drive, grade it: `./lab grade --world production --config config/demo_gps_shadow.json --task
-kinematik --controller student/solution.py --log messung.csv`.
+Watch it from outside while the reference solution drives — the ghost and the fix in one frame:
+
+```bash
+ros2 launch mecanum_lab lab.launch.py config:=config/demo_gps_shadow.json \
+    controller:=student/solution.py seconds:=30
+```
+
+To make it a measured exercise rather than a drive: the graded task T1 driven through the shadow, with
+the series written out for the report. Grading is the one-process command — the same `--config` file, the
+same clock for grader, sim and node (CONTRACT §9):
+
+```bash
+./lab grade --config config/demo_gps_shadow.json --task kinematik \
+            --controller student/solution.py --log messung.csv
+```
+
+Another hall is one argument — `world:=arena` moves the zones into a hall with no tables to hide behind,
+which is a lesson of its own. Without ROS 2 the two drives above are
+`./lab sim --config config/demo_gps_shadow.json` and the same arguments given to `./lab run`.
 
 ## What it changes
 
