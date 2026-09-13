@@ -126,7 +126,7 @@ RViz; the launch names are `gps`, `odom`, `odom_error`, `sensor_reality`, `wifi`
 
 | file | what it turns on | what you see |
 |---|---|---|
-| `config/demo_gps_shadow.json` | `gps.zones`: two rectangles and a blackout | hatched shadow (`s`), fixes that scatter, then none at all |
+| `config/demo_gps_shadow.json` | `gps.zones`: two rectangles and a blackout | hatched shadow (`x`), fixes that scatter, then none at all |
 | `config/demo_odom_slip.json` | `robot.slip: 1.0` against a wall | the `odom x` readout climbs while the dot does not move |
 | `config/demo_odom_error.json` | `odom.geometry`: radius ×1.05, lever ×0.97 | the ghost (`o`) drifts ahead: 0.61 m per 12 m straight |
 | `config/demo_sensor_reality.json` | latency, dropout, staleness, temperature | `sensor_state` in the readout: `lost_gps`, `q_gps`, `temp_imu` |

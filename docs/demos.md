@@ -35,7 +35,7 @@ Measured with 400 fixes per spot (σ=0.06 m is the lab default):
 | multipath in the corner (σ×3) | 0.18 / 0.18 m | 0.52 m | (−0.39, +0.30) m | 400/400 |
 | loading dock (`"block": true`) | — | — | — | **no fix at all** |
 
-The window draws the zones as hatched shadow (`s`), the blackout in the error colour, and labels
+The window draws the zones as hatched shadow (`x`), the blackout in the error colour, and labels
 each with what it does to the fix. Together with the odometry ghost (`o`) and the rubber that
 slipping wheels leave on the floor, one frame shows a student the three ways a position can be
 wrong: noisy, biased, or missing — and how much of it the odometry invented (`overlays.py`).

@@ -9,6 +9,7 @@ by the same hand as the code:
   * the help line in the window's header named keys that no longer did anything.
 """
 import os
+import pathlib
 import re
 import sys
 
@@ -191,3 +192,81 @@ def test_the_readme_table_is_the_table_and_not_a_memory_of_it():
     driving = " ".join(rows)
     for pair in ("`w`/`s` drive", "`a`/`d` turn", "`Up`/`Down` drive", "`Left`/`Right` **strafe**"):
         assert pair in driving, f"README has stopped documenting {pair}"
+
+
+def test_every_key_the_documentation_quotes_is_a_key_of_this_simulator():
+    """A wrong key letter in prose fails no import and no type check — a reader just presses it, sees
+    nothing, and goes on to debug their own node.
+
+    Three layer keys moved when `w`, `s` and `d` became steering (`w`→`r` wheels, `s`→`x` shadow zones,
+    `d`→`c` floor markings), and two sentences went on naming the old letters for a round of commits: the
+    code right, the table right, the text that tells a student what to type wrong. So every single letter
+    the documentation puts in backticks is looked up in the table here. A backticked lone letter reads as
+    a key — if a page ever means the unit second, it writes `4 s` without backticks and this stays quiet.
+    """
+    legal = (set(keys.FORWARD_KEYS) | set(keys.STRAFE_KEYS) | set(keys.TURN_KEYS)
+             | {row[0] for row in keys.LAYERS} | set(keys.ROBOTS)
+             | {"q", "m", "f", "0", "=", "-", "space", "esc"})   # the rest of keys.help_line(teleop=False)
+    quoted = 0
+    for page in [pathlib.Path("README.md")] + sorted(pathlib.Path("docs").glob("*.md")):
+        for number, line in enumerate(page.read_text().split("\n"), 1):
+            for match in re.finditer(r"`([a-z])`", line):
+                quoted += 1
+                assert match.group(1) in legal, (
+                    f"{page}:{number} writes `{match.group(1)}` as a key, and keys.py has no such key; "
+                    f"the table says {sorted(legal)}")
+    assert quoted > 20, f"only {quoted} quoted keys scanned — the pattern stopped matching the pages"
+
+
+def test_the_documentation_names_the_key_that_opens_the_gps_shadow():
+    """The one sentence that was wrong, held in place by the table instead of by memory."""
+    shadow = keys.key_of("show_zones")
+    for page in [pathlib.Path("README.md"), pathlib.Path("docs/demos.md")]:
+        text = page.read_text()
+        assert "shadow" in text, f"{page} talks about the demo but not about the shadow"
+        assert f"(`{shadow}`)" in text, (
+            f"{page} shows the gps shadow without naming key {shadow} for it (it is "
+            f"{shadow} since the layer keys moved out of the steering)")
+
+
+def test_the_handouts_key_table_is_the_key_table_of_the_code():
+    """The PDF the students hold and the table the window uses may not disagree about a letter.
+
+    The handout is LaTeX, so nothing imports `keys.py`: after the layer keys moved, the printed sheet kept
+    telling people to press the old keys, and it said `up/down drive, q turns right` — the exact reversal
+    this table exists to fix. So the letters and the words of its layer column are compared with the table
+    the window builds its menu from.
+    """
+    root = pathlib.Path(__file__).resolve().parents[1]
+    text = (root / "docs" / "praktikum" / "anleitung.tex").read_text()
+    table = text[text.index("driving (teleop)"):]
+    table = table[:table.index("\\end{tabular}")]
+    rows = []
+    for line in table.splitlines():
+        line = line.strip()
+        if not line.endswith("\\\\"):
+            continue
+        cells = [cell.strip() for cell in line[:-2].split("&")]
+        if len(cells) != 4:
+            continue
+        key = re.fullmatch(r"\\thema\{([a-z])\}", cells[2])       # column three: the layer key
+        if key:
+            rows.append((key.group(1), cells[3].replace("$\\sigma$", "sigma")))
+    quoted = dict(rows)
+    coded = {key: label for key, _attr, label, _edge in keys.LAYERS}
+
+    assert set(quoted) == set(coded), (
+        f"the handout lists layers on {sorted(quoted)}, the window on {sorted(coded)} — a letter that "
+        f"differs is a key a student presses with nothing happening")
+    for key, wording in quoted.items():
+        def words(text):
+            return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3}
+        shared = words(wording) & words(coded[key])
+        assert shared or wording.lower() in coded[key].lower() or coded[key].lower() in wording.lower(), (
+            f"key {key}: the handout calls it '{wording.strip()}', the window calls it "
+            f"'{coded[key]}' — the same key with two names is a lookup that fails in the reader's head")
+
+    turning = table[table.index("\\thema{q}"):table.index("\\thema{up}")]
+    assert "left" in turning, "the handout must say which way q and e turn"
+    assert "right" in turning and turning.index("left") < turning.index("right"), (
+        "q is left and e is right since the steering was fixed; the handout has them the other way")

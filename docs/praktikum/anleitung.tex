@@ -395,8 +395,8 @@ source /opt/ros/$ROS_DISTRO/setup.bash
 \end{lstlisting}
 \subsection{Trying it out}
 \begin{lstlisting}[language=bash]
-./lab teleop --robot alice    # keyboard is the remote: up/down drive, left/right
-                              # strafe, q or , turn right, e or . turn left
+./lab teleop --robot alice    # the keyboard is the remote: w/s drive, a/d turn the chassis
+                              # like a car, the arrows drive and strafe like a mecanum base
 ./lab robots                             # who drives, in which mode?
 ros2 topic list
 ros2 topic echo /alice/odom --once
@@ -408,6 +408,33 @@ frames every tick, the keys publish only while one is held: the node drives, the
 and \thema{cmd\_timeout} is what ends both. The readout line says which of the two was the last
 command — \thema{cmd topic 0.04 s}, \thema{cmd keys 0.02 s}, \thema{cmd none} — so you never have to
 wonder which of them a screenshot shows.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}ll@{\hspace{2em}}ll@{}}
+\toprule
+\multicolumn{2}{@{}l}{\textbf{driving (teleop)}} & \multicolumn{2}{l}{\textbf{layers in the window}}\\
+\thema{w} / \thema{s} & forward, backward & \thema{l} & lidar scan \\
+\thema{a} / \thema{d} & turn left, right & \thema{t} & odometry trail \\
+\thema{q} / \thema{e} & turn left / right & \thema{g} & GPS fix \\
+\thema{up} / \thema{down} & forward, backward & \thema{k} & estimate + $\sigma$ ellipse \\
+\thema{left} / \thema{right} & strafe sideways & \thema{r} & wheels and rollers \\
+\thema{space} & pause & \thema{v} & velocity vector \\
+\thema{esc} & quit & \thema{c} & floor markings \\
+\thema{m} & all layers at once & \thema{z} & goal \\
+\thema{f} & whole world & \thema{x} & GPS shadow zones \\
+\thema{1}..\thema{9} & follow one ($\thema{0}$: all) & \thema{o} & odometry ghost + drift \\
+\thema{0} & follow all & \thema{p} & radiation source + field \\
+ & & \thema{h} & readout lines \\
+\thema{=} / \thema{-} & zoom & \thema{n} & radio link + access point \\
+\bottomrule
+\end{tabular}
+\caption{The keys of the lab window, for teleop and for the keyboard of \thema{./lab run}. The window
+starts with the raw measurements switched off: what is drawn by default is the robot, its wheels, the
+odometry estimate and the readout lines, and everything a sensor measures has to be asked for with its
+key. That is on purpose --- the estimate and the measurement look the same when both are on, and telling
+them apart is the exercise. \thema{m} switches every layer on at once.}
+\end{table}
 
 One thing more to try, and the only one that needs a sensor you cannot see: the \thema{open} hall is
 30 \(\times\) 20 m of floor with a border wall and \emph{one radiation source} planted at (12, 6) m,
