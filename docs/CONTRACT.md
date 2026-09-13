@@ -16,7 +16,7 @@ dependencies**, **runs immediately**, readable and editable by students.
 |---|-------|
 | 1 | **Dependencies:** Python stdlib + `pygame`. `rclpy` is *optional* (it runs without ROS too). No numpy, no yaml, no scipy, no ROS message generation as a must. |
 | 2 | **Python:** 3.10+, stdlib types only (`dataclasses`, `math`, `json`, `random`, `argparse`, `threading`). No type ceremony without value — where an annotation costs readability, a comment wins. |
-| 3 | **Everything written and everything named is English**: comments, docstrings, log and report text, identifiers, launch arguments, the keys of `config/tasks.json`, handouts, contracts. Two tools enforce it as steps of `tools/check.sh`: `tools/langcheck.py` reads the prose (umlauts, German function words), `tools/germanids.py` reads the names. What `germanids.py` allows is the exception list: ROS topic, service and message field names, the wheel labels `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`, `kf_alle`, `v1`, `v2`) and the German *values* of the two compatibility maps — `tasks._LEGACY_KEYS` and the `DEPRECATED` tables in `launch/`. Those maps exist so that files and shell histories from before the migration keep working; see §6.11. |
+| 3 | **Everything written and everything named is English**: comments, docstrings, log and report text, identifiers, launch arguments, the keys of `config/tasks.json`, handouts, contracts. Two tools enforce it as steps of `tools/check.sh`: `tools/langcheck.py` reads the prose (umlauts, German function words), `tools/germanids.py` reads the names — definitions, arguments, attributes and data strings, not local variables (§6.11). What `germanids.py` allows is the exception list: ROS topic, service and message field names, the wheel labels `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`, `kf_alle`, `v1`, `v2`) and the German *values* of the two compatibility maps — `tasks._LEGACY_KEYS` and the `DEPRECATED` tables in `launch/`. Those maps exist so that files and shell histories from before the migration keep working; see §6.11. |
 | 4 | **No class that only forwards.** If a function is under 4 lines and used once, inline it. |
 | 5 | **Keep the LOC budgets** (see §7). At the end of every file: no blank-line junk, no banner comments. |
 | 6 | **Determinism:** world physics depends only on `dt` and the seeds, never on wall clock time or thread order. |
@@ -531,7 +531,10 @@ their angles from `chassis.wheel_headings` — the mount point stays on the body
 Identifiers, launch arguments and JSON keys are English. The migration renamed them in one go;
 where a name was printed in a handout or typed daily by a student, the old spelling still works as
 a **deprecated alias** that prints one line on stdout and is otherwise inert. `tools/germanids.py`
-fails when a German name appears outside these tables, so the rule cannot rot again.
+fails when a German name appears outside these tables — for the names it reads: definitions, arguments,
+attributes and the short strings that are data. Local variables are not among them, and the docstring of
+that tool carries the measured size of the open end (114 further hits over 23 identifiers on today's
+tree, 29 of them in the three student files), so a green run is not read as a clean tree.
 
 | launch argument (today) | deprecated alias | | launch argument (today) | deprecated alias |
 |---|---|---|---|---|
@@ -579,7 +582,7 @@ present) — a threshold never changes value with its name, only its spelling. T
 both are read by scripts the students wrote themselves and a renamed column shows up immediately.
 
 Two further renames keep their old option as an alias, each with its own notice:
-`./lab --interval` (was `--log-intervall`), `tools/worldcheck.py --open-max` (was `--open-max`),
+`./lab --interval` (was `--log-intervall`), `tools/worldcheck.py --open-max` (was `--offen-max`),
 `tools/fastgrade.py --wallclock-max` (was `--wanduhr-max`).
 
 The wheel labels stay `VL/VR/HL/HR` — they are hardware labels printed on the robot and in the
@@ -772,21 +775,26 @@ student who only wants to read a quality. `ros2 topic echo /alice/link` needs no
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 
 Authoritative list is `BUDGET` in `tools/loc.py` (`python3 tools/loc.py` prints the tally).
-Current frame after the view and TF work:
+The table is that output — measured lines / budget of the same run, never a number carried over from
+an older table:
 
-| Module | LOC | | Module | LOC |
+| Module | lines / budget | | Module | lines / budget |
 |---|---|---|---|---|
-| types.py | 460 | | ros_bridge.py | 490 |
-| stub.py | 115 | | tf_bcast.py | 135 |
-| engine.py | 485 | | node.py | 613 |
-| worlds.py | 135 | | robot_io.py | 259 |
-| physics.py | 180 | | tasks.py | 210 |
-| sensors.py | 560 | | grade.py | 620 |
-| render.py | 480 | | logbook.py | 110 |
-| cam.py | 115 | | menu.py | 90 |
-| overlays.py | 290 | | pois.py | 170 |
-| steering.py | 290 | | | |
-| **simulator core (mecanum_lab/)** | **≤ 5750** | | | |
+| types.py | 560 / 565 | | ros_bridge.py | 510 / 515 |
+| stub.py | 109 / 115 | | tf_bcast.py | 125 / 135 |
+| engine.py | 644 / 650 | | node.py | 743 / 755 |
+| worlds.py | 127 / 135 | | robot_io.py | 286 / 290 |
+| physics.py | 180 / 180 | | tasks.py | 211 / 215 |
+| sensors.py | 556 / 560 | | grade.py | 669 / 675 |
+| render.py | 483 / 485 | | logbook.py | 115 / 118 |
+| cam.py | 106 / 115 | | menu.py | 85 / 90 |
+| overlays.py | 481 / 490 | | pois.py | 164 / 170 |
+| steering.py | 290 / 290 | | wifi.py | 363 / 365 |
+| **simulator core (mecanum_lab/)** | **6807 / 6850** | | | |
+
+`loc.py` counts comment and blank lines too, because that is the size a student sees while reading.
+The files outside `mecanum_lab/` — the student files, the launch files, `tools/kfplot.py` — are in the
+same `BUDGET` dict and are listed with their numbers in CONTRACT-KF §6.
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
 layer menu, and because `tf_bcast.py` is new. `tasks.py` grew with `_LEGACY_KEYS` (§6.11), the
@@ -836,14 +844,35 @@ comment per new key, `render.py` +3 for the `p` layer, `ros_bridge.py` +10 for t
 did not grow by a single line, and the 100/100, the 90/90 and the 30/30 of `tools/check.sh` are the same
 three numbers they were before this package.
 
+The two packages after that frame — the radio link (§6.14) and the pass that made these tables tell
+the truth — are why the table above no longer shows the numbers the paragraphs below it end on.
+Measured with `git show 472aefd:mecanum_lab/<file> | wc -l` against `wc -l` on this tree: `wifi.py` new
+with 363 lines, `overlays.py` +197, `engine.py` +163, `node.py` +130, `types.py` +102, `grade.py` +56,
+`ros_bridge.py` +28, `robot_io.py` +27, `logbook.py` +11, `render.py` +8, `tasks.py` +3, `menu.py` +1;
+`sensors.py`, `physics.py`, `worlds.py`, `stub.py`, `cam.py`, `tf_bcast.py`, `steering.py` and `pois.py`
+are the same files they were. One new file and the seams, again: `wifi.py` holds the link budget and the
+delivery rule, while `engine.py` gained the seam a command goes through (`_deliver`) and the timer that
+flips autonomy. Two of that growth is not the radio at all: `grade.py`'s +56 is the criteria table that
+prints the limit it applied, and `node.py`'s is the option surface (`--frame-max`, `--screenshot`, and
+the `spawn_player` / `student_nodes` / `timed_run` setup that `cmd_run`, `cmd_sim` and `cmd_grade`
+used to each write themselves). The sentence saying *why* a file grew stays in the addendum of its own
+package, in the comment above `BUDGET` in `tools/loc.py`: this section is the tally, that one is the
+ledger. No threshold of `config/tasks.json` and no wheel equation is in that diff, which is why 100/100
+twice, 90/90 and 30/30 are the numbers they were.
+
 ## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
 
-| ID | Name | Checks | Success criterion (default) |
+| ID | Name | Checks | Limits, read from `config/tasks.json` |
 |---|---|---|---|
-| `kinematik` | T1 | IK signs/wheel assignment | 3 phases of 3 s each (vx=0.3 / vy=0.3 / ω=0.6): Δx>+0.35, \|Δy\|<0.12, \|Δθ\|<0.18 rad etc. |
-| `quadrat` | T2 | control loop + odometry | 1 m sides, 90° turns, back within 0.20 m / 15° of the start, time < 90 s |
-| `korridor` | T3 | LIDAR look-ahead | reach the goal without a wall contact (`contacts == 0`), lateral distance 0.25–0.8 m |
-| `gps_anfahrt` | T4 (bonus) | GPS instead of odometry | reach the goal from `world.goal` with GPS feedback, |error| < 0.45 m (0.30 m was inside the spread a finished solution measures — 0.09…0.26 m over the three paces of §9.1, 0.07…0.33 m back when the pace was whatever the host managed; timing at the end of the drive plan, not GPS noise — see `abgabe` and `tests/test_grenzwerte_integrator.py`) |
+| `kinematik` | T1 — inverse kinematics (30 points) | the four wheel equations, the `VL/VR/HL/HR` order, rad/s | one 1.0 s ramp, then three phases of `duration 3.0` s each followed by a `hold_time 1.2` s pause (`grade._plan`), 10 points each: forward `vx 0.3` → `dx_min 0.35`, `dy_abs_max 0.15`, `yaw_abs_max 0.2`; sideways `vy 0.3` → `dy_min 0.35`, `dx_abs_max 0.15`, `yaw_abs_max 0.2`; turn `omega 0.6` → `yaw_min 1.2`, `dx_abs_max 0.35`, `dy_abs_max 0.35` |
+| `quadrat` | T2 — square on odometry (30) | waypoints, correcting instead of chasing, the closing pose | `closure_max 0.25` m and `yaw_max_deg 20` back at the start pose, `path_min 3.0` / `path_max 12.0` m, `contacts_max 0`, `timeout 90` s |
+| `korridor` | T3 — drive to the gate (30) | ray sectors, braking before the crash, a clean `done` | `target_max 0.30` m at `target "goal"` (= `world.goal`), `contacts_max 0`, `lateral_min 0.16` m — the smallest side gap seen while the robot drives straight (`|omega| ≤ straight_omega_max 0.25`, `|vx| > 0.05`) — `path_min 1.0` / `path_max 40.0` m, `timeout 120` s |
+| `gps_anfahrt` | T4 — bonus with GPS (10) | another source, a dead zone against noise, the target taken from the world | `target_max 0.45` m at `target "spawn"`, `target_index -1` — the **last spawn pose** of the world (`world()['spawns'][-1]`), deliberately not `world.goal` and not the robot's own start; `contacts_max 0`, `path_min 0.5` / `path_max 40.0` m, `timeout 90` s. Why 0.45 rather than 0.30: the same finished solution measures 0.09…0.26 m over the three paces of §9.1 (0.087…0.260 m), so a limit of 0.30 would be decided by when the last command is cut off, not by the GPS — the task's own `deliverable` text and `tests/test_grenzwerte_integrator.py` say the same |
+
+Every limit above is a key of `config/tasks.json`, not a number from an older table. The mission rows
+are `MISSION_CRITERIA` in `grade.py`, and `_apply()` skips a bound the task does not name: a task is
+measured by exactly the rows it writes itself, and the report prints those rows, so the limit a student
+reads is the limit that was applied. The T1 bounds are the `expect` dict of each phase.
 
 Grading runs **over the topics**, never by code analysis: students may
 implement however they like, behaviour is what gets measured. T1 checks in the order

@@ -5,11 +5,26 @@
 in `tools/check.sh`, because German returns with every new feature — and after the migration of
 2024-09 it would otherwise be back within a semester without anyone noticing.
 
-Three checks over every Python file:
+Three checks over every Python file under `SCAN`:
 
-  * identifiers (functions, methods, arguments, attributes, variables) built from German words;
+  * identifiers built from German words, read from the ast fields `name`, `attr` and `arg` — that is
+    every class, function, method and import that is defined here, every parameter and keyword
+    argument, and every attribute read or set on an object;
   * non-ASCII identifiers — umlauts never belong in a name here;
   * short bare strings that are data (dict keys, option names, enum-like values) in German.
+
+**Local variables are out of scope, and that is stated rather than hidden.** `ast.Name` nodes — the
+`wand = ` of a function body and every read of it — are not read, so a German local passes this tool.
+Measured, so the choice is a number and not a feeling: adding `"id"` to the field tuple of
+`hits_for()` reports 114 further hits over 23 distinct identifiers in 18 files (`wand` 21 times, `ende`
+18, `ziel` 12, then `reihe`, `zeile`, `letzter_meldung`, `schatzung`, `auftrag`, `offen`, `zeit`,
+`roboter`, `rand_px`, `TOL_XY`, …), and 29 of those occurrences sit in the three student files
+(`student/solution.py` 13, `student/kf_solution.py` 9, `student/kf_template.py` 7) that are the reading
+model for a submitted node.
+Renaming them is a change to code the practicum reads aloud, with the grading runs of both experiments
+hanging off it — a package of its own, not a line in a checker. Until that package exists, this tool is
+narrow and says so; CONTRACT §6.11 and the rules section of the README repeat the same scope, so change
+all three together.
 
 What stays German is the documented exception list in CONTRACT §1 and is encoded here as
 `ALLOW_TOKENS` plus the two compatibility maps read from the code itself:

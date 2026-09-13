@@ -139,7 +139,7 @@ climbs while the robot's dot stays where it is. To drive it yourself with nothin
 no `/gps`, no truth, no `distance` field — `student/poi_seek_example.py` is the worked example:
 
 ```bash
-./lab run --world open --config config/demo_poi_field.json \
+./lab run --world open --config config/demo_poi_exploration.json \
           --controller student/poi_seek_example.py --seconds 100 --log poi.csv
 ```
 
@@ -515,7 +515,11 @@ Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), 
 written and everything named in English** — comments, docstrings, report text, handouts,
 identifiers, launch arguments, the keys of `config/tasks.json`. Two tools check it, both a step in
 `tools/check.sh`: `python3 tools/langcheck.py` reads the prose, `python3 tools/germanids.py` reads
-the names. What stays German is the exception list of `germanids.py`: ROS topic and message field
+the names — definitions, arguments, attributes and the short strings that carry data. **Local
+variables are outside its scope**, and its docstring says so with the measured size of that open end
+(reading them would report 114 spots over 23 identifiers, 29 of them in the student example files —
+renaming those is a package with grading runs around it, not a line in a checker). What stays German is
+what the tool lets through: ROS topic and message field
 names, the wheel names `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`,
 `kf_alle`), and the German side of the two compatibility maps that keep old files and old shell
 histories working (`tasks._LEGACY_KEYS`, the `DEPRECATED` tables in `launch/`) — the tables are in

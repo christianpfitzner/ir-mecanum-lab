@@ -53,9 +53,29 @@ Realistic MEMS model, deliberately keeping the effects that hurt in practice:
    vibration (`vibration` at `vibration_hz`).
 5. **Settling**: the first `startup` seconds run with a `startup_bias` offset — like an IMU
    driver that has not settled in yet.
+6. **Temperature**: the chip is a first-order lag (`temp_tau`) towards `temp_start + temp_motor`
+   at `TEMP_FULL_SPEED` (0.8 m/s of driving earns the whole `temp_motor`, more driving earns no
+   more of it), and the bias follows that temperature — `temp_walk` m/s² per °C on the
+   accelerations, `temp_walk_gyro` rad/s per °C on the rates (`Imu.temp` carries the °C). This is
+   the curve a datasheet draws as bias against temperature: it follows the **load**, so it grows
+   while the robot drives and walks back while it stands, and averaging does not remove it because
+   it is an offset and not noise. Measured over 25 s of straight drive at 0.5 m/s with
+   `config/demo_sensor_reality.json`'s `imu` block (14 °C, 25 s, 3.5 mm/s² and 0.12 mrad/s per °C),
+   seed 1: 24.00 → 29.5 °C, the mean `az` of the same 25 s 9.7480 m/s² against 9.7368 m/s² with the
+   defaults, the mean `gz` −0.005125 against −0.005511 rad/s; at 0.8 m/s and above the chip ends
+   120 s of drive at 37.88 °C — 4.8 time constants of a 25 s lag, so 0.11 °C of the 38.00 °C
+   asymptote is still missing.
+   **Off by default** (`temp_motor`/`temp_walk`/`temp_walk_gyro` = 0.0): no graded task of either
+   experiment names a `temp_*` key in its `sim` block, so every threshold of §5 is measured on a
+   chip that stays where it started.
 
 `az` holds the specific force (+g when flat), `gx/gy` pick up the tilt as well — exactly
-like on a real 6-DOF IMU.
+like on a real 6-DOF IMU. The temperature does not change that convention, and it does not touch a
+robot that has not driven: measured standing still for 120 s (seed 1), the default configuration and
+the demo configuration above give the *same* chip (24.00 °C) and the same mean `az` to four decimals
+(9.7381 m/s²) — the −0.07 m/s² that separates that from +9.81 is `accel_bias`, which the temperature
+neither adds nor removes. On the wire the °C is not a field of `sensor_msgs/msg/Imu`, so it travels on
+`/<robot>/sensor/info` and in the `temp_imu` column of the log (CONTRACT §6.4).
 
 **Determinism:** every random draw per robot comes from the engine's single `Noise` stream.
 
@@ -69,12 +89,13 @@ truth:  {rate: 20.0}
 imu:    {rate, gyro_noise, gyro_bias, gyro_bias_walk, gyro_scale,
          accel_noise, accel_bias, accel_bias_walk, accel_scale,
          tilt_sigma, tilt_tau, vibration, vibration_hz, gravity,
-         startup, startup_bias}
+         startup, startup_bias,
+         temp_start, temp_motor, temp_tau, temp_walk, temp_walk_gyro}   # §3, all four off by default
 gps:    {rate, sigma_xy, sigma_theta, bias_xy, delay_ticks,
          gap: [t0, duration], bias_step: [t0, duration, dx, dy]}
 kf:     {rate, q_acc, q_turn, gps_delay}   # recommendation to the students; the one value the
                                            # simulator reads is gps_delay, see below
-odom:   {rate, sigma_wheel, sigma_xy, sigma_theta, bias_omega,
+odom:   {rate, sigma_wheel, sigma_xy, sigma_theta, bias_omega, jitter,
          geometry: {wheel_radius_scale, wheel_base_scale, lever_scale, scale_xy, bias_xy}}
 ```
 
@@ -97,12 +118,21 @@ independent of what `config/default.json` happens to say.
 
 ## 5. Task plan for experiment 2 (`config/tasks.json`, `"experiment": 2`)
 
-| ID | P | Core | Profile | Thresholds |
+Both columns are the task's own JSON: the profile is its `sim` block, the thresholds are the limit
+keys it names (every number below is from `config/tasks.json`, none from an older table).
+
+| ID | P | Core | Profile = `sim` block | Thresholds = the limit keys of the task |
 |---|---|---|---|---|
-| `kf_gps` | 30 | KF with CV model, GPS only | σ=0.5 m, 5 Hz | RMSE ≤ 0.42 m, improvement ≥ 1.6, max error ≤ 1.25 m, rate ≥ 5 Hz |
-| `kf_fusion` | 30 | GPS + odometry + IMU, GPS outage | σ=0.8 m, 1 Hz, outage 15…23 s after task start, gyro bias 0.002 rad/s | RMSE ≤ 0.80 m, improvement ≥ 2.5, outage error ≤ 1.8 m |
-| `kf_kovarianz` | 20 | consistent 1σ (NEES) | σ=0.5 m, 5 Hz | mean NEES in [0.05 … 3.5], RMSE ≤ 0.42 m |
-| `kf_dynamik` | 10 | fast + faithful following error | σ=0.6 m, 5 Hz, IMU 200 Hz | RMSE ≤ 0.35 m, improvement ≥ 1.8, max error ≤ 0.9 m, rate ≥ 10 Hz |
+| `kf_gps` | 30 | KF with CV model, GPS only | GPS σ_xy 0.5 m at 5 Hz, `gap []`, IMU 100 Hz, truth 20 Hz, `debug_truth` | `rmse_max 0.42`, `improvement_min 1.6`, `max_error_max 1.25`, `rate_min 5.0`, `contacts_max 0` |
+| `kf_fusion` | 30 | GPS + odometry + IMU, GPS outage | GPS σ_xy 0.8 m at 1 Hz, `gap [15, 8]` → outage 15…23 s after task start, IMU 100 Hz with `gyro_bias 0.002`, odometry `sigma_wheel 0.05` / `sigma_xy 0.002` / `sigma_theta 0.0015`, truth 20 Hz | `rmse_max 0.8`, `improvement_min 2.5`, `rate_min 5.0`, `outage.error_max 1.8` with `outage.duration_min 6.0`, `contacts_max 0` |
+| `kf_kovarianz` | 20 | consistent 1σ (NEES) | the `kf_gps` profile again: σ_xy 0.5 m at 5 Hz, `gap []`, IMU 100 Hz | `nees [0.05 … 3.5]` — the one task whose band is the exercise — plus `rmse_max 0.42`, `improvement_min 1.0`, `max_error_max 1.25`, `rate_min 5.0`, `contacts_max 0` |
+| `kf_dynamik` | 10 | fast + faithful following error | GPS σ_xy 0.6 m at 5 Hz, `gap []`, IMU 200 Hz, truth 20 Hz | `rmse_max 0.35`, `improvement_min 1.8`, `max_error_max 0.9`, `rate_min 10.0`, `contacts_max 0` |
+
+The grader drives the task's `drive` list itself: 45.6 s of commands for K1 and K3, 37 s for K2, 31 s
+for K4, each measured only after `warmup 4.0` s and bounded by `timeout` 60 / 56 / 60 / 45 s. A limit a
+task does not name is not applied — `_apply()` and `_check_kf()` skip a missing bound — so K3's
+`improvement_min 1.0` and `max_error_max 1.25` are real checks rather than decoration: without those
+two keys a task worth 20 points would be graded by the NEES band, the rate and the contacts alone.
 
 `--task kf_alle` selects every task with `"experiment": 2` (`tasks.resolve` can do that, and
 so does `kf_gps,kf_fusion`). World for all of them: `arena` (open floor, perimeter walls).
@@ -119,7 +149,8 @@ outage          = max error inside the GPS outage window
 Two constraints that come with experiment 2 (both in `engine.py`/`node.py`):
 
 * **The grader drives blind.** For a task with `"kind": "kf"` the robot is dropped at the
-  spawn pose before the start (`Engine.reset_robot`) — the command sequence in `fahrt` is
+  spawn pose before the start (`Engine.reset_robot`) — the command sequence in the task's `drive`
+  list is
   not fed back, so it has to begin where the world parks the robot. Simulation time keeps
   running; `gps.gap` stays **task-relative** (`set_task`). `--world` may then be left out:
   KF tasks fetch their own arena (`arena`) themselves.
@@ -173,11 +204,19 @@ What that says, in order:
   `rate_min = 10` (80/90 — a scheduling accident, not a wrong filter). So experiment 2 is gradeable
   up to about four times realtime here, and `--fixed-step` is out of the question.
 * `tools/fastgrade.py` switches the sleeps of the bus off for the node too, so it keeps the report
-  rate even at `--speed 8` (38.6 / 32.6 / 57.7 Hz) — and K3 still collapses there: rmse 0.904, NEES
-  37.0, 70/90, where `--speed 4` measures rmse 0.126, NEES 1.04 and 90/90. The reason sits in the
-  node, not in the threshold: its guard "a step over 2 s was a sleep, not a prediction"
-  (`SLEEP` in `student/kf_solution.py`) throws the filter away once a loop iteration is worth that
-  much simulation time. A KF grade is only ever worth what the node's clock was worth.
+  rate even at `--speed 8`: re-measured on this tree, three runs of `python3 tools/fastgrade.py
+  --task kf_alle --controller student/kf_solution.py --speed 8` give **90/90 every time** — K1 0.07 m,
+  K2 0.599 m, K3 0.117…0.118 m with NEES 0.9, K4 0.081…0.083 m, the rates 38.6 / 38.6 / 32.6 / 57.7 Hz
+  (the rates this bullet always quoted), and 170.4 s of simulation in 70.3…70.6 s of wall clock — the
+  2.4 simulation seconds per wall second of §5. `--speed 20` gives 90/90 too. **The collapse this
+  bullet reported when §5.1 was written — K3 rmse 0.904, NEES 37.0, 70/90 — does not reproduce here.**
+  The change next to it is `engine._build_sensors()`, which rebuilds the instruments on a profile
+  switch: before that, a switch kept the instruments of the task before it, and K3 is the task whose
+  profile differs from its predecessor. That attribution is not tested by this package — what is
+  measured is that K3 passes at `--speed 8` now. The guard in the node ("a step over `SLEEP` = 2 s was
+  a sleep, not a prediction", `student/kf_solution.py`) is still why a fast pace does not throw the
+  filter away, and a KF grade is still only ever worth what the node's clock was worth — which is why
+  this section is a table of runs rather than a proof.
 
 **Why K2 grades relatively and K3 with a loose lower bound** (calibrated over seeds 1–4,
 reference solution): at 1 Hz GPS with σ = 0.8 m the *absolute* error is noise-limited — the
@@ -190,35 +229,56 @@ covariance, the upper one
 
 ## 6. File ownership for experiment 2
 
+The list is what is in the tree today, one line per file, with the role experiment 2 uses it for:
+
 ```
-mecanum_lab/types.py        Imu, Kf, MSG_SPECS, config blocks             [Integrator]
-mecanum_lab/sensors.py      ImuSensor, GpsSensor (gap/bias_step)          [Integrator]
-mecanum_lab/engine.py       IMU tick, truth rate, set_kf, /sim/config     [Integrator]
-mecanum_lab/ros_bridge.py   Imu and PoseWithCovarianceStamped conversion  [Integrator]
-mecanum_lab/robot_io.py     imu() truth() kf() send_kf()                  [Integrator]
-mecanum_lab/tasks.py        experiment selection, sim-profil()            [Integrator]
-mecanum_lab/grade.py        KF kind "kf_drive" + measurement              [Integrator]
-mecanum_lab/node.py         --set, --truth, --log, profile merge, tap     [Integrator]
-mecanum_lab/render.py       truth/gps/kf overlay + covariance ellipse     [Integrator]
-config/tasks.json           four KF tasks                                 [Integrator]
-worlds/arena.txt            open floor                                    [Integrator]
-launch/kf.launch.py         main launch: everything as an argument        [Integrator]
-student/kf_template.py      submission template with TODOs                [D]
-student/kf_solution.py      reference solution (passes kf_alle)           [D]
-docs/praktikum/kalman.tex   handout for experiment 2                      [E]
-tools/kfplot.py             CSV -> matplotlib or ASCII chart              [F]
-install.sh, README.md       one-command install, quickstart               [F]
-rviz/kf.rviz                view for odom + gps + kf/pose                 [F]
-docs/praktikum/kalman.tex   handout for experiment 2                      [E]
-install.sh + README.md      three-line install                            [E]
-tests/test_sensors_imu_b.py noise model, determinism, outage               [A]
-tests/test_kf_grade_e.py    grading with a built-in ideal filter          [D]
+mecanum_lab/types.py           Imu (incl. `temp`), Kf, SensorInfo, MSG_SPECS, config blocks [Int.]
+mecanum_lab/sensors.py         ImuSensor (§3 incl. the thermal term), GpsSensor (gap, zones) [Int.]
+mecanum_lab/engine.py          IMU tick, truth rate, set_kf, /sim/config, sensor_info()      [Int.]
+mecanum_lab/ros_bridge.py      Imu, PoseWithCovarianceStamped, the JSON-on-a-String topics   [Int.]
+mecanum_lab/robot_io.py        imu() kf() send_kf() truth() sensor_profile() config()        [Int.]
+mecanum_lab/tasks.py           experiment selection, the `sim` profile of a task             [Int.]
+mecanum_lab/grade.py           kind "kf_drive": RMSE, improvement, max error, NEES, outage   [Int.]
+mecanum_lab/node.py            --set, --truth, --log, profile merge, the pace of §5.1        [Int.]
+mecanum_lab/logbook.py         the CSV a report is written from: x_kf, sx_kf, temp_imu, q_gps [Int.]
+mecanum_lab/render.py          truth/gps/kf overlay, the σ ellipse of the estimate           [Int.]
+config/tasks.json              four KF tasks, their thresholds and their profiles            [Int.]
+worlds/arena.txt               open floor with perimeter walls                               [Int.]
+launch/kf.launch.py            main launch: every setting as a declared argument             [Int.]
+student/kf_template.py         submission template; grades as an empty estimate              [D]
+student/kf_solution.py         reference solution (passes kf_alle)                           [D]
+tools/kfplot.py                CSV -> numbers + ASCII chart (matplotlib optional)            [F]
+tools/fastgrade.py             the same Grader without the wall-clock pace, see §5.1         [F]
+docs/praktikum/kalman.tex      handout for experiment 2                                      [E]
+install.sh, README.md          one-command install and quickstart                            [E]
+rviz/kf.rviz                   view for odom + gps + kf/pose                                 [F]
+tests/test_sensors_imu_b.py        noise density, bias, double integration, outage           [A]
+tests/test_kf_grading_integrator.py  the verdict over scripted truth/gps/kf/pose             [Int.]
+tests/test_kf_solution_d.py          reference solution, API rules, its line budget          [D]
+tests/test_grading_speed.py          the pace of §5.1, with a scripted clock                 [Int.]
+tests/test_sensor_knobs.py           the gps delay the students are told to survive          [Int.]
+tests/test_config_layering.py        the layer merge of §4 (`None` = nothing overridden)     [Int.]
+tests/test_sensor_info.py            where the °C of §3 lives on the wire                    [Int.]
 ```
 
-Budgets (new additions, `tools/loc.py`): `sensors.py` 260, `grade.py` 300, `node.py` 240,
-`types.py` 290, `engine.py` 210, `ros_bridge.py` 290, `robot_io.py` 215, `render.py` 230,
-`launch/kf.launch.py` 130, `student/kf_template.py` 150, `student/kf_solution.py` 260,
-`tools/kfplot.py` 120.
+The line counts are the output of `python3 tools/loc.py` on this tree, shown as `lines / budget`;
+`BUDGET` in that file stays the authoritative list, and the justification for every number in it is the
+addendum of the package that grew the file (the comment above `BUDGET`, tally in CONTRACT §7):
+
+```
+types.py 560 / 565        engine.py 644 / 650        grade.py 669 / 675       node.py 743 / 755
+sensors.py 556 / 560      ros_bridge.py 510 / 515    robot_io.py 286 / 290    tasks.py 211 / 215
+render.py 483 / 485       logbook.py 115 / 118       tools/kfplot.py 305 / 310
+launch/kf.launch.py 193 / 195   student/kf_template.py 231 / 235   student/kf_solution.py 302 / 310
+```
+
+None of these grew because experiment 2 may pad files: the IMU model, the layered config, the
+measurement log and the pace of §5.1 are new constraints, and most of the added lines are the sentence
+saying what a term does to a drive. Two of the numbers are held from the code rather than from this
+table: `student/kf_solution.py` ≤ 310 by `test_reference_solution_stays_in_the_line_budget` (the file is
+the reading model for a submitted node, so the budget is a test), and every budget by
+`tools/loc.py --strict`. What students have to read — `robot_io.py`, the topics in `types.py` — is still
+the small end of the list.
 
 ## 7. Constraints (still in force)
 
@@ -268,7 +328,7 @@ Two consequences of that rule, both in the reference solution and in the templat
   filter until a stamp lies above it. Comparing stamps with stamps is enough — comparing with
   the wall clock is not, and is exactly what made a KF task fail at random (`integrator.md`
   no. 19).
-* **A node that slept does not extrapolate.** If the next measurement is more than `SCHLAF`
+* **A node that slept does not extrapolate.** If the next measurement is more than `SLEEP`
   seconds ahead of the filter's own time, the node was not running: start the filter again on
   that measurement instead of one giant CV step (which throws the state ahead by seconds of
   velocity and blows up P).
@@ -286,14 +346,17 @@ Two consequences of that rule, both in the reference solution and in the templat
 | `rob.truth()` | exact pose — **only** a self-check, never inside the filter |
 | `rob.running()`, `rob.spin(dt)`, `rob.sleep(s)` | lifecycle |
 
-`types.Imu`: `t, ax, ay, az, gx, gy, gz, roll, pitch` (`az` ≈ +g at rest).
-`types.Odom`: `t, x, y, theta, vx, vy, omega`. `types.Gps`: `t, x, y, theta`.
+`types.Imu`: `t, ax, ay, az, gx, gy, gz, roll, pitch, temp` (`az` ≈ +g at rest; `temp` is the °C of
+§3, and on the ROS wire it rides on `/<robot>/sensor/info`, because `sensor_msgs/msg/Imu` has no such
+field). `types.Odom`: `t, x, y, theta, vx, vy, omega`. `types.Gps`: `t, x, y, theta`.
 
 ### 8.3 Grading (grade.py, per task in `config/tasks.json`)
 
 After `warmup` seconds every tick measures the last truth, the last estimate and the last
-raw sensor; reported are `rmse`, `rmse_<sensor>`, `improvement`, `max_error`, `rate_hz`,
-`nees`, `outage_max`/`outage_duration`. Passed = all thresholds met. The thresholds live in the
+raw sensor; reported are `rmse`, `rmse_<sensor>`, `improvement`, `max_error`, `rate_hz`, `nees`,
+`nees_over` (the share of single samples whose per-sample NEES is above the fixed 5.99 in `_eval_kf`;
+printed, never graded), `outage_max`/`outage_duration`, `samples`, `time` and `contacts` — the keys
+`_eval_kf` fills and `format_report` prints. Passed = all thresholds met. The thresholds live in the
 JSON — do **not** retune them in code, make the reference solution better instead.
 
 Valid for the reference solution: `python3 tools/fastgrade.py --task kf_alle

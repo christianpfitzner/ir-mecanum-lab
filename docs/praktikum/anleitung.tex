@@ -408,6 +408,29 @@ frames every tick, the keys publish only while one is held: the node drives, the
 and \thema{cmd\_timeout} is what ends both. The readout line says which of the two was the last
 command — \thema{cmd topic 0.04 s}, \thema{cmd keys 0.02 s}, \thema{cmd none} — so you never have to
 wonder which of them a screenshot shows.
+
+One thing more to try, and the only one that needs a sensor you cannot see: the \thema{open} hall is
+30 \(\times\) 20 m of floor with a border wall and \emph{one radiation source} planted at (12, 6) m,
+reaching 4 m (\thema{config/demo\_poi\_exploration.json}). The LIDAR still sees nothing there —
+that is what the empty hall is for — so the counter on \thema{<robot>/poi} (intensity 0…1 as JSON in a
+\thema{std\_msgs/String} at 5 Hz, \emph{no} distance) is the only sign that something is over there.
+\ordner{student/poi\_seek\_example.py} walks that field with nothing else: straight while the mean over
+the last second rises, an arc when it stops rising, back to the loudest spot it remembers when the
+reading falls silent.
+
+\begin{lstlisting}[language=bash]
+./lab run --world open --config config/demo_poi_exploration.json \
+          --controller student/poi_seek_example.py \
+          --seconds 100 --log poi.csv
+\end{lstlisting}
+
+Three runs of that command ended the 100 s of simulation time at a window mean of 0.62, 0.73 and 0.79,
+arcing near the source; the spread is the node's own loop being paced by the host, which is exactly why
+that file compares means over a second instead of two single readings. \ordner{poi.csv} holds the same
+series in \thema{intensity\_poi} and \thema{name\_poi} — \kommando{python3 tools/kfplot.py poi.csv
+--list} prints every column of it. Layer \thema{p} of the window draws the source itself, and
+\thema{--set poi.publish\_distance=true} puts the true metres into the message: switch it on to check an
+answer afterwards, not to find one.
 \subsection{Creating a robot through a service}\label{sec:service}
 One robot per participant, name unique (\thema{[a-z][a-z0-9\_]\{1,23\}}).
 \textbf{ROS 2 caution:} unlike in ROS 1 there is \emph{no} built-in
@@ -473,17 +496,21 @@ ID & Content & Limit & Points \\
 \midrule
 \thema{kinematik} & T1: \thema{cmd\_vel} \(\rightarrow\) four wheels. Three phases of
   3\,s each: \(v_x=0.3\); \(v_y=0.3\); \(\omega=0.6\).
-  & \begin{tabular}{@{}l@{}}\(\Delta x>0.35\,\mathrm{m}\)\\ \(\Delta y>0.35\,\mathrm{m}\)\\
-  \(\Delta\theta>0.9\,\mathrm{rad}\)\\ each \(|\text{residual}|<0.12\,\mathrm{m}\)\end{tabular}
+  & \begin{tabular}{@{}l@{}}\(\Delta x>0.35\,\mathrm{m}\) forward\\
+  \(\Delta y>0.35\,\mathrm{m}\) left\\
+  \(\Delta\theta>1.2\,\mathrm{rad}\) turning\\
+  cross-axis error \(<0.15\,\mathrm{m}\) straight, turning \(<0.35\,\mathrm{m}\)\end{tabular}
   & 30 \\
 \thema{quadrat} & T2: square path, four sides of \(1.0\,\mathrm{m}\), \(90^\circ\)
-  CCW, using only odometry. & completion error \(<0.20\,\mathrm{m}\), \(\Delta\theta<15^\circ\),
-  path length \(3.2\ldots9.0\,\mathrm{m}\), 0 contacts, \(<90\,\mathrm{s}\) & 30 \\
+  CCW, using only odometry. & completion error \(<0.25\,\mathrm{m}\), \(\Delta\theta<20^\circ\),
+  path length \(3.0\ldots12.0\,\mathrm{m}\), 0 contacts, under \(90\,\mathrm{s}\) & 30 \\
 \thema{korridor} & T3: drive to the world's goal, LIDAR prevents every wall contact.
-  & target error \(<0.25\,\mathrm{m}\), 0 contacts, lateral clearance
-  \(>0.16\,\mathrm{m}\) on straight runs (\(|\omega|<0.25\)) & 30 \\
-\thema{gps\_anfahrt} & T4 (bonus): to your own start pose with GPS feedback.
-  & error \(<0.25\,\mathrm{m}\), 0 contacts, \(<90\,\mathrm{s}\) & 10 \\
+  & target error \(<0.30\,\mathrm{m}\), 0 contacts, lateral clearance
+  \(>0.16\,\mathrm{m}\) on straight runs (\(|\omega|<0.25\)), under \(120\,\mathrm{s}\) & 30 \\
+\thema{gps\_anfahrt} & T4 (bonus): the loading spot — the \emph{last spawn pose} of this world,
+  deliberately \emph{not} your own start pose, so that having stood there already is not a solution.
+  Guided by GPS, not by odometry.
+  & error \(<0.45\,\mathrm{m}\), 0 contacts, under \(90\,\mathrm{s}\) & 10 \\
 \bottomrule
 \end{tabular}
 \end{table}
