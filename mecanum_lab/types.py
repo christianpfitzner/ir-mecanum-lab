@@ -508,7 +508,7 @@ DEFAULT_CONFIG = {
            "mount": {"laser": [0.0, 0.0, 0.0], "imu": [0.0, 0.0, 0.0]}},
     "gui_style": {"wall": [0.34, 0.36, 0.42], "floor": [0.13, 0.14, 0.17],
                   "void": [0.06, 0.065, 0.08], "trail_len": 400, "px_per_meter_min": 40,
-                  "wheel_scale": 2.4, "chassis_scale": 1.25},
+                  "wheel_scale": 2.0, "chassis_scale": 1.0},
     # What the window draws when nobody said otherwise. "clean" leaves the four layers of raw
     # measurements empty (scan dots, GPS cross, odometry trail, odometry ghost) — see
     # `render.RAW_LAYERS` — because those numbers are in the readout line, on the topics and in the

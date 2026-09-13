@@ -37,9 +37,8 @@ CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))     # FL, FR, RL, RR in the body 
 ROLLERS = ((1, 1), (1, -1), (1, -1), (1, 1))
 WHEEL_STROKES = 3                                     # strokes drawn per wheel
 WHEEL_SPIN_GAIN = 0.25                              # wheel radius -> on-screen rotation, illustrative
-WHEEL_WIDTH_RATIO = 0.6          # drawn width of a wheel, as a fraction of its drawn length
-WHEEL_MAX_PART_OF_PLATE = 0.42   # the exaggerated radius never eats the chassis plate
-WHEEL_MIN_PX = 3.0               # below this a wheel is one pixel, not a wheel
+WHEEL_WIDTH_RATIO = 0.6           # drawn width of a wheel, as a fraction of its drawn length
+WHEEL_MIN_PX = 3.0               # below this a wheel is one pixel and says nothing about rollers
 # Marker per robot as a list of (radius, angle in degrees); radius 1 = footprint.
 SHAPES = {
     "triangle": [(1, -90), (1, 30), (1, 150)],
@@ -155,7 +154,7 @@ class Renderer:
         self.col_floor = rgb(style.get("floor", (.13, .14, .17)))
         self.col_void = rgb(style.get("void", (.06, .065, .08)))     # outside the world
         self.trail_len = int(style.get("trail_len", 400))
-        self.wheel_scale = float(style.get("wheel_scale", 2.4))        # wheels: drawn bigger than 5 cm
+        self.wheel_scale = float(style.get("wheel_scale", 2.0))    # wheels: drawn bigger than 5 cm
         self.chassis_scale = float(style.get("chassis_scale", 1.0))  # body box, in addition to lx/ly
         # Every layer starts as the configuration says (`view_state` above), not as a hard-coded
         # True: what a student sees on first start is then a setting with a name, and a demo config
@@ -366,9 +365,10 @@ class Renderer:
         lx, ly, wr, fp_m = self._geom(robot)
         centre, fp = self.px(pose.x, pose.y), max(6, fp_m * self.s)
         plate = ((lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale)   # metres
-        # The one exaggeration of this view: `wheel_scale` times the real 5 cm, never more than
-        # 42 % of the plate, so the rollers stay readable without the wheel eating the chassis.
-        wheel_r = min(wr * self.wheel_scale, WHEEL_MAX_PART_OF_PLATE * plate[0])   # metres
+        # The one exaggeration of this view: `wheel_scale` times the real 5 cm. The cap is the
+        # collision circle — a tyre drawn past the circle the physics collides with would show a
+        # robot that cannot fit through the gaps the grader measures it through.
+        wheel_r = min(wr * self.wheel_scale, max(0.01, fp_m - ly))                  # metres
         u, v = body(-pose.theta, 1, 0), body(-pose.theta, 0, 1)                    # screen vectors
         chassis_body = self._plate(centre, u, v, plate[0] * self.s, plate[1] * self.s)
         pygame.draw.polygon(sc, mix(col, self.col_floor, .55), chassis_body)
@@ -469,7 +469,11 @@ class Renderer:
                 x += self._text(label[0], x + 13, y, label[1]) + 8
 
     def _geom(self, robot) -> list:
-        """lx, ly, wheel radius, footprint — from the physics, otherwise from cfg."""
+        """lx, ly, wheel radius, footprint — from the physics, otherwise from cfg.
+
+        From the chassis and not from `config/default.json`: a `slow` or `steering-big` robot is
+        then drawn at the size it collides at, and the picture cannot contradict the grader.
+        """
         g = getattr(robot.chassis, "geom", None)
         return [getattr(g, key, cfg_get(self.cfg, "robot." + key, dflt))
                 for key, dflt in (("lx", .14), ("ly", .13), ("r", .05), ("footprint_r", .21))]
