@@ -15,8 +15,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def pages():
-    """`README.md` and every topic page under `docs/`, in a stable order."""
-    return [ROOT / "README.md"] + sorted((ROOT / "docs").glob("*.md"))
+    """`README.md`, every topic page under `docs/`, and the one page per demo, in a stable order.
+
+    The demo pages are a directory of their own because there are six of them and they have a common
+    shape; a guard that looked only at `docs/*.md` would not see them, which is how a fact checked in
+    one place ends up pasted back onto the front page. The corpus is the corpus.
+    """
+    return ([ROOT / "README.md"] + sorted((ROOT / "docs").glob("*.md"))
+            + sorted((ROOT / "docs" / "demos").glob("*.md")))
 
 
 def text():

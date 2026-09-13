@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mecanum_lab import keys
 from mecanum_lab.keys import DRIVING, LAYERS, check_bindings
+from support_docs import pages, text
 
 
 def test_the_table_has_no_double_binding():
@@ -244,7 +245,7 @@ def test_every_key_the_documentation_quotes_is_a_key_of_this_simulator():
              | {row[0] for row in keys.LAYERS} | set(keys.ROBOTS)
              | {"q", "m", "f", "0", "=", "-", "space", "esc"})   # the rest of keys.help_line(teleop=False)
     quoted = 0
-    for page in [pathlib.Path("README.md")] + sorted(pathlib.Path("docs").glob("*.md")):
+    for page in pages():
         for number, line in enumerate(page.read_text().split("\n"), 1):
             for match in re.finditer(r"`([a-z])`", line):
                 quoted += 1
@@ -257,12 +258,10 @@ def test_every_key_the_documentation_quotes_is_a_key_of_this_simulator():
 def test_the_documentation_names_the_key_that_opens_the_gps_shadow():
     """The one sentence that was wrong, held in place by the table instead of by memory."""
     shadow = keys.key_of("show_zones")
-    for page in [pathlib.Path("README.md"), pathlib.Path("docs/demos.md")]:
-        text = page.read_text()
-        assert "shadow" in text, f"{page} talks about the demo but not about the shadow"
-        assert f"(`{shadow}`)" in text, (
-            f"{page} shows the gps shadow without naming key {shadow} for it (it is "
-            f"{shadow} since the layer keys moved out of the steering)")
+    corpus = text()                                             # README + docs/ + docs/demos/
+    assert "shadow" in corpus and f"(`{shadow}`)" in corpus, \
+        f"nothing in the documentation names key {shadow} for the gps shadow (it is {shadow} " \
+        "since the layer keys moved out of the steering)"
 
 
 def test_the_handouts_key_table_is_the_key_table_of_the_code():

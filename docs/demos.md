@@ -5,40 +5,21 @@ stream, and what a run with it actually measured. Nothing here is graded: all si
 files under `config/` because the graded tasks are calibrated on the plain sensor settings of each
 experiment, and a default that lies would move what every filter is graded against.
 
-Started either way — in the window of one process, or beside RViz through the launch file:
+Each file changes one block of the config and leaves the graded defaults alone, so starting a demo is a
+`--config` and not an edit — in the window of one process, or beside RViz through the launch file named in
+the table. One page each, with the commands, the keys, what the window shows and what was measured:
 
-```bash
-./lab sim --config config/demo_gps_shadow.json                        # window, no build needed
-ros2 launch mecanum_lab demo_gps_shadow.launch.py    # same through ROS, with RViz beside it
-```
+| demo | what it changes | page |
+|---|---|---|
+| `gps_shadow` | `gps.zones`: two shadowed rectangles and a blackout; hatched shadow (`x`) | [demos/gps_shadow.md](demos/gps_shadow.md) |
+| `odom_error` | `odom.geometry`: the odometry believes radius ×1.05, lever ×0.97 | [demos/odom_error.md](demos/odom_error.md) |
+| `open_odrift` | the same wrong radius in the empty hall, GPS switched off for the run | [demos/open_odrift.md](demos/open_odrift.md) |
+| `sensor_reality` | latency, dropout, staleness, chip temperature | [demos/sensor_reality.md](demos/sensor_reality.md) |
+| `wifi` | the radio link and its access point | [demos/wifi.md](demos/wifi.md) |
+| `poi_exploration` | a radiation source somewhere in the hall | [demos/poi_exploration.md](demos/poi_exploration.md) |
 
-### GPS that gets bad by place: the shadow demo (not the default)
-
-`gps.zones` degrades the fix **where the robot is**, not when: the first rectangle that contains
-it multiplies `sigma_xy`, adds a bias (multi-path pushes the fix away from the reflector) or
-suppresses the fix completely. It ships empty, because the graded tasks in `config/tasks.json`
-are calibrated on the plain GPS of each experiment — a permanent shadow would silently move what
-every filter is graded against. `config/demo_gps_shadow.json` is the demo that turns it on:
-
-```bash
-./lab sim --world production --config config/demo_gps_shadow.json     # drive into it yourself
-./lab run --world production --config config/demo_gps_shadow.json \
-          --robot muster --controller student/solution.py --seconds 30
-```
-
-Measured with 400 fixes per spot (σ=0.06 m is the lab default):
-
-| spot | σ of a fix | median error | mean offset | fixes |
-|---|---|---|---|---|
-| open floor | 0.06 / 0.06 m | 0.07 m | (−0.01, 0.00) m | 400/400 |
-| under the high shelf (σ×6, bias +0.8/−0.5) | 0.37 / 0.36 m | 1.03 m | (+0.83, −0.51) m | 400/400 |
-| multipath in the corner (σ×3) | 0.18 / 0.18 m | 0.52 m | (−0.39, +0.30) m | 400/400 |
-| loading dock (`"block": true`) | — | — | — | **no fix at all** |
-
-The window draws the zones as hatched shadow (`x`), the blackout in the error colour, and labels
-each with what it does to the fix. Together with the odometry ghost (`o`) and the rubber that
-slipping wheels leave on the floor, one frame shows a student the three ways a position can be
-wrong: noisy, biased, or missing — and how much of it the odometry invented (`overlays.py`).
+What is left on this page is the one drift that needs no config file at all, and the two knobs that
+decide how fast any of these runs finish.
 
 ### Wheel slip: odometry you can watch lying
 

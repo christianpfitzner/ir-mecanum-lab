@@ -23,17 +23,13 @@ internet connection: `sudo apt install python3-pygame` (or `./install.sh --user`
 ./lab grade --task v1 --controller student/solution.py               # grade all tasks
 ```
 
-`./lab run` is the one-process form: the simulator, your node as a thread and the keyboard, all three
-on the same `/cmd_vel`. A node publishes every tick and the keys publish only while one is held, so
-your node drives and the keys interrupt it — and the readout line says which of the two was last
-(`cmd topic 0.04 s`, `cmd keys 0.02 s`, `cmd none` once `cmd_timeout` passed without a frame).
+`./lab run` is the one-process form: the simulator, your node as a thread and the keyboard, all three on
+the same `/cmd_vel` — your node drives, the keys interrupt it, and the readout line says who last did.
+On `kinematik` the robot stands still until you press a key, and that is correct: T1 is graded by sending
+commands blind and measuring the four wheel speeds, so a key *is* a `cmd_vel` and your IK is what turns it
+into wheels. Why `serve()` and `mission()` divide the work that way, and what each line of the readout
+means: **[docs/kinematics.md](docs/kinematics.md)**.
 
-**On `kinematik` the robot stands still, and that is correct.** For task `""` or `kinematik` the runner
-behind `serve()` never calls `mission()`: it reads every `cmd_vel` that arrives, pushes it through your
-`inverse_kinematics()` and publishes the four wheel speeds — because T1 is graded by the grader sending
-commands blind and measuring what the wheels do. So hold an arrow key to watch the conversion: a key *is*
-a `cmd_vel`, and it is your IK that turns it into wheels. Missions start at T2: `--task quadrat` runs
-`mission()` once and the robot drives the square by itself.
 
 ## How it works
 
@@ -114,22 +110,22 @@ carries (IMU, GPS quality, lost messages, LiDAR echoes): **[docs/window.md](docs
 
 ## The demos
 
-Each demo changes one block of the config and leaves the graded defaults alone, so starting one is a
-`--config`, not an edit. Each has a launcher of its own — and
-`ros2 launch launch/demo.launch.py demo:=wifi` is the same thing with the name as an argument.
+Six demos, each changing one block of the config and leaving the graded defaults alone, so starting one
+is a `--config` and not an edit. Each has a launcher of its own, and
+`ros2 launch mecanum_lab demo.launch.py demo:=wifi` is the same thing with the name as an argument.
 
-| demo | launcher | what you see |
+| demo | what it turns on | page |
 |---|---|---|
-| `gps_shadow` | `demo_gps_shadow.launch.py` | hatched shadow (`x`), fixes that scatter, then none at all |
-| `odom_error` | `demo_odom_error.launch.py` | the ghost (`o`) drifts ahead: 0.61 m per 12 m of straight lane |
-| `open_odrift` | `demo_open_odrift.launch.py` | dead reckoning in an empty hall: the trail (`t`) where odometry thinks it has been |
-| `sensor_reality` | `demo_sensor_reality.launch.py` | `sensor_state` in the readout: `lost_gps`, `q_gps`, `temp_imu` |
-| `wifi` | `demo_wifi.launch.py` | the `link` panel (`n`), and a robot that loses its autonomy mid-lane |
-| `poi_exploration` | `demo_poi_exploration.launch.py` | the `poi` panel (`p`) and a robot hunting by one number |
+| `gps_shadow` | GPS that gets bad by place: shadow, bias, then no fix at all | [demos/gps_shadow.md](docs/demos/gps_shadow.md) |
+| `odom_error` | odometry built on wheels a half-centimetre too large | [demos/odom_error.md](docs/demos/odom_error.md) |
+| `open_odrift` | the same wrong radius in an empty hall, GPS off | [demos/open_odrift.md](docs/demos/open_odrift.md) |
+| `sensor_reality` | latency, dropout, staleness, a chip that warms up | [demos/sensor_reality.md](docs/demos/sensor_reality.md) |
+| `wifi` | commands that travel by radio, and a radio with a range | [demos/wifi.md](docs/demos/wifi.md) |
+| `poi_exploration` | a radiation source somewhere in the hall, one number to find it | [demos/poi_exploration.md](docs/demos/poi_exploration.md) |
 
-Wheel slip has no file of its own: it is `robot.slip`, and `./lab sim --world arena` with the robot
-driven into the east wall shows the odometry counting metres that were never driven. The commands, the
-measured numbers behind these rows and what each demo costs a graded run:
+Every page has the commands, the keys, what the window shows and the numbers that were measured for it.
+Wheel slip has no file of its own: it is `robot.slip`, and `./lab sim --world arena` into the east wall
+shows the odometry counting metres that were never driven. What makes a run go fast:
 **[docs/demos.md](docs/demos.md)**.
 
 ## Where configuration lives
@@ -146,7 +142,8 @@ measured numbers behind these rows and what each demo costs a graded run:
 
 | page | what is on it |
 |---|---|
-| [docs/demos.md](docs/demos.md) | the six demos in detail, and what makes a run go fast (`--speed`, `--fixed-step`) |
+| [docs/demos.md](docs/demos.md) | the six demos — one page each — and what makes a run go fast (`--speed`, `--fixed-step`) |
+| [docs/kinematics.md](docs/kinematics.md) | Experiment 1: `serve()` and `mission()`, and why the robot stands still on T1 |
 | [docs/window.md](docs/window.md) | layers, view profiles, and what the readout line is showing |
 | [docs/worlds.md](docs/worlds.md) | the five arenas at one scale, task↔arena, the empty hall for drift work |
 | [docs/steering.md](docs/steering.md) | the second drive train (Ackermann) and its two measured lessons |
@@ -182,12 +179,6 @@ python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --
   (`fix.t >= mission start`), see the handout, section "Three rules".
 * **Lists** → `./lab docs`.
 
-## Rules of this codebase
-
-Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), **everything written
-and everything named in English** — comments, docstrings, report text, handouts, identifiers, launch
-arguments. Two tools check it, and both are a step of `tools/check.sh`: `tools/langcheck.py` reads the
-prose, `tools/germanids.py` the names. What stays German is what the tool lets through — ROS field
-names, the wheel names `VL/VR/HL/HR`, the task groups on the command line, and the two compatibility
-maps that keep old shell histories working (`docs/CONTRACT.md` §6.11). Deterministic from `--seed`,
-headless-capable.
+Two rules hold the tree together — stdlib + pygame only, and everything named and written in English —
+both checked by `tools/check.sh`, both explained where they are enforced (`docs/CONTRACT.md` §1 and
+§6.11, `tools/langcheck.py`, `tools/germanids.py`). Everything is deterministic from `--seed`.
