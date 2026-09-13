@@ -38,6 +38,22 @@ and the way to see the conversion work is to hold an arrow key (a key *is* a `cm
 that turns it into wheels — which is exactly what the window is for). Missions start at T2: `--task
 quadrat` runs `mission()` once and the robot drives the square by itself.
 
+## How it works
+
+![The chassis on the left, the message loop on the right. Left: the four wheels on their axle points,
+each with its roller axis at 45°, and the three body velocities. Right: one `cmd_vel` becoming four wheel
+speeds becoming a pose becoming six sensor messages becoming an estimate.](docs/img/howitworks.png)
+
+Both halves are drawn by `tools/labmap.py` out of the modules the exercise is graded with — the wheel
+mounts from `render.wheel_mounts()`, the roller axes from `physics.inverse_kinematics()`, the topic names
+from `types.topic()` — and the tool refuses to draw if a roller axis is not perpendicular to the velocity
+its own wheel produces. The one rule the left half is about: a mecanum wheel pushes only across its
+roller axis, so with all four rollers of one sign the sideways parts cancel and the robot goes forward,
+and with the front pair against the rear pair the forward parts cancel and it strafes. The two red cards
+on the right are the two places where the simulator lets a number be wrong on purpose — wheel slip at a
+wall, and wheel constants in `odom.geometry` — because an estimator that never has to doubt a sensor is
+not being taught anything. Signs and topic contracts: `docs/CONTRACT.md` §5 and §6.
+
 ## First steps — Experiment 2 (state estimation)
 
 The simulation drives; your node only measures and reports its estimate on

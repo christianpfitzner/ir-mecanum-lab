@@ -46,6 +46,11 @@ step "Arena picture for the documentation (worlds/*.txt -> docs/img/worlds.png)"
 # Generated, not hand-drawn: this proves every world still draws and that worldpic agrees with
 # worlds/*.txt. It writes to /tmp — docs/img/worlds.png is updated on purpose by the tool.
 run "python3 tools/worldpic.py --out /tmp/worlds_check.png"
+step "How-it-works figure for the documentation (modules -> docs/img/howitworks.png)"
+# Also generated, and it checks its own subject: the tool asks the kinematics whether every roller axis
+# it is about to draw stands perpendicular to the velocity that wheel produces, and refuses the figure
+# if not. tests/test_labmap_docs.py compares the file in the repository against a fresh run.
+run "python3 tools/labmap.py --out /tmp/howitworks_check.png"
 step "Short stub simulation, maze world, with the reference solution"
 run "./lab run --world maze --robot muster --controller student/solution.py --headless --seconds 6"
 step "Grading the reference solution on all tasks (experiment 1)"
