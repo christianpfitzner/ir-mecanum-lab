@@ -124,3 +124,25 @@ def test_a_task_file_with_the_old_german_keys_still_loads(tmp_path, caplog):
     assert "dauer" not in phase and "ziel" not in phase           # only today's spelling survives
     assert "deprecated key 'titel'" in text
     assert "deprecated key 'erwarte'" in text
+
+
+def test_the_front_page_keeps_an_overview_of_the_halls():
+    """Someone who has the repository but not the documentation still needs to know what to `--world`.
+
+    The five halls used to be listed on the front page, then the list moved to `docs/worlds.md` and left
+    nothing behind but a link — so a reader had to open a second file to learn that there is a hall that
+    is deliberately empty and a hall that is deliberately narrow. The overview is back on the front page,
+    without the numbers (those are measured by `tools/worldcheck.py` and checked against
+    `docs/worlds.md`, and a size copied into a second page is a size that drifts): one line per hall in
+    `list_worlds()`, what it is for, how to start it, and the link to the page that has the figures.
+    """
+    import pathlib
+    from mecanum_lab.worlds import list_worlds
+
+    readme = (pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    halls = list_worlds()
+    assert halls, "the simulator lists no halls at all — the scan has nothing to check"
+    for hall in halls:
+        assert f"`{hall}`" in readme, f"the front page lost the hall `{hall}`"
+    assert "docs/worlds.md" in readme, "the overview no longer leads to the page with the measurements"
+    assert "docs/img/worlds.png" in readme, "the overview lost the panel that shows the five at one scale"

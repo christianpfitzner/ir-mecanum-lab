@@ -69,10 +69,13 @@ and `docs/CONTRACT.md` §9.2.
 `./lab run` is the one-process form: the simulator, your node as a thread and the keyboard, all three on
 the same `/cmd_vel` — your node drives, the keys interrupt it, and the readout line says who last did. Over
 ROS 2 they are two processes on the same topic, which is the same argument with a network in the middle.
-On `kinematik` the robot stands still until you press a key, and that is correct: T1 is graded by sending
-commands blind and measuring the four wheel speeds, so a key *is* a `cmd_vel` and your IK is what turns it
-into wheels. Why `serve()` and `mission()` divide the work that way, and what each line of the readout
-means: **[docs/kinematics.md](docs/kinematics.md)**.
+
+**What the four tasks ask of you is not written here**, and that is a decision rather than an omission:
+the rules are data in `config/tasks.json`, `./lab docs` prints them next to a running simulator, and the
+sheet a student reads is `docs/praktikum/anleitung.tex`. This repository is the simulator; the exercises
+are the half that will move into a repository of their own, and a threshold copied out of the JSON starts
+drifting the moment it is written twice. Why the robot stands still while the first task is graded, and
+what each line of the readout means: **[docs/kinematics.md](docs/kinematics.md)**.
 
 
 ## How it works
@@ -118,9 +121,9 @@ python3 tools/kfplot.py messung.csv
 Without ROS 2: `./lab run --task kf_gps --robot alice --controller student/kf_template.py --truth`, and
 `./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv`.
 
-Four tasks: `kf_gps` (CV model, GPS only) → `kf_fusion` (GPS + odometry + IMU through an
-8 s GPS outage) → `kf_kovarianz` (the stated σ must match the error, NEES) → `kf_dynamik`
-(fast, 200 Hz IMU). Handout: `docs/praktikum/kalman.tex` (`make kalman`).
+The four filter tasks are written down where the limits live — `config/tasks.json`, printed by
+`./lab docs`, set as a sheet in `docs/praktikum/kalman.tex` (`make kalman`) — for the same reason as the
+four drive tasks above. What is on this page is how to start one and how to grade all of them.
 
 ## Working with ROS 2 (Kilted or newer)
 
@@ -183,6 +186,25 @@ odometry ghost) are off, so the map stays visible — on the screen only, never 
 `--layers scan,ghost,-hud` picks layers by hand. Layers, view profiles, everything the readout line
 carries (IMU, GPS quality, lost messages, LiDAR echoes), and why every label is drawn on a dark edge:
 **[docs/window.md](docs/window.md)**.
+
+## Five halls, and which one a task is graded in
+
+![The five arenas at one common scale, in three columns: one panel per hall as `tools/worldpic.py` draws
+it, with the tasks that are graded in it named under the panel and the tightest passage measured by
+`tools/worldcheck.py` written under that.](docs/img/worlds.png)
+
+| Hall | What it is there for | Started with |
+|---|---|---|
+| `production` | the four drive tasks of Experiment 1 — a hall with tables standing in it, so a wrong wheel constant meets an obstacle instead of staying a number | `ros2 launch mecanum_lab lab.launch.py` |
+| `arena` | the four filter tasks of Experiment 2 — open space, and a GPS that is switched off for a stretch of the drive | `ros2 launch mecanum_lab kf.launch.py` |
+| `open` | floor and a border wall, nothing else: the hall for odometry drift, where a wrong wheel radius cannot hide behind a collision | `ros2 launch mecanum_lab lab.launch.py world:=open` |
+| `track` | the lane: a ring around a central island, which is what the odometry demos drive their drift into | `ros2 launch mecanum_lab lab.launch.py world:=track` |
+| `maze` | narrow passages on a coarse grid, and the hall `config/default.json` falls back to when nothing names one | `ros2 launch mecanum_lab lab.launch.py world:=maze` |
+
+Every task names the hall it is graded in inside `config/tasks.json`, and a run follows that name unless
+`world:=` (or `--world`) overrides it — which is the same rule as every other argument: what nobody typed
+does not outbid the config. Sizes, passage widths, the task↔hall table and how to add `worlds/name.txt`
+of your own: **[docs/worlds.md](docs/worlds.md)** and `python3 tools/worldcheck.py --world name`.
 
 ## The demos
 

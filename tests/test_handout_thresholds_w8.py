@@ -268,3 +268,32 @@ def test_award_is_all_criteria_at_once_not_one_criterion_at_a_time():
         f"a task that meets closure and touches no wall still awards points: {bad}")
     assert "path" in bad["reason"] and "closure" not in bad["reason"], (
         f"the report should name the one limit that failed: {bad['reason']}")
+
+
+def test_the_front_page_carries_no_exercise_text():
+    """What a task asks lives in `config/tasks.json` and on the printed sheet — not on the front page.
+
+    The front page used to paraphrase the tasks, and a paraphrase of a limit is that limit written twice,
+    which is the drift this file exists to catch — one station before the handout. The exercises are also
+    on their way into a repository of their own, while this one is the simulator, so what the README keeps
+    is the *pointer*: the data, `./lab docs` next to a running machine, and the sheet that prints it.
+
+    Checked by taking the first words of each task's own `text`, and its title: either one on the front
+    page means a task sheet was copied back out of the JSON.
+    """
+    with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
+        readme = fh.read()
+    flat = " ".join(readme.split())
+    with open(TASKS_FILE, encoding="utf-8") as fh:
+        tasks = json.load(fh)["tasks"]
+
+    for task in tasks:
+        words = " ".join((task.get("text") or "").split())
+        assert words, f"{task['id']} has no `text` — the exercises have no source any more"
+        piece = " ".join(words.split()[:9])
+        assert piece not in flat, f"{task['id']} is described on the front page again: {piece!r}"
+        assert task["title"] not in flat, f"the front page pastes the task sheet: {task['title']!r}"
+
+    for pointer in ("config/tasks.json", "./lab docs", "docs/praktikum/anleitung.tex",
+                    "docs/praktikum/kalman.tex"):
+        assert pointer in readme, f"the front page lost the pointer to {pointer}"
