@@ -63,10 +63,12 @@ class Logbook:
             self.n_kf += 1
             latest["n_kf"] = self.n_kf
         if kind == "poi":
-            # The one text column, and the reason it is not a number: the counter names the loudest
-            # source, and a plotted intensity series without that name is a guess about which of the
-            # sources in the world it is (pois.py, CONTRACT §6.13).
-            latest["name_poi"] = getattr(payload, "name", "") or ""
+            # The one text column, and it is not read from the message: `/poi` is a stamp and an
+            # intensity (§6.13), because a wide-band counter cannot name its source. The engine can,
+            # and a CSV is the record of a run rather than the robot's interface, so the log asks the
+            # engine — the same split as the window's readout line (overlays.poi_readout).
+            source = getattr(self.eng, "loudest_poi", lambda _n: None)(robot)
+            latest["name_poi"] = getattr(source, "name", "") or ""
 
     def tick(self) -> None:
         """One line per robot once `interval` seconds of simulation time have passed.

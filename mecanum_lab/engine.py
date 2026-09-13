@@ -610,6 +610,17 @@ class SimEngine:
         """
         return list(self._poi.sources) if self._poi is not None else []
 
+    def loudest_poi(self, name: str):
+        """The source that dominates the counter of `name` — the tutor's answer, not the robot's.
+
+        `/poi` is a stamp and one number (§6.13): a wide-band counter cannot tell which source it is
+        hearing, and the metres to it are the exercise. The readout line and the CSV still want to
+        know, and both ask here — the window and the log are the view of the person running the lab,
+        in the same rule as `poi_sources()` above and `--truth` for the pose.
+        """
+        r = self.robots.get(name)
+        return pois.loudest(self.poi_sources(), getattr(r, "pose", None))
+
     @property
     def wifi(self):
         """The radio of this run, or None when `wifi.enabled` is false (which is the default).

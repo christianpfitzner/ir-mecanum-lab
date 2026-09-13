@@ -145,11 +145,12 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
     if kind == "mission" or kind in ("robots", "world", "task", "config", "kfinfo"):
         return M["String"](data=str(payload))
     if kind == "poi":
-        # No standard ROS message fits a radiation reading, so /poi follows the JSON-on-a-String
-        # pattern of the four lines above (CONTRACT §6.13): every field of types.Poi in one object,
-        # echoable without a custom interface. `distance` is null unless poi.publish_distance is on.
-        return M["String"](data=json.dumps({"t": payload.t, "intensity": payload.intensity,
-                                            "name": payload.name, "distance": payload.distance}))
+        # A stamp and a number, and still JSON on a String (CONTRACT §6.13): ROS 2 has no standard
+        # message for a stamped scalar — `std_msgs/Float64` carries no header, and a header without a
+        # value is not a reading — while this pattern needs no interface package between a student and
+        # `ros2 topic echo`. Same reason as `/link` below, and the same reason `types.Poi` has exactly
+        # these two fields: what is echoed is what the simulator holds.
+        return M["String"](data=json.dumps({"t": payload.t, "intensity": payload.intensity}))
     if kind == "link":
         # /link is JSON on a String for the same reason as /poi (CONTRACT §6.14): a link budget has no
         # standard message, and a custom interface would put a build step in front of a student who
@@ -234,8 +235,7 @@ def from_ros(kind: str, msg):
         return msg.data
     if kind == "poi":
         got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
-        return Poi(got.get("t", 0.0), got.get("intensity", 0.0), got.get("name", ""),
-                   got.get("distance"))
+        return Poi(got.get("t", 0.0), got.get("intensity", 0.0))
     if kind == "link":
         got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
         return Link(got.get("t", 0.0), got.get("quality", 1.0), got.get("rssi_dbm", 0.0),

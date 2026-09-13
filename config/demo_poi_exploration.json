@@ -10,7 +10,7 @@
     "    ./lab sim --world production --config config/demo_poi_exploration.json # the same, with tables",
     "    ros2 topic echo /alice/poi                                            # the same as a topic",
     "",
-    "What is published: /<robot>/poi at poi.rate (5 Hz) with the fields t, intensity, name, distance",
+    "What is published: /<robot>/poi at poi.rate (5 Hz) as JSON on a String -- a stamp and one number",
     "(`std_msgs/String` carrying JSON, the pattern of /sim/robots -- there is no standard message for",
     "a counter). The window shows the reading in the readout line as `poi src1 0.803`, and the `p`",
     "layer draws the source itself. The same without a second terminal, which is why both exist.",
@@ -34,9 +34,10 @@
     "table at 0.60 m, the counter reports 0.072 +- 0.014 and does not care. Two sensors, two different",
     "worlds, one robot -- and neither of them is wrong.",
     "",
-    "distance is NOT in the message by default (poi.publish_distance = false, the field stays null):",
-    "turning a series of intensities into a distance is the exercise, and a topic that ships the",
-    "answer ends it. Set poi.publish_distance=true to see the truth next to your own estimate.",
+    "/poi is a stamp and one number, and that is all a wide-band counter has: which source is loudest",
+    "and how far away it is stay simulation truth, because turning a series of intensities into a",
+    "position is the exercise and a topic that ships the answer ends it. The window is the tutor's",
+    "view — it names the source in the readout, and `debug_truth` draws the rings of the field.",
     "",
     "Three things to do with it, in this hall:",
     "  1. Drive straight east from the spawn at 0.5 m/s and log the series. Measured, any seed: the",
@@ -67,8 +68,7 @@
   "poi": {
     "rate": 5.0,
     "d0": 1.0,
-    "counts": 400.0,
-    "publish_distance": false
+    "counts": 400.0
   },
   "_comment_tail": "A source is not an obstacle: the LIDAR reports the table, the counter reports the source."
 }

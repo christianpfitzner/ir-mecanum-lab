@@ -13,6 +13,8 @@ mis-placed source refused, and the wall that is not in the model staying out of 
 The third block is the wiring: no source configured means no detector, no message and no random
 number, which is what keeps every graded stream of `tests/test_sensor_reality.py` what it was.
 """
+import dataclasses
+import json
 import math
 import os
 import statistics
@@ -24,7 +26,7 @@ import pytest
 
 from support_docs import text
 
-from mecanum_lab import overlays, pois, render, sensors
+from mecanum_lab import overlays, pois, render, ros_bridge, sensors
 from mecanum_lab.engine import SimEngine
 from mecanum_lab.types import (Poi, Pose, Rect, Robot, RobotSpec, Twist, World, cfg_get,
                                load_config, topic)
@@ -210,14 +212,25 @@ def test_a_reading_outside_every_range_is_exactly_nothing():
     assert {p.intensity for p in readings(11, at=(12.0, 11.0), count=500)} == {0.0}
 
 
-def test_the_distance_stays_out_of_the_message_unless_it_is_asked_for():
-    """`poi.publish_distance` is false by default: turning intensity into metres is the exercise."""
+def test_the_message_is_a_stamp_and_one_number():
+    """`/poi` is `{t, intensity}` — in the dataclass and on the wire, with nothing to switch on.
+
+    This is the whole interface claim of the exercise: a wide-band counter gives a rate and a clock.
+    Which source dominates is field arithmetic the simulation keeps for its own overlay, and the
+    metres are what the student is supposed to find. There used to be a `poi.publish_distance` switch
+    that put the answer on the same topic as the question — a switch that can end an exercise is a bug
+    with documentation, so the field went rather than the default.
+    """
+    assert [f.name for f in dataclasses.fields(Poi)] == ["t", "intensity"]
     sources = pois.load_sources(SHIP, load_world("open", cfg=CFG), 1.0)
-    silent = sensor(sources, 3)
-    assert all(m.distance is None for m in (silent.read(Pose(13.0, 6.0, 0.0)) for _ in range(5)))
-    loud = sensor(sources, 3, publish_distance=True)
-    assert {round(m.distance, 6) for m in (loud.read(Pose(13.0, 6.0, 0.0)) for _ in range(5))} \
-        == {1.0}
+    readings = [sensor(sources, 3).read(Pose(13.0, 6.0, 0.0)) for _ in range(5)]
+    assert {tuple(sorted(vars(m))) for m in readings} == {("intensity", "t")}
+    wire = {"String": lambda data: SimpleNamespace(data=data)}          # the one class this branch uses
+    for sample in readings:
+        echoed = json.loads(ros_bridge.to_ros(wire, "poi", sample).data)
+        assert sorted(echoed) == ["intensity", "t"], f"/poi carries {sorted(echoed)}"
+        back = ros_bridge.from_ros("poi", ros_bridge.to_ros(wire, "poi", sample))
+        assert back.intensity == pytest.approx(sample.intensity) and back.t == sample.t
 
 
 def test_no_counts_means_the_field_itself():
@@ -226,16 +239,18 @@ def test_no_counts_means_the_field_itself():
         {source().intensity(14.0, 6.0)}
 
 
-def test_the_message_names_the_loudest_source_and_nothing_else():
-    """Two sources, one reading: the one that contributes the counts is the one that is named."""
+def test_the_loudest_source_is_answered_by_the_engine_and_not_by_the_message():
+    """Two sources, one reading: the field still knows which one dominates — the bus does not say so."""
     two = [{"name": "src1", "x": 12.0, "y": 6.0, "activity": 1.0, "range": 5.0},
            {"name": "src2", "x": 14.0, "y": 6.0, "activity": 0.5, "range": 5.0}]
     sources = pois.load_sources(two, load_world("open", cfg=CFG), 1.0)
-    between = sensor(sources, 4, counts=0.0).read(Pose(13.0, 6.0, 0.0))
-    assert (between.name, between.intensity) == ("src1", pytest.approx(0.5))     # same distance
-    at_second = sensor(sources, 4, counts=0.0).read(Pose(13.95, 6.0, 0.0))
-    assert at_second.name == "src2", "the weaker source is never named"
-    assert at_second.intensity == pytest.approx(0.5 / (1 + 0.05 ** 2))
+    between = Pose(13.0, 6.0, 0.0)
+    assert sensor(sources, 4, counts=0.0).read(between).intensity == pytest.approx(0.5)
+    assert pois.loudest(sources, between).name == "src1", "same distance, so the stronger one wins"
+    at_second = Pose(13.95, 6.0, 0.0)
+    assert sensor(sources, 4, counts=0.0).read(at_second).intensity \
+        == pytest.approx(0.5 / (1 + 0.05 ** 2))
+    assert pois.loudest(sources, at_second).name == "src2", "close by, the weaker source is louder"
 
 
 # ---------------------------------------------------------------------------- the validation
@@ -310,14 +325,14 @@ def test_a_planted_source_adds_its_topic_at_poi_rate():
     # which is the same behaviour every other sensor of the engine has (engine._due).
     assert all(m.t > 0.0 for m in readings), "not stamped with simulation time"
     assert eng.robots["muster"].poi is readings[-1]
-    assert {m.name for m in readings} == {"src1"}
-    assert all(m.distance is None for m in readings)
+    assert {tuple(sorted(vars(m))) for m in readings} == {("intensity", "t")}
+    assert eng.loudest_poi("muster").name == "src1", "the engine knows, the message does not say"
 
 
 def test_the_demo_file_plants_one_source_and_switches_nothing_else_on():
     cfg = load_config("config/demo_poi_exploration.json")
     assert cfg_get(cfg, "world") == "open" and len(cfg_get(cfg, "pois")) == 1
-    assert cfg_get(cfg, "poi.publish_distance") is False
+    assert "publish_distance" not in json.dumps(cfg), "the answer is not a switch any more"
     assert cfg_get(cfg, "poi.rate") == 5.0 and cfg_get(cfg, "gps.rate") == 5.0
     assert cfg_get(load_config(), "pois") == []              # and the lab default stays empty
 
@@ -339,8 +354,7 @@ def test_a_source_uses_the_shared_noise_stream_which_is_why_the_default_is_empty
 
 def test_the_poi_block_written_out_at_its_defaults_changes_nothing():
     """A key that is read while it is switched off is a bug, so it is tested and not denied."""
-    off = {"gui": False, "pois": [], "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0,
-                                             "publish_distance": False}}
+    off = {"gui": False, "pois": [], "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0}}
     series = lambda cfg: [[vars(m) for k, _r, m in drive(cfg, seconds=3.0)[1] if k == kind]
                           for kind in ("odom", "imu")]
     assert series(load_config(None, off)) == series(load_config(None, {"gui": False}))
@@ -365,19 +379,30 @@ def test_the_detector_settings_travel_in_the_config_topic_but_not_the_positions(
 
 
 class StubRenderer:
-    """The one attribute `overlays.poi_readout()` looks at, without a window."""
+    """The one attribute `overlays.poi_readout()` reads: an engine that can name the loudest source."""
+
+    def __init__(self, loudest="src1"):
+        self.engine = SimpleNamespace(
+            loudest_poi=lambda _name: SimpleNamespace(name=loudest) if loudest else None)
 
 
 def test_the_readout_line_carries_the_current_intensity():
-    """`poi src1 0.803` in the line the student already reads — no second terminal needed."""
-    robot = SimpleNamespace(poi=None)
+    """`poi src1 0.803` in the line the student already reads — no second terminal needed.
+
+    The name is asked of the engine, because `/poi` does not carry it (§6.13). The metres stay out of
+    the line even though the engine has them — the same rule as the field rings: a readout that prints
+    the distance ends the exercise. That is a change of behaviour on purpose, the old line showed
+    `@2.25 m` whenever `poi.publish_distance` was on.
+    """
+    robot = SimpleNamespace(name="alice", poi=None)
     assert overlays.poi_readout(StubRenderer(), robot) == []
-    robot.poi = Poi(t=1.0, intensity=0.803, name="src1")
-    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi src1 0.803"
-    robot.poi = Poi(t=1.0, intensity=0.0, name="")
-    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi - 0.000"
-    robot.poi = Poi(t=1.0, intensity=0.5, name="src1", distance=2.25)
-    assert overlays.poi_readout(StubRenderer(), robot)[0][0] == "poi src1 0.500 @2.25 m"
+    robot.poi = Poi(t=1.0, intensity=0.803)
+    assert overlays.poi_readout(StubRenderer("src1"), robot)[0][0] == "poi src1 0.803"
+    robot.poi = Poi(t=1.0, intensity=0.0)
+    assert overlays.poi_readout(StubRenderer("src1"), robot)[0][0] == "poi - 0.000", \
+        "hearing nothing, the line claims no source"
+    robot.poi = Poi(t=1.0, intensity=0.5)
+    assert overlays.poi_readout(StubRenderer("src1"), robot)[0][0] == "poi src1 0.500"
 
 
 def test_the_key_p_and_the_menu_row_belong_to_the_same_layer():

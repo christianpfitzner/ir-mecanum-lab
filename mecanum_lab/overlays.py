@@ -256,19 +256,21 @@ def poi_sources(rend) -> None:
 def poi_readout(rend, robot) -> list:
     """The counter in the readout line: `poi src1 0.803` — the sensor without a second terminal.
 
-    One number, and it is the one the students have to work from: the distance is not in the message
-    (`poi.publish_distance` is off) and so is not in the line either — a readout that prints the
-    answer ends the exercise. An empty list for a robot with no detector keeps the readout line of
-    every graded run exactly as long as it was, in the same rule as `steer_readout()`.
+    One number, and it is the one the students have to work from. `/poi` carries a stamp and that
+    number and nothing else (§6.13), so the name of the loudest source is asked of the engine —
+    `engine.loudest_poi()`, the tutor's view, the same border as the field rings of `poi_field()`.
+    The metres stay out of the line even here: a readout that prints the distance ends the exercise.
+    An empty list for a robot with no detector keeps the readout line of every graded run exactly as
+    long as it was, in the same rule as `steer_readout()`.
     """
     msg = getattr(robot, "poi", None)
     if msg is None:
         return []
     from .render import GREY, mix                       # lazy: render imports this module
-    loud = msg.intensity > 0.0 and msg.name != ""
-    text = f"poi {msg.name or '-'} {msg.intensity:.3f}" \
-        + (f" @{msg.distance:.2f} m" if msg.distance is not None else "")
-    return [(text, mix(GREY, (250, 205, 90), 0.7) if loud else GREY)]
+    source = (getattr(rend.engine, "loudest_poi", lambda _n: None)(robot.name)
+              if msg.intensity > 0.0 else None)
+    return [(f"poi {getattr(source, 'name', '') or '-'} {msg.intensity:.3f}",
+             mix(GREY, (250, 205, 90), 0.7) if source else GREY)]
 
 
 def above_bar(rend, y: float) -> float:

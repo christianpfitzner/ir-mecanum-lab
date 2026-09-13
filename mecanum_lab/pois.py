@@ -106,8 +106,8 @@ def load_sources(value, world, d0_default: float = 1.0) -> list:
             raise ValueError(f"poi '{name}': activity has to be >= 0 (got {activity:g})")
         _inside(name, x, y, world)
         if any(s.name == name for s in out):
-            raise ValueError(f"poi name '{name}' is used twice — the message carries the name "
-                             "and nothing else, so the two sources could not be told apart")
+            raise ValueError(f"poi name '{name}' is used twice — the counter reports one number, so "
+                         "the window and the log could not say which of the two made it")
         out.append(Source(name=name, kind=kind, x=x, y=y, activity=activity,
                           range_m=reach, d0=d0))
     return out
@@ -125,12 +125,25 @@ def _inside(name: str, x: float, y: float, world) -> None:
                              f"'{world.name}' — a source needs open floor around it")
 
 
+def loudest(sources, pose):
+    """The source that dominates the counter at `pose` — the tutor's answer, not the robot's.
+
+    One function for the three places that want it (`PoiSensor.read`, the readout line, the log)
+    instead of three copies of `max(...)`: which source is loudest is field arithmetic, and field
+    arithmetic in two places is two answers. None for a world without sources or for a robot that has
+    no pose yet.
+    """
+    if not sources or pose is None:
+        return None
+    return max(sources, key=lambda s: s.intensity(pose.x, pose.y))
+
+
 class PoiSensor:
     """A counter, not a ruler: it reports counts per second and never a distance.
 
-    The reading is the loudest source's field with counting noise on top. Which source is loudest
-    the field already knows, and a real wide-band counter could not tell two sources apart by
-    itself — the name in the message is how the simulation labels the dominant contribution.
+    The reading is the loudest source's field with counting noise on top, which is what a wide-band
+    counter measures and why the sensor still knows which source dominates: that answer is for the
+    window and the log, never for the message (`types.Poi` is a stamp and an intensity).
 
     The noise is Poisson, which is what a counter has: `counts = intensity · poi.counts` per reading
     and `sigma = sqrt(counts)`, so the *relative* error is `1/sqrt(counts)` and grows as the field
@@ -145,14 +158,12 @@ class PoiSensor:
         self.sources = list(sources or [])
         self.noise = noise
         self.gain = float(cfg.get("counts", 400.0) or 0.0)
-        self.publish_distance = bool(cfg.get("publish_distance", False))
 
     def read(self, pose) -> Poi | None:
         """One measurement at `pose`; None when this world has no source at all."""
         if not self.sources:
             return None
-        loudest = max(self.sources, key=lambda s: s.intensity(pose.x, pose.y))
-        field = loudest.intensity(pose.x, pose.y)
+        field = loudest(self.sources, pose).intensity(pose.x, pose.y)
         if self.gain <= 0.0:
             reading = field                           # no counter modelled: the field, exactly
         else:
@@ -160,5 +171,4 @@ class PoiSensor:
             # `Noise.gauss(0.0)` draws nothing, so a source out of range stays exactly 0.0 — and a
             # drive that never comes near one leaves the random stream untouched.
             reading = max(counts + self.noise.gauss(math.sqrt(counts)), 0.0) / self.gain
-        return Poi(t=0.0, intensity=reading, name=loudest.name,
-                   distance=(loudest.distance(pose.x, pose.y) if self.publish_distance else None))
+        return Poi(t=0.0, intensity=reading)

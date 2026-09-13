@@ -188,13 +188,16 @@ class Imu:
 class Poi:
     """Reading of the radiation detector at the robot's position (CONTRACT §6.13).
 
-    One message per source reading, and it names the source that contributes the most counts —
-    a wide-band counter cannot tell two sources apart, so the name is how the simulation labels
-    the loudest contribution rather than something the robot could know.
+    A stamp and one number, because that is what a wide-band counter gives you. There is no standard
+    ROS message for a stamped scalar — `std_msgs/Float64` has no header, and a header with no value
+    is not a reading either — so `/poi` stays the JSON-on-a-String form of these two fields that
+    `/sim/robots` and `kf/info` already use (§6.7): no build step in front of a student who only
+    wants to read a number.
 
-    `distance` is **not** in a real detector's output: `poi.publish_distance` is off by default and
-    the field stays `None`, because turning the intensity series into a distance is the exercise.
-    With the key switched on the number is the true metres to that source — the truth/debug view.
+    Which source is loudest, and how far away it is, are **not** on the bus. A counter cannot name
+    its source, and turning an intensity series into a distance is the exercise. Both numbers stay
+    simulation truth: the window asks the engine for them (`overlays.poi_readout`) and the log asks
+    it too (`logbook`), because those are the tutor's view and not the robot's interface.
 
     The field model itself is in `pois.py`: `activity / (1 + (d/d0)²)` up to the source's `range`,
     0 beyond it, through the walls. Through, not around: unlike the LIDAR the detector does not
@@ -202,8 +205,6 @@ class Poi:
     """
     t: float = 0.0
     intensity: float = 0.0            # counts per second, normalised (0.0 = nothing in range)
-    name: str = ""                    # which source is loudest ('' = no source in this world)
-    distance: float | None = None     # m to its centre, only with `poi.publish_distance`
 
 
 @dataclass
@@ -347,7 +348,7 @@ MSG_SPECS = {
     "kfinfo":  ("std_msgs/msg/String",              "kf/info",       "robot"),
     "truth":   ("geometry_msgs/msg/PoseStamped",    "truth",         "robot"),
     # No standard message fits a radiation reading, so /poi uses the JSON-on-a-String pattern of
-    # §6.7 that /sim/robots and kf/info already use: the fields of `Poi` as one JSON object.
+    # §6.7 that /sim/robots and kf/info already use: `{t, intensity}`, the two fields of `Poi`.
     "poi":     ("std_msgs/msg/String",              "poi",           "robot"),
     # Same pattern as /poi: no standard message carries a link budget, so /link is the JSON form of
     # types.Link on a String. The autonomy decision belongs on a topic: a student program has to be
@@ -495,7 +496,10 @@ DEFAULT_CONFIG = {
     # how many counts one unit of intensity is worth per reading (`counts`: the Poisson sigma is
     # sqrt(counts), so a weak reading is a noisier reading, which is what a counter does), and
     # whether the true distance may travel with the message. Off by default: see types.Poi.
-    "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0, "publish_distance": False},
+    # `counts` is the counter's gain (see `pois.PoiSensor`); 0 switches the counter model off.
+    # There is no `publish_distance` here any more: metres were never the message to publish, and
+    # the truth view of the field is `debug_truth`, which the window already has.
+    "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0},
     # The radio link (`wifi.py`): one access point per hall, and the commands arrive through it.
     # `enabled` is the one option, and it is off: the graded runs of both experiments are calibrated
     # on a link that delivers everything at once, and every threshold in config/tasks.json stays that

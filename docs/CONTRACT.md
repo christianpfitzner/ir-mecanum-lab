@@ -86,7 +86,7 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/scan` | `sensor_msgs/msg/LaserScan` | sim → everyone | 360 rays, 0…2π, range `range_max` |
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
-| `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity, name, distance}` of the radiation counter (§6.13) — a String topic because no standard message fits a counter, same pattern as `/sim/robots`; `distance` is `null` unless `poi.publish_distance` is on |
+| `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity}` of the radiation counter (§6.13) — a String topic because no standard message carries a stamped scalar, same pattern as `/sim/robots`; which source is loudest, and how far away, stay simulation truth |
 | `/<robot>/link` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, rssi_dbm, ap, up, dropped, latency_ms}` of the radio the commands travel on (§6.14); only when `wifi.enabled` |
 | `/<robot>/sensor/info` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, sats, lost, latency_ms, temp, scan_gaps}` — what the instruments say about themselves, at `gps.rate`; the three measurement messages have no field for any of it (§6.4) |
 | `/<robot>/mission_state` | `std_msgs/msg/String` | students → sim/grader | `"idle"`, `"running"`, `"done"`, `"failed:<reason>"` |
@@ -648,17 +648,18 @@ class PoiSensor:
 ```
 
 The second *field* sensor of the lab and the only one that is not about position: the robot measures
-how much of something arrives at its antenna. `types.Poi` is the message (`t, intensity, name,
-distance`), published on `/<robot>/poi` at `poi.rate` (5 Hz) by one `self._due(...)` block of
-`engine._substep()`, and `overlays.poi_readout()` puts the same number into the readout line so a
-student sees it without a second terminal.
+how much of something arrives at its antenna. `types.Poi` is the message — a stamp and one number,
+nothing else — published on `/<robot>/poi` at `poi.rate` (5 Hz) by one `self._due(...)` block of
+`engine._substep()`. `overlays.poi_readout()` puts the same number into the readout line and asks
+`SimEngine.loudest_poi()` for the name beside it: the window is the tutor's view, the topic is the
+robot's, and only one of the two may hand out answers.
 
 **The field.** `intensity = activity / (1 + (d/d0)²)` up to the source's `range`, 0 beyond it. `d0`
 (which a source may carry itself, otherwise `poi.d0`) is where the counter reads half the activity, so
 it sets the shape and not the level: half at `d0`, a tenth at `3·d0`, a hundredth at `9·d0`. A ratio of
-two readings is therefore a distance estimate — that is the exercise, and it is why
-`poi.publish_distance` is **false** by default: the `distance` field stays `None` unless somebody
-switches it on for the truth/debug view.
+two readings is therefore a distance estimate — that is the exercise, and it is why the metres are not
+published at all: no switch puts the answer on the same topic as the question. The truth view is the
+field rings of layer `p` under `debug_truth`, which is drawn by the window and never sent anywhere.
 
 Measured for the source of `config/demo_poi_exploration.json` (`activity 1.0`, `range 4.0`, `d0 1.0`),
 4000 readings per spot with the shipped `poi.counts = 400`:

@@ -108,9 +108,9 @@ class RobotIO:
 
         The accessor exists because the alternative was `rob.bus.last("poi", rob.name)[0]` — a call
         through the bus, with the topic name and the tuple shape of the answer in the middle of a
-        student's controller. `poi().intensity` is the reading; `poi().name` says which source is
-        loudest, and `poi().distance` is `None` unless the simulation was started with
-        `poi.publish_distance` — turning this series into a distance is the exercise (CONTRACT §6.13).
+        student's controller. `poi().intensity` is the whole reading, with the stamp it arrived with:
+        which source is loudest and how far away it is are not on the bus, because a counter cannot
+        tell either — turning this series into a position is the exercise (CONTRACT §6.13).
         """
         return self._value("poi")
 
