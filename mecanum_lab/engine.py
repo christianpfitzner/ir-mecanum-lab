@@ -10,8 +10,8 @@ import json
 import logging
 import math
 
-from . import physics, pois, sensors, steering
-from .types import (Gps, Pose, Robot, RobotSpec, Twist, cfg_get, load_config, merge,
+from . import physics, pois, sensors, steering, wifi
+from .types import (Gps, Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config, merge,
                     sanitize_name, PALETTE, MARKERS, VARIANTS)
 
 log = logging.getLogger("mecanum.engine")
@@ -36,9 +36,7 @@ class SimEngine:
         self.robots: dict[str, Robot] = {}
         self.outbox: list = []                       # (kind, robot|None, payload)
         self._noise = sensors.Noise(seed)
-        self._lidar = sensors.Lidar(world, self._noise, cfg_get(self.cfg, "lidar"))
-        self._gps = self._make_gps()
-        self._poi = self._make_pois()
+        self._build_sensors()
         self._index = 0
         self._sub = 1.0 / float(cfg_get(self.cfg, "rate", 50))
         self._acc = 0.0
@@ -46,6 +44,24 @@ class SimEngine:
         self._warned_drop = False
 
     # --------------------------------------------------------------------- Sensor builders
+
+    def _build_sensors(self) -> None:
+        """(Re)build the three field sensors and the radio from the config as it stands.
+
+        Called twice and by design: once here at startup, once by `set_sensor_profile()` when a task
+        brings another test profile. One builder for both, because a fourth sensor has to be rebuilt
+        by both — two copies is how a profile switch ends up keeping an old instrument.
+
+        Each maker answers `None` when its option is off, and `None` means the loop does not ask that
+        sensor at all: no detector, no radio, no message, and — the part the tests exist for — not one
+        random number drawn. That is why the graded streams of both experiments are byte for byte what
+        they were before `gps.zones`, `pois` and `wifi.enabled` were invented (`test_sensor_reality.py`,
+        `test_wifi_w6.py`).
+        """
+        self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
+        self._gps = self._make_gps()
+        self._poi = self._make_pois()
+        self._wifi = self._make_wifi()
 
     def _make_gps(self):
         """GPS sensor, with `kf.gps_delay` (seconds, the student-facing name) turned into ticks.
@@ -65,16 +81,12 @@ class SimEngine:
         return sensors.GpsSensor(self._noise, gpscfg)
 
     def _make_pois(self):
-        """The radiation detector of this world — or None, which is the default and the whole point.
+        """The radiation detector of this world — or None, which is the default (see `_build_sensors`).
 
         `pois` (the sources of the world) is validated here rather than in worlds.py because the
         check needs both sides: the point from the config and the walls of the arena it has to be
         inside. A bad entry raises, it is not dropped — a scenario with a source in a wall cannot be
         solved, so saying so at once beats a run in which nothing ever explains itself (pois.py).
-
-        None rather than a sensor over an empty list: with no source configured the engine does not
-        run the sensor loop at all, and the message streams of every graded task stay what they were
-        before this topic existed.
         """
         sources = pois.load_sources(cfg_get(self.cfg, "pois"), self.world,
                                    float(cfg_get(self.cfg, "poi.d0", 1.0)))
@@ -83,6 +95,27 @@ class SimEngine:
         log.info("%d points of interest in '%s': %s", len(sources), self.world.name,
                  ", ".join(f"{s.name} at ({s.x:g}, {s.y:g}) r={s.range_m:g} m" for s in sources))
         return pois.PoiSensor(sources, self._noise, cfg_get(self.cfg, "poi"))
+
+    def _make_wifi(self):
+        """The hall's radio — or None, which is the default (the None rule is in `_build_sensors`).
+
+        Enabled without an AP for this world is a run that would silently deliver everything: the
+        per-hall positions live in `wifi.ap_by_world`, a hall neither that nor `wifi.ap` names gets
+        one warning and a plain link.
+        """
+        wcfg = cfg_get(self.cfg, "wifi") or {}
+        if not bool(wcfg.get("enabled", False)):
+            return None
+        ap = wifi.access_point(wcfg, self.world)
+        if ap is None:
+            log.warning("wifi.enabled but world '%s' has no access point — the link delivers "
+                        "everything. Name one: --set wifi.ap=[x,y]", self.world.name)
+            return None
+        log.info("radio link: AP at (%.2f, %.2f) in '%s', %.1f dBm at %.1f m, n=%.1f, "
+                 "%.1f dB per wall crossing", ap[0], ap[1], self.world.name,
+                 float(wcfg.get("tx_dbm", -34.0)), float(wcfg.get("d0", 1.0)),
+                 float(wcfg.get("n", 2.4)), float(wcfg.get("wall_db", 12.0)))
+        return wifi.Wifi(self.world, ap, self._noise, wcfg)
 
     def _make_odometer(self, r):
         """The robot's odometry: wheel speeds integrated over the *believed* geometry.
@@ -146,6 +179,8 @@ class SimEngine:
     def despawn(self, name: str) -> bool:
         found = self.robots.pop(name, None) is not None
         if found:
+            if self._wifi is not None:
+                self._wifi.forget(name)   # a frame to a robot that is gone has nowhere to arrive
             self.publish_world()
         return found
 
@@ -178,6 +213,8 @@ class SimEngine:
         r.odometer.reset(r.chassis.pose)
         r.inertial.reset()
         self._gps.drops.pop(name, None)     # the losses of the previous drive are not this one's
+        if self._wifi is not None:
+            self._wifi.forget(name)         # and neither is what was still on the wire to it
         self._clock_to_sim(r)
         r.wheel_cmd = r.vel_cmd = None
         r.mode, r.t_cmd, r.t_vel = "pass-through", -1.0, -1.0
@@ -186,21 +223,19 @@ class SimEngine:
         return True
 
     def reset(self) -> None:
-        """Return all robots to their start pose, counters at zero (names stay)."""
-        for r in self.robots.values():
-            home = self.world.spawn_pose(r.spec.index)
-            r.chassis.pose = Pose(home.x, home.y, home.theta)
-            r.chassis.reset_motion()
-            r.chassis.contacts = 0
-            r.odometer.reset(r.chassis.pose)
-            r.inertial.reset()
-            r.wheel_cmd = r.vel_cmd = None
-            r.mode, r.t_cmd, r.t_vel = "pass-through", -1.0, -1.0
-            r.imu, r.kf, r.kf_err = None, None, None
-            r.contacts, r.distance, r.mission_state = 0, 0.0, "idle"
+        """Return all robots to their start pose, counters at zero (names stay).
+
+        The per-robot half is `reset_robot()` — the same eight fields for all robots, and the KF
+        grader depends on that list being the same for one robot and for all of them. Simulation time
+        then goes back to 0, which is the only thing this does beyond the single-robot case.
+        """
+        for name in list(self.robots):
+            self.reset_robot(name)
         self.t = 0.0
         self._gps.reset()                 # a fix that was on its way is not part of the new run
         self._gps.t0 = 0.0
+        if self._wifi is not None:
+            self._wifi.reset()            # nor is a frame that had not reached the robot yet
         for r in self.robots.values():
             self._clock_to_sim(r)
         self.publish_world()
@@ -240,9 +275,11 @@ class SimEngine:
         merge(self.cfg, dict(profile))
         if self.forced:
             merge(self.cfg, dict(self.forced))     # what was set by hand stays put
-        self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
-        self._gps = self._make_gps()
-        self._poi = self._make_pois()
+        self._build_sensors()
+        if self._wifi is None:                       # a profile that removes the radio also ends any
+            for r in self.robots.values():           # autonomy it started: nothing could lift it
+                if r.mode == "autonomy":
+                    r.mode = "pass-through"
         self._gps.t0 = getattr(self, "t_task", self.t)
         for r in self.robots.values():
             r.odometer = self._make_odometer(r)
@@ -261,17 +298,57 @@ class SimEngine:
     # ------------------------------------------------------------------- Commands (ROS)
 
     def set_cmd_vel(self, name: str, twist: Twist) -> None:
-        r = self.robots.get(name)
-        if r:
-            r.vel_cmd, r.t_vel = twist, self.t
+        """A body-speed command from outside (topic, teleop keys, grader) — so it goes by radio."""
+        self._deliver(name, "twist", twist)
 
     def set_wheel_speeds(self, name: str, wheels) -> None:
-        """Wheel speeds [FL, FR, RL, RR] in rad/s — the exercise core."""
+        """Wheel speeds [FL, FR, RL, RR] in rad/s — the exercise core, and a radio frame too."""
         r = self.robots.get(name)
         if not r or len(wheels or []) != 4:
+            return                                  # a malformed frame never reaches the radio either
+        self._deliver(name, "wheels", [float(w) for w in wheels])
+
+    def _deliver(self, name: str, kind: str, payload) -> None:
+        """Hand one external command to the radio, or straight to the robot when there is none.
+
+        This is the seam the whole feature turns on: with no `Wifi` object the call is the old
+        assignment, one step and done. With one, the command is the AP's problem now — dropped, or
+        put on the wire and applied when it arrives (`_apply_cmd`), which is why `t_vel`/`t_cmd` are
+        the *delivery* time and the command watchdog keeps meaning what it always meant.
+        """
+        if self.robots.get(name) is None:
             return
-        r.mode = "wheels"                            # from now on only this counts
-        r.wheel_cmd, r.t_cmd = [float(w) for w in wheels], self.t
+        if self._wifi is None:
+            self._apply_cmd(name, kind, payload)
+        else:
+            self._wifi.admit(name, self.robots[name].pose, kind, payload, self.t)
+
+    def _apply_cmd(self, name: str, kind: str, payload) -> None:
+        """What a command that reached the robot does to it — the half `set_cmd_vel` used to be."""
+        r = self.robots.get(name)
+        if r is None:
+            return
+        if kind == "twist":
+            r.vel_cmd, r.t_vel = payload, self.t
+            return
+        if r.mode != "autonomy":
+            r.mode = "wheels"                    # from now on only this counts
+        r.wheel_cmd, r.t_cmd = payload, self.t
+
+    def _wire(self, name: str) -> list:
+        """The commands whose simulated flight time is over — in the order they were sent."""
+        return self._wifi.due(name, self.t) if self._wifi is not None else []
+
+    def note_keys(self, name: str) -> None:
+        """Record that the window's keyboard was the last publisher for this robot.
+
+        The teleop keys publish on `/cmd_vel` like any node does — same topic, same radio, and only
+        while a key is held — so nothing about the drive depends on this call. It is the answer to the
+        one question the readout line has when a node and a keyboard share a topic: who was last.
+        """
+        r = self.robots.get(name)
+        if r is not None:
+            r.cmd_keys = self.t
 
     def set_mission_state(self, name: str, state: str) -> None:
         r = self.robots.get(name)
@@ -323,6 +400,8 @@ class SimEngine:
 
     def _substep(self, dt: float) -> None:
         for r in self.robots.values():
+            for kind, payload in self._wire(r.spec.name):     # late frames arrive before this step
+                self._apply_cmd(r.spec.name, kind, payload)
             self._drive(r, dt)
             x0, y0 = r.chassis.pose.x, r.chassis.pose.y
             r.chassis.step(dt, self.world.walls)
@@ -365,10 +444,46 @@ class SimEngine:
                 if reading is not None:
                     r.poi = reading
                     self._push("poi", r.spec.name, reading)
+            if self._wifi is not None:
+                self._step_link(r, dt)
+            if self._due(r, "sensorinfo", cfg_get(self.cfg, "gps.rate", 5.0), dt):
+                self._push("sensorinfo", r.spec.name, self.sensor_info(r.spec.name))
         self.t += dt
 
+    def _step_link(self, r: Robot, dt: float) -> None:
+        """One physics step of the radio for one robot: level, autonomy decision, `/link`.
+
+        Stepped every step and published at `wifi.rate`, because the failsafe is a timer and a timer
+        that is sampled at 5 Hz is wrong by 200 ms. The decision it takes is one bit on the robot —
+        `mode` — and the frames still on the wire when the link died go with it: a station that lost
+        its association keeps nothing, and a command that arrives after the failsafe has fired would
+        contradict the one sentence this feature exists to state.
+        """
+        st = self._wifi.step(r.spec.name, r.pose, dt)
+        if st.down and r.mode != "autonomy":
+            st.mode_before = r.mode
+            r.mode = "autonomy"
+            st.pending.clear()
+            log.warning("link to '%s' down at %.1f dBm (q %.2f for %.1f s) -> %s",
+                        r.spec.name, st.rssi_dbm, st.quality, st.low_for, self._wifi.autonomy)
+        elif not st.down and r.mode == "autonomy":
+            r.mode = st.mode_before
+            log.info("link to '%s' is up again at %.1f dBm (q %.2f), back to %s",
+                     r.spec.name, st.rssi_dbm, st.quality, st.mode_before)
+        if self._due(r, "link", cfg_get(self.cfg, "wifi.rate", 5.0), dt):
+            # A robot out of range still reports: `up: false` is a measurement too, and the only way
+            # a student sees the difference between "far away" and "the topic is not running".
+            self._push("link", r.spec.name, self._wifi.message(r.spec.name))
+
     def _drive(self, r: Robot, dt: float) -> None:
-        """Apply commands: own wheel values beat cmd_vel, both with a watchdog."""
+        """Apply commands: own wheel values beat cmd_vel, both with a watchdog.
+
+        `mode == "autonomy"` is the one case where the watchdog is not the boss — see `_hold()`, which
+        is the two onboard rules of `wifi.autonomy`.
+        """
+        if r.mode == "autonomy" and self._wifi is not None:
+            self._hold(r)
+            return
         wheels_ok = r.wheel_cmd is not None and 0 <= self.t - r.t_cmd <= self.cfg["cmd_timeout"]
         vel_ok = r.vel_cmd is not None and 0 <= self.t - r.t_vel <= self.cfg["cmd_timeout"]
         if r.mode == "wheels" and wheels_ok:
@@ -378,6 +493,25 @@ class SimEngine:
             r.chassis.set_twist(v.vx, v.vy, v.omega)       # the chassis maps it, not the engine
         else:
             r.chassis.set_wheels([0.0] * 4)          # radio silence -> let the motors coast down
+
+    def _hold(self, r: Robot) -> None:
+        """What a robot does with itself while the link is down — `wifi.autonomy`, both spellings.
+
+        `stop` is what the stale-command branch of `_drive()` already does: no frame arrives, the
+        watchdog stops the motors, the robot holds the place it was left at. `dead_reckoning` replays
+        the last frame that really arrived — the robot finishes the manoeuvre it was told to do, wall
+        in the way or not, which is how a real robot walks itself home and why the course has to talk
+        about which of the two a practice robot should ship.
+        """
+        st = self._wifi.state(r.spec.name)
+        replay = self._wifi.autonomy == "dead_reckoning"
+        if replay and st.mode_before == "wheels" and r.wheel_cmd is not None:
+            r.chassis.set_wheels(r.wheel_cmd)
+        elif replay and r.vel_cmd is not None:
+            v = r.vel_cmd
+            r.chassis.set_twist(v.vx, v.vy, v.omega)
+        else:
+            r.chassis.set_wheels([0.0] * 4)          # "stop": the watchdog's answer, held
 
     def _due(self, r: Robot, kind: str, rate: float, dt: float) -> bool:
         """Enforce the sensor rate per robot and measured quantity."""
@@ -441,6 +575,31 @@ class SimEngine:
         q, sats = self._gps.sky(r.pose)
         return (q, sats, self._gps.drops.get(name, 0))
 
+    def sensor_info(self, name: str) -> SensorInfo:
+        """The instruments' answer for one robot — `types.SensorInfo`, published as `/sensor/info`.
+
+        Asked of the instruments and not of their last messages, for the same reason as
+        `gps_health()`: in a blackout there is no fresh fix to read, and the reason is the point.
+        The temperature comes from the IMU object because it moves with every sample and reaches a
+        message only by accident; `scan_gaps` is the one number that does describe the last scan.
+        Published at `gps.rate`, the slowest of the three instruments — nothing here changes faster.
+        """
+        r = self.robots[name]
+        quality, sats, lost = self.gps_health(name)
+        return SensorInfo(t=self.t, quality=quality, sats=sats, lost=lost,
+                          latency_ms=1000.0 * self._gps.latency, temp=r.inertial.temp,
+                          scan_gaps=r.scan.missing if r.scan is not None else 0)
+
+    def link_health(self, name: str) -> tuple | None:
+        """(quality, dBm, metres, walls, up, dropped, sent, latency_ms, ap); None: no radio in this lab.
+
+        The network layer's `gps_health()`, for the same reason: the readout has to be able to say
+        what the antenna sees while no command is being delivered, and the AP's position belongs in
+        the same answer the window draws the line from. None rather than a neutral tuple, so the
+        layer stays empty in every run that did not ask for a radio.
+        """
+        return None if self._wifi is None else self._wifi.health(name)
+
     def poi_sources(self) -> list:
         """The sources of the running world (pois.Source) — for the window's truth view, not for a node.
 
@@ -476,6 +635,10 @@ class SimEngine:
         """
         profile = {k: cfg_get(self.cfg, k) for k in
                   ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth", "steering",
-                   "poi")}
+                   "poi", "wifi")}
+        # Which access point the running model actually uses — the per-world default and the override
+        # are two different config layers and a student should never have to guess which one won.
+        profile["wifi"] = dict(profile.get("wifi") or {},
+                               effective_ap=None if self._wifi is None else list(self._wifi.ap))
         profile["seed"] = self.seed
         return json.dumps(profile)

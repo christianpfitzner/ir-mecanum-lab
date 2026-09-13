@@ -10,6 +10,8 @@
 """
 import json
 import logging
+
+from support_logging import logged, messages
 import os
 import subprocess
 import sys
@@ -112,13 +114,14 @@ def test_a_task_file_with_the_old_german_keys_still_loads(tmp_path, caplog):
               "reihenfolge": ["old_task"]}
     file_name = tmp_path / "alt.json"
     file_name.write_text(json.dumps(legacy), encoding="utf-8")
-    with caplog.at_level(logging.WARNING):
+    with logged("mecanum.tasks") as records:
         cfg = tasks.load_tasks(str(file_name))
+    text = " | ".join(messages(records))
     task = cfg["tasks"][0]
     assert (task["title"], task["points"], task["world"]) == ("Quadrat", 30, "maze")
     phase = task["phases"][0]
     assert phase["target"] == [1.0, 2.0] and phase["duration"] == 3.0
     assert phase["expect"]["yaw_max_deg"] == 5.0                  # nested keys too
     assert "dauer" not in phase and "ziel" not in phase           # only today's spelling survives
-    assert "deprecated key 'titel'" in caplog.text
-    assert "deprecated key 'erwarte'" in caplog.text
+    assert "deprecated key 'titel'" in text
+    assert "deprecated key 'erwarte'" in text

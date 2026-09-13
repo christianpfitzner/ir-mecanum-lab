@@ -14,6 +14,19 @@ from launch.substitutions import LaunchConfiguration
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRUE = ("true", "1", "yes", "on")
+# Every argument this file forwards, with its default and one line of help: `--show-args` prints one
+# row per entry here, and `tools/launchargs.py` fails the build when a row would be empty.
+BASICS = [
+    ("world", "production", "hall to drive: production | track | maze | arena | open"),
+    ("robot", "muster", "your robot name (one person, one robot)"),
+    ("robots", "muster", "robots to spawn at start (comma-separated)"),
+    ("controller", "student/solution.py", "your node, relative to the source tree"),
+    ("task", "", "task or group announced to the students (empty = the grader decides)"),
+    ("grade", "", "grade this task or group inside the simulator (empty = do not grade)"),
+    ("seconds", "0", "end after N s of simulation time (0 = until q/Ctrl-C, as in ./lab)"),
+    ("headless", "false", "without the Pygame window (sets SDL_VIDEODRIVER=dummy)"),
+    ("use_sim_time", "true", "use simulation time (/clock) for the timestamps"),
+]
 
 
 def start(context, *args, **kwargs):
@@ -41,15 +54,6 @@ def start(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    return LaunchDescription([
-        DeclareLaunchArgument("world", default_value="production"),
-        DeclareLaunchArgument("robot", default_value="muster"),
-        DeclareLaunchArgument("robots", default_value="muster"),
-        DeclareLaunchArgument("controller", default_value="student/solution.py"),
-        DeclareLaunchArgument("task", default_value="", description="Empty = grader decides"),
-        DeclareLaunchArgument("grade", default_value="", description="e.g. alle or kinematik"),
-        DeclareLaunchArgument("seconds", default_value="0"),
-        DeclareLaunchArgument("headless", default_value="false"),
-        DeclareLaunchArgument("use_sim_time", default_value="true"),
-        OpaqueFunction(function=start),
-    ])
+    return LaunchDescription([DeclareLaunchArgument(name, default_value=default, description=text)
+                              for name, default, text in BASICS]
+                             + [OpaqueFunction(function=start)])

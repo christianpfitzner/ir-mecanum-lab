@@ -22,7 +22,9 @@ import sys
 
 EXCLUDE = {"__pycache__", ".git", "build", "install", ".pytest_cache"}
 CODE = (".py", ".sh")
-MARKUP = (".md", ".tex", ".txt", ".rst", ".makefile", ".json", ".xml")
+# .rviz too: an RViz layout is read by students as well, and its `Name:` entries are the labels
+# the sidebar shows — German survived there exactly once, while everything around it was English.
+MARKUP = (".md", ".tex", ".txt", ".rst", ".makefile", ".json", ".xml", ".rviz")
 NAMES = {"lab", "Makefile", "makefile"}
 # The two guard tools carry the German vocabulary they search for; reading them would report the
 # word list itself. Everything else in the repository is checked.

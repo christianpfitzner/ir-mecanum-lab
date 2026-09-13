@@ -25,7 +25,8 @@ COLUMNS = ["t", "robot",
            "x_gps", "y_gps", "th_gps", "t_age_gps", "q_gps", "sats_gps", "lost_gps",
            "x_odom", "y_odom", "th_odom",
            "x_kf", "y_kf", "th_kf", "sx_kf", "sy_kf", "n_kf",
-           "ax_imu", "ay_imu", "gz_imu", "temp_imu", "noecho_scan"]
+           "ax_imu", "ay_imu", "gz_imu", "temp_imu", "noecho_scan",
+           "intensity_poi", "name_poi"]
 
 # Which field of which message goes into which column (dataclass field names, see types.py)
 FIELDS = {"truth": {"x": "x_truth", "y": "y_truth", "theta": "th_truth"},
@@ -33,7 +34,8 @@ FIELDS = {"truth": {"x": "x_truth", "y": "y_truth", "theta": "th_truth"},
           "odom": {"x": "x_odom", "y": "y_odom", "theta": "th_odom"},
           "kf": {"x": "x_kf", "y": "y_kf", "theta": "th_kf", "sx": "sx_kf", "sy": "sy_kf"},
           "imu": {"ax": "ax_imu", "ay": "ay_imu", "gz": "gz_imu", "temp": "temp_imu"},
-          "scan": {"missing": "noecho_scan"}}
+          "scan": {"missing": "noecho_scan"},
+          "poi": {"intensity": "intensity_poi"}}
 
 
 class Logbook:
@@ -60,6 +62,11 @@ class Logbook:
         if kind == "kf":
             self.n_kf += 1
             latest["n_kf"] = self.n_kf
+        if kind == "poi":
+            # The one text column, and the reason it is not a number: the counter names the loudest
+            # source, and a plotted intensity series without that name is a guess about which of the
+            # sources in the world it is (pois.py, CONTRACT §6.13).
+            latest["name_poi"] = getattr(payload, "name", "") or ""
 
     def tick(self) -> None:
         """One line per robot once `interval` seconds of simulation time have passed.
@@ -98,6 +105,10 @@ def _num(obj, field: str):
 
 
 def _r(value) -> str:
+    """One cell: a number with four decimals, a name as it stands, an empty field for what was not
+    measured. Text stays text because `name_poi` is a name and no float can be made of it."""
+    if isinstance(value, str):
+        return value
     try:
         return f"{float(value):.4f}"
     except (TypeError, ValueError):

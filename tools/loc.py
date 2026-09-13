@@ -179,27 +179,156 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #                          config/tasks.json did not grow by one line — no graded number, no sensor of
 #                          experiment 1 and no wheel equation is involved, and the 100/100, the 90/90
 #                          and the 30/30 of check.sh are the same numbers they were before.
+# Addendum, the radio link `wifi.enabled` (numbers measured, `git diff --stat`):
+#   wifi.py new, 365 (measured 363)  one access point, the link budget, the delivery rule and the
+#                          onboard rule. Not in sensors.py: those 560 lines measure the floor with
+#                          rays and fixes, this measures the wire to one address and its output is a
+#                          decision about a command frame. Not in engine.py either: engine says what
+#                          a robot does with a command, wifi says whether one arrives at all — that
+#                          seam is `_deliver()`, and it is one `if` in one file because the two
+#                          halves are in two files. Wall crossings reuse `sensors._ray_rect`, so a
+#                          LIDAR beam and a radio wave cannot disagree about which walls exist.
+#   engine.py 485 -> 620 (measured 618, +137)  the seam itself (`_deliver`/`_apply_cmd`/`_wire`),
+#                          `_step_link` (timer, autonomy flip, rate-limited /link), `_hold` for both
+#                          onboard spellings, `link_health()` for the window, the radio history
+#                          dropped on reset/despawn/set_sensor_profile, `effective_ap` on
+#                          /sim/config. Most of it is the sentence saying that with the option off
+#                          this is the old assignment and nothing else — which tests/test_wifi_w6.py
+#                          checks by comparing two recorded CSVs byte for byte.
+#   types.py 460 -> 520 (measured 514, +56)  the Link message (with why `ap` is in a message about
+#                          quality), the /link topic and its ROS mapping, the fifteen wifi keys with
+#                          one line of meaning per number — what a path-loss exponent of 2.4 is,
+#                          what one crossing at 12 dB costs — because a knob without that is a dial
+#                          with no label.
+#   overlays.py 290 -> 440 (measured 432, +148)  the network layer: access point symbol, the line to
+#                          the robot drawn on the very segment the budget is computed on, the quality
+#                          bar, `link_text()` with the five numbers, `autonomy_mark()` (outside the
+#                          layer, because a layer can be hidden and the failsafe cannot). Same
+#                          argument as the two readout additions before it: overlays.py is the kit,
+#                          render.py builds a frame, and render.py grew by 6 lines instead of 150 for
+#                          that reason.
+#   render.py 480 -> 485 (+6)  the `n` key, its boolean, the two calls, the readout segment. Same
+#                          three-line rule as `p` and `s`.
+#   ros_bridge.py 490 -> 500 (+14)  /link out and in, JSON on a String like /poi: a custom interface
+#                          would put a colcon build in front of a student who only wants to read a
+#                          quality.
+#   robot_io.py 259 -> 275 (+14)  `link()` for the student side, plus the topic line in the table: a
+#                          feature a controller cannot observe from inside is not an experiment.
+#   student/link_autonomy_example.py new, 155 (measured 151)  the drive that walks out of coverage
+#                          and says where the link died, in the readable size of steering_example
+#                          (214) rather than solution.py (304): it is an example, not a reference.
+#   launch/wifi.launch.py new, 130 (measured 129)  the same fifteen settings as `--set` calls, one
+#                          table, both processes. Declares every argument it forwards (W1's lesson).
+#   CORE_TOTAL 5750 -> 6500  measured 6458 (5718 before W6): wifi.py 363 new, overlays +148, engine
+#                          +137, types +56, ros_bridge +14, robot_io +14, render +6, node +1 (the two
+#                          printed topic lists), menu +1 (the row). sensors.py, physics.py, grade.py,
+#                          tasks.py, logbook.py, steering.py, pois.py and both reference solutions did
+#                          not grow by one line — no sensor of the floor, no grading threshold and no
+#                          wheel equation is involved, and the 100/100, the 90/90 and the 30/30 of
+#                          check.sh are the same numbers they were before. With `wifi.enabled` false
+#                          — the shipped default — not even a random number is drawn for the radio,
+#                          which is how that stayed true.
+# Addendum, the fix for `./lab run --controller` never having driven a robot (found by W6, measured):
+#   node.py 615 -> 640 (measured 634, +20)  `subscribe_all()`, the one call every command path needs:
+#                          `cmd_run()` started the student node and ran the loop but never subscribed
+#                          the topics, so every frame the node published sat on the bus while the
+#                          robot stood at its spawn pose for the whole run and /gps fixed away
+#                          merrily beside it. `cmd_sim()` and `cmd_grade()` had the call;
+#                          `cmd_controller`, `cmd_teleop` and `cmd_client` have no engine to wire.
+#                          Plus the teleop keys recording that they were the last publisher — they
+#                          publish on /cmd_vel like any node does, only while a key is held.
+#   engine.py 620 -> 630 (+11)  `note_keys()`: who was last, a fact the window shows and no part of
+#                          the drive depends on.
+#   overlays.py 440 -> 460 (+23)  `command_readout()`: `cmd topic 0.04 s` / `cmd keys 0.02 s` /
+#                          `cmd none`. A node and the keyboard share one topic, so the honest answer
+#                          to "what is driving this robot" is a timestamp — and it belongs on screen.
+#   render.py +1, types.py +1   the segment in the readout line; the stamp next to t_vel.
+#   CORE_TOTAL 6500 -> 6550  measured 6514. The regression test is
+#                          test_a_node_under_lab_run_reaches_the_robot, which enters through
+#                          cmd_run() itself: every harness that called subscribe() on its own — as
+#                          two tests in this repository do — is exactly the test that could not
+#                          catch this, which is how one missing line survived four command paths.
 # The names of the fields students read (report, CSV) cost nothing here: they are strings.
+#
+# Addendum, W7: papercuts, reproducible pictures, measured-vs-required grading, `/sensor/info`
+# (numbers measured with this table, before -> after):
+#   node.py 640 -> 755 (measured 743)  `--frame-max`/`--screenshot` and `save_picture()`, which is what
+#                          makes a documentation figure regenerable instead of re-screenshotable; the
+#                          `time_limit()` line that prints which end-of-run rule is in force; the dead
+#                          `./lab -h` branch (COMMANDS is now name -> (fn, help), so the help lists all
+#                          eleven commands); and the setup that `cmd_run`/`cmd_sim`/`cmd_grade` used to
+#                          each write themselves — `spawn_player`, `student_nodes`, `timed_run` — which
+#                          is where the missing `subscribe_all()` of W6 had hidden. Most of the growth
+#                          is the sentence saying what each option decides, not new behaviour.
+#   grade.py 620 -> 675 (measured 669)  MISSION_CRITERIA + `_apply()`: the eight hand-written limit `if`
+#                          blocks of one mission became one table, and the same rows are what the report
+#                          prints, so the limit a student reads is the limit that was applied (a 0/90
+#                          run that names neither number is what the K3 and T4 questions came from).
+#                          Also the phase reason that was a bare string inside `"; ".join(...)`.
+#   types.py 520 -> 565 (measured 560)  `SensorInfo`, the `/sensor/info` entry of MSG_SPECS, and the
+#                          two docstrings that had drifted from the code: `Gps.quality` claimed a
+#                          receiver could answer with quality 0 (no code path ever did — quality 0 is a
+#                          property of a *place*, `GpsSensor.sky()`), and `Scan.range_max` now says why
+#                          it is spelled like `LaserScan.range_max` and not like `max_range`.
+#   engine.py 630 -> 650 (measured 644)  one `_build_sensors()` for startup and for a profile switch
+#                          (the two copies were how a switch kept an old instrument), `reset()` through
+#                          `reset_robot()`, and `sensor_info()` for the message above.
+#   overlays.py 460 -> 490 (measured 481)  `sigma_legend()`: the σ ellipse in metres and the same
+#                          half-axis in pixels at the current zoom, in the readout line rather than in
+#                          the estimate layer, because `k` hides a drawing and not a number.
+#   ros_bridge.py 500 -> 515, robot_io.py 275 -> 290, logbook.py 110 -> 118, tasks.py 210 -> 215
+#                          the JSON mapping of `/sensor/info`, the `poi()` accessor and its topic row,
+#                          the `intensity_poi`/`name_poi` columns (a counter you can only watch during
+#                          the run cannot be plotted afterwards), and one legacy task key less.
+#   student/kf_template.py 200 -> 235 (measured 231)  the docstring rewritten to say what the template
+#                          does and does not do: it grades as an empty estimate (rmse 6.84, "no
+#                          standard deviations in kf/pose"), which is what its old header denied.
+#   launch/kf.launch.py 185 -> 195, launch/lab.launch.py stays at 60   the 47 arguments kf.launch.py
+#                          used to forward undeclared, each with its `deprecated, use 'X'` line, and
+#                          lab.launch.py's arguments as one `BASICS` table so that all nine carry help
+#                          inside the 60-line limit `tests/test_package_f.py` holds it to.
+#   tools/kfplot.py 250 -> 310 (measured 305)  `sensor_state()`: q_gps, lost_gps, temp_imu and
+#                          intensity_poi as four sparklines, each on its own scale (a shared axis would
+#                          show the temperature and hide the quality).
+#   student/poi_seek_example.py new, 180 (measured 176)  the climb to the radiation source; ~45 of its
+#                          lines are the four reasons the search is shaped the way it is, measured
+#                          against the three versions that did not work.
+#   tools/launchargs.py new, 195 (measured 192)  the guard for the above: every argument a launch file
+#                          reads has to be declared and has to have one line of help, checked from the
+#                          AST of all five files (112 arguments, 5 files) because a table that only
+#                          exists in a printed handout is how `--show-args` becomes a lie.
+#   CORE_TOTAL 6550 -> 6850  measured 6807: node +103, grade +49, types +40, overlays +21, engine +14,
+#                          ros_bridge +10, robot_io +11, logbook +5, tasks +1. physics.py, sensors.py,
+#                          worlds.py, wifi.py, pois.py, steering.py, cam.py, menu.py, tf_bcast.py,
+#                          render.py (+1, inside its 495) and both reference solutions did not grow by
+#                          one line — no wheel equation, no sensor model and no graded threshold of
+#                          either experiment changed, and the 100/100 twice, the 90/90 and the 30/30 of
+#                          check.sh are the same numbers they were before this package.
 BUDGET = {
-    "mecanum_lab/types.py": 460, "mecanum_lab/stub.py": 115,
-    "mecanum_lab/engine.py": 485, "mecanum_lab/worlds.py": 135,
+    "mecanum_lab/types.py": 565, "mecanum_lab/stub.py": 115,
+    "mecanum_lab/engine.py": 650, "mecanum_lab/worlds.py": 135,
     "mecanum_lab/physics.py": 180, "mecanum_lab/sensors.py": 560,
     "mecanum_lab/steering.py": 290, "mecanum_lab/pois.py": 170,
-    "mecanum_lab/overlays.py": 290,
-    "mecanum_lab/render.py": 480, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
-    "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
-    "mecanum_lab/node.py": 615, "mecanum_lab/robot_io.py": 259,
-    "mecanum_lab/tasks.py": 210, "mecanum_lab/grade.py": 620,
-    "mecanum_lab/logbook.py": 110,
+    "mecanum_lab/wifi.py": 365,
+    "mecanum_lab/overlays.py": 490,
+    "mecanum_lab/render.py": 485, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
+    "mecanum_lab/ros_bridge.py": 515, "mecanum_lab/tf_bcast.py": 135,
+    "mecanum_lab/node.py": 755, "mecanum_lab/robot_io.py": 290,
+    "mecanum_lab/tasks.py": 215, "mecanum_lab/grade.py": 675,
+    "mecanum_lab/logbook.py": 118,
     "student/controller_template.py": 125, "student/solution.py": 310,
-    "student/kf_template.py": 200, "student/kf_solution.py": 310,
+    "student/kf_template.py": 235, "student/kf_solution.py": 310,
     "student/steering_example.py": 220,
+    "student/link_autonomy_example.py": 155,
+    "student/poi_seek_example.py": 180,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
-    "launch/lab.launch.py": 60, "launch/kf.launch.py": 185,
-    "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 245,
+    "launch/lab.launch.py": 60, "launch/kf.launch.py": 195,
+    "launch/wifi.launch.py": 130,
+    "tools/kfplot.py": 310, "tools/fastgrade.py": 145, "tools/worldpic.py": 245,
+    "tools/launchargs.py": 195,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 5750
+CORE_TOTAL = 6850
 
 
 def loc(path):

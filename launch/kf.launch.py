@@ -109,9 +109,14 @@ def _path(given: str) -> str:
 def setup(context, *args, **kwargs):
     """Build two (up to four) processes out of the arguments."""
     def read_arg(name):
-        """Value of a launch argument; the German name still works, with a one-line notice."""
+        """Value of a launch argument; the German name still works, with a one-line notice.
+
+        Both names are declared, so both are always in `launch_configurations` — what decides is
+        whether the old one carries a value and the new one still holds its default. Then the old
+        name wins; give both and the new one wins, which is the rule of CONTRACT §6.11.
+        """
         old = DEPRECATED.get(name, "")
-        if old and old in context.launch_configurations:      # only the new name is declared
+        if old and context.launch_configurations.get(old, ""):
             if context.launch_configurations.get(name, "") == DEFAULTS.get(name, ""):
                 print(f"deprecated launch argument '{old}', use '{name}'")
                 return context.launch_configurations[old]
@@ -179,4 +184,10 @@ def generate_launch_description():
                  for name, default, text in BASICS]
     arguments += [L.DeclareLaunchArgument(name, default_value="", description=text)
                   for name, _, text in SETTINGS]
+    # The deprecated German names are declared too (empty = not given), so `--show-args` lists every
+    # name this file accepts instead of only half of them — a student with an old handout in front of
+    # them finds the line that says which spelling to use from now on.
+    arguments += [L.DeclareLaunchArgument(german, default_value="",
+                                         description=f"deprecated, use '{english}'")
+                  for english, german in sorted(DEPRECATED.items())]
     return LaunchDescription(arguments + [L.OpaqueFunction(function=setup)])

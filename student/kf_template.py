@@ -14,11 +14,43 @@ frame, or the drift you are trying to get rid of comes along:
                          motion update      odometry  H = [0 I], R = sigma_v²
                          report: sx = √P_xx, sy = √P_yy    (1σ, not variance!)
 
-Start it (the sim drives itself, --truth shows the exact pose as a ghost outline):
-    ./lab run --world arena --task kf_gps --robot alice --controller student/kf_template.py --truth
-Check it the way grading will: ./lab grade --task kf_gps --controller student/kf_template.py
-Reference solution: student/kf_solution.py — compute first, then compare. The seven TODOs are
-the whole computation; with them the node already runs and keeps reporting its start pose.
+WHAT THIS FILE ALREADY DOES (so you know what you are not being asked to write):
+
+* the node lifecycle — `robot_io.serve()` below, `/sim/task` switches the run under it;
+* a loop that ticks on **message stamps** and never on the wall clock, that throws away the
+  measurements the bus still remembers from the previous task, and that restarts the filter when
+  it slept for more than SLEEP seconds instead of extrapolating that gap with the CV model;
+* the sensor reading itself (odometry, IMU, GPS), σ_xy taken from the running simulation with
+  `rob.config("gps.sigma_xy")` instead of guessed, and the report on kf/pose at 50 Hz;
+* the 4×4 matrix helpers, because a Kalman filter is a pile of matrix multiplications and the
+  arithmetic is not the exercise.
+
+WHAT YOU HAVE TO ADD — the seven TODOs, and nothing else is missing:
+
+    TODO 1 cv_matrix(dt)      F of the CV model          TODO 5 the covariance correction P⁺
+    TODO 2 q_matrix(q, dt)    Q from the time step        TODO 6 the reported 1σ (√P on the diag)
+    TODO 3 the gain K                                     TODO 7 gyro bias averaged at standstill
+    TODO 4 the state correction x⁺
+
+Until then this is not a working filter, and it does not pretend to be one: K stays 0, so no
+measurement ever changes anything, and the node reports the pose it started the task with for the
+whole task, with sx = sy = 0. Grading answers that with `no standard deviations in kf/pose` and an
+RMSE that is the distance between one fixed point and a moving robot — the number of a filter that
+never filtered. There is no reduced mode of this file that passes; K1 needs TODO 1, 2, 3, 4, 6.
+
+Start it (the sim drives itself):     ./lab run --world arena --task kf_gps --robot alice \\
+                                           --controller student/kf_template.py
+Check it the way grading will:        ./lab grade --task kf_gps --controller student/kf_template.py
+Record and plot it:                   ./lab grade --task kf_gps --controller student/kf_template.py \\
+                                           --log messung.csv   and  python3 tools/kfplot.py messung.csv
+
+`--truth` is not a display switch: it makes the simulation publish the exact pose on
+/<robot>/truth, which is what the grader measures against (it is on automatically under `./lab
+grade`). The window always draws the true pose — that is the robot's own dot — and what the estimate
+layer (`k`) adds to the picture is your estimate as a diamond with its σ ellipse and the red line
+between the two.
+
+Reference solution: student/kf_solution.py — compute first, then compare.
 """
 import math
 import sys

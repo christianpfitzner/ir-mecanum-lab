@@ -70,7 +70,7 @@ class Grader:
         for a in self.tasks:
             self.results[a["id"]] = {"id": a["id"], "title": a["title"], "max_points": a["points"],
                                  "points": 0.0, "passed": False, "reason": "not evaluated",
-                                 "measured": {}, "phases": {}}
+                                 "measured": {}, "criteria": [], "phases": {}}
         if self.plan:
             self._open_step(self.plan[0])
         else:
@@ -194,12 +194,12 @@ class Grader:
         estimate = self.bus.last("kf", self.name)[0]
         raw = self.bus.last(a.get("sensor", "gps"), self.name)[0]
         e_kf = math.hypot(estimate.x - truth.x, estimate.y - truth.y) if estimate else 1e9
-        e_roh = math.hypot(raw.x - truth.x, raw.y - truth.y) if raw else 1e9
+        e_raw = math.hypot(raw.x - truth.x, raw.y - truth.y) if raw else 1e9
         nees = float("nan")
         if estimate and estimate.sx > 1e-6 and estimate.sy > 1e-6:
             nees = (((estimate.x - truth.x) ** 2 / estimate.sx ** 2
                      + (estimate.y - truth.y) ** 2 / estimate.sy ** 2) / 2.0)
-        self._series.append((now_t, e_kf, e_roh, nees))
+        self._series.append((now_t, e_kf, e_raw, nees))
         self._note_outage(now_t, truth, raw, e_kf)
 
     def _note_outage(self, now_t: float, truth, raw, error: float) -> None:
@@ -233,14 +233,14 @@ class Grader:
         ph, now = s["ph"], self.bus.last("odom", self.name)[0]
         ergebnis, start = self.results[s["task"]["id"]], self._mark["odom"]
         if now is None or start is None:
-            phase_ok, measured, reasons = False, {}, "no odometry received"
+            phase_ok, measured, reasons, lines = False, {}, ["no odometry received"], []
         else:
             measured = _delta(start, now)
-            reasons = _check(ph.get("expect", {}), measured)
+            reasons, lines = _check(ph.get("expect", {}), measured)
             phase_ok = not reasons
         ergebnis["phases"][ph["id"]] = {"ok": phase_ok, "measured":
                                         {k: round(v, 3) for k, v in measured.items()},
-                                        "reason": "; ".join(reasons)}
+                                        "criteria": lines, "reason": "; ".join(reasons)}
         per_phase = s["task"]["points"] / len(s["task"]["phases"])
         ergebnis["points"] = round(ergebnis["points"] + (per_phase if phase_ok else 0.0), 1)
         log.info("phase %-6s %s  %s", ph["id"], "ok" if phase_ok else "FAIL", measured)
@@ -262,16 +262,10 @@ class Grader:
             measured["path"] = round(float(now_robot.get("distance", 0)) - float(info_start.get("distance", 0)), 2)
             measured["contacts"] = int(now_robot.get("contacts", 0)) - int(info_start.get("contacts", 0))
             if self._lateral is not None:
-                measured["lateral_distance"] = round(self._lateral, 3)
-            if a.get("target") == "spawn" or a["id"] == "quadrat":
-                pass
+                measured["lateral_distance"] = round(self._lateral, 3)     # smallest gap, see _act
             if a["id"] == "quadrat":
                 measured["closure"] = round(T.pos_error(start, now), 3)
                 measured["yaw_deg"] = round(math.degrees(T.yaw_error(start, now)), 1)
-                if measured["closure"] > a["closure_max"]:
-                    reasons.append(f"completion error {measured['closure']} m > {a['closure_max']}")
-                if measured["yaw_deg"] > a["yaw_max_deg"]:
-                    reasons.append(f"heading error {measured['yaw_deg']}° > {a['yaw_max_deg']}°")
             else:
                 target = self._target(a, now_robot)
                 if target is None:
@@ -279,19 +273,10 @@ class Grader:
                 else:
                     measured["target_error"] = round(T.pos_error(target, now), 3)
                     measured["target"] = [round(v, 2) for v in target[:2]]
-                    if measured["target_error"] > a["target_max"]:
-                        reasons.append(f"target missed: {measured['target_error']} m > {a['target_max']} m")
-            if measured.get("path", 0) < a.get("path_min", 0):
-                reasons.append(f"path {measured['path']} m below {a['path_min']} m — barely moved?")
-            if measured.get("path", 0) > a.get("path_max", 1e9):
-                reasons.append(f"path {measured['path']} m above {a['path_max']} m — a detour?")
-            if measured.get("contacts", 0) > a.get("contacts_max", 0):
-                reasons.append(f"{measured['contacts']} wall contacts (allowed {a['contacts_max']})")
-            if self._lateral is not None and a.get("lateral_min") and self._lateral < a["lateral_min"]:
-                reasons.append(f"lateral {round(self._lateral, 2)} m below {a['lateral_min']} m")
-            if measured.get("time", 0) > a["timeout"]:
-                reasons.append(f"time {measured['time']} s above limit {a['timeout']} s")
+        limits, criteria = _apply(MISSION_CRITERIA, measured, a)
+        reasons += limits
         m["measured"], m["reason"] = measured, ("; ".join(reasons) or "meets requirements")
+        m["criteria"] = criteria
         m["passed"] = not reasons
         m["points"] = a["points"] if m["passed"] else 0.0
 
@@ -318,7 +303,7 @@ class Grader:
     def _eval_kf(self, s) -> None:
         """Experiment 2: RMSE, improvement, maximum error, consistency — all against `truth`."""
         a, m = s["task"], self.results[s["task"]["id"]]
-        series, reasons, measured = self._series, [], {}
+        series, reasons, measured, lines = self._series, [], {}, []
         info = robot_io.robot_info(self.bus, self.name) or {}
         if self._reason:
             reasons.append(f"student reports: {self._reason}")
@@ -330,12 +315,12 @@ class Grader:
         else:
             span = max(series[-1][0] - series[0][0], 1.0)
             rms = lambda i: math.sqrt(sum(x[i] ** 2 for x in series) / len(series))  # noqa: E731
-            rmse, rmse_roh = rms(1), rms(2)
+            rmse, rmse_raw = rms(1), rms(2)
             measured["samples"] = len(series)
             measured["time"] = round(span, 1)
             measured["rmse"] = round(min(rmse, 999.0), 3)     # 1e9 = never an estimate: say so readably
-            measured[f"rmse_{a.get('sensor', 'gps')}"] = round(rmse_roh, 3)
-            measured["improvement"] = round(rmse_roh / rmse, 2) if rmse > 1e-9 else 0.0
+            measured[f"rmse_{a.get('sensor', 'gps')}"] = round(rmse_raw, 3)
+            measured["improvement"] = round(rmse_raw / rmse, 2) if rmse > 1e-9 else 0.0
             measured["max_error"] = round(min(max(x[1] for x in series), 999.0), 3)
             measured["rate_hz"] = round(self._kf_seen / span, 1)
             measured["contacts"] = int(info.get("contacts", 0)) - int(self._info_start.get("contacts", 0))
@@ -351,21 +336,27 @@ class Grader:
                                  "theta, sx, sy, sth)?")
                 else:
                     reasons.append("no standard deviations in kf/pose (sx/sy are mandatory)")
-            reasons += _check_kf(a, measured)
+            more, lines = _check_kf(a, measured)
+            reasons += more
             outage = a.get("outage")
             if outage:
                 span = self._outage_duration()
                 measured["outage_duration"] = round(span, 1)
                 measured["outage_max"] = (round(max(e for _, e in self._outage), 3)
                                       if self._outage else None)
+                lines.append(f"outage {span:g} s ≥ {float(outage.get('duration_min', 1.0)):g} s")
                 if span < float(outage.get("duration_min", 1.0)):
                     reasons.append(f"no GPS outage measurable ({span:.1f} s without a fix, "
                                  f"expected from {outage['duration_min']} s) — profile not driven?")
-                elif measured["outage_max"] > float(outage["error_max"]):
-                    reasons.append(f"during the GPS outage {measured['outage_max']} m > "
-                                 f"{outage['error_max']} m")
+                elif measured["outage_max"] is not None:
+                    lines.append(f"outage error {measured['outage_max']:g} ≤ "
+                                 f"{float(outage['error_max']):g}")
+                    if measured["outage_max"] > float(outage["error_max"]):
+                        reasons.append(f"during the GPS outage {measured['outage_max']} m > "
+                                       f"{outage['error_max']} m")
             reasons += _check_profile(a, self.bus)
         m["measured"], m["reason"] = measured, ("; ".join(reasons) or "meets requirements")
+        m["criteria"] = lines
         m["passed"] = not reasons
         m["points"] = a["points"] if m["passed"] else 0.0
         log.info("KF %-14s %s  rmse=%s verb=%s", a["id"], "ok" if m["passed"] else "FAIL",
@@ -426,9 +417,14 @@ def drive_command(a: dict, t: float) -> Twist:
     return Twist()
 
 
-def _check_kf(a: dict, measured: dict) -> list:
-    """Apply the thresholds of a KF task — the message always names the measured number."""
-    reasons = []
+def _check_kf(a: dict, measured: dict) -> tuple:
+    """Apply the thresholds of a KF task — the message always names the measured number.
+
+    Answers the violations and the rows for the report; `_apply` says why the two come out of one
+    loop. The names here are the ones in CONTRACT-KF §5, not the task-file keys, because the table in
+    the handout and this line are the same promise seen from two sides.
+    """
+    reasons, lines = [], []
     limits = [("rmse", "rmse_max", "accuracy"), ("max_error", "max_error_max", "max error"),
               ("improvement", "improvement_min", "improvement over raw sensor"),
               ("rate_hz", "rate_min", "rate of kf/pose"),
@@ -439,14 +435,16 @@ def _check_kf(a: dict, measured: dict) -> list:
             continue
         too_low = key.endswith("_min") and measured[value] < bound
         too_high = key.endswith("_max") and measured[value] > bound
+        lines.append(f"{name} {measured[value]:g} {'≥' if key.endswith('_min') else '≤'} {bound:g}")
         if too_low or too_high:
             reasons.append(f"{name} {measured[value]} violates {key}={bound}")
     if a.get("nees") and measured.get("nees") is not None:
         lo, hi = [float(v) for v in a["nees"]]
+        lines.append(f"NEES {measured['nees']:g} in [{lo:g} … {hi:g}]")
         if not lo <= measured["nees"] <= hi:
             reasons.append(f"NEES {measured['nees']} outside [{lo}, {hi}] — the stated standard "
                          "deviation does not match the actual error")
-    return reasons
+    return reasons, lines
 
 
 def _check_profile(a: dict, bus) -> list:
@@ -479,21 +477,75 @@ def _delta(start, now) -> dict:
 
 
 def _check(want: dict, measured: dict) -> list:
-    """Apply the thresholds from tasks.json: dx_min, dy_betrag_max, winkel_min, …"""
-    reasons = []
+    """Apply the thresholds from tasks.json: dx_min, dy_betrag_max, winkel_min, …
+
+    A `…_max` key bounds the *magnitude* (`abs(value)`), which is why the printed row shows the
+    magnitude. Answers the violations and the report rows, as `_apply` does for a mission.
+    """
+    reasons, lines = [], []
     for key, bound in want.items():
         kind, richtung = key.split("_", 1)
         value = measured.get(kind)
         if value is None:
             continue
         violated = (value < bound) if richtung == "min" else (abs(value) > bound)
+        lines.append(f"{kind} {abs(value):.2f} {'≥' if richtung == 'min' else '≤'} {bound:g}")
         if violated:
             reasons.append(f"{kind}={value:+.2f} violates {key}={bound}")
-    return reasons
+    return reasons, lines
+
+
+# One row per mission criterion: the measured number, the key that bounds it in the task file, the
+# sense of that bound, the bound a task without the key falls back to, and the sentence a violation
+# makes. `contacts_max` falls back to 0 because that is what a task that says nothing means: no
+# contact is welcome. `_eval_mission` applies exactly these rows and `format_report` prints exactly
+# these rows, so the limit a student reads is the limit that was applied. Kept apart, the report was
+# free to drift away from the check — and a 0/90 line that names neither the number nor the threshold
+# it was compared against is where the K3 and T4 questions started.
+#
+# `max` bounds the magnitude: that is the convention `_check` already uses for the phase keys
+# (`dy_betrag_max`) and the one the task text uses ("a final error < 0.25 m and a heading error
+# < 20 degrees", T2). `yaw_deg` is the one signed number in the table, and comparing it without abs()
+# let a solution that came 25° the wrong way home pass a task whose own description calls that a
+# violation. The signed value stays in `measured`, so the direction is still on the report.
+MISSION_CRITERIA = [
+    ("target_error", "target_max", "max", None, "target missed: {v} m > {b} m"),
+    ("closure", "closure_max", "max", None, "completion error {v} m > {b}"),
+    ("yaw_deg", "yaw_max_deg", "max", None, "heading error {v}° > {b}°"),
+    ("path", "path_min", "min", None, "path {v} m below {b} m — barely moved?"),
+    ("path", "path_max", "max", None, "path {v} m above {b} m — a detour?"),
+    ("contacts", "contacts_max", "max", 0, "{v} wall contacts (allowed {b})"),
+    ("lateral_distance", "lateral_min", "min", None, "lateral {v} m below {b} m"),
+    ("time", "timeout", "max", None, "time {v} s above limit {b} s"),
+]
+
+
+def _apply(criteria: list, measured: dict, a: dict) -> tuple:
+    """Measured numbers against the task's own limits: `(violations, one row per criterion)`.
+
+    A row is printed whether the criterion passed or failed (`path 2.14 m ≥ 1.5 m`): a passing run
+    then shows what it had to meet, a failing one shows the number beside the threshold instead of
+    only the number.
+    """
+    reasons, lines = [], []
+    for key, limit_key, sense, fallback, template in criteria:
+        bound, value = a.get(limit_key, fallback), measured.get(key)
+        if bound is None or value is None:
+            continue                                   # not a criterion of this task
+        shown = abs(value) if sense == "max" else value      # what the row and the message quote
+        missed = shown > bound if sense == "max" else value < bound
+        lines.append(f"{key} {shown:g} {'≤' if sense == 'max' else '≥'} {bound:g}")
+        if missed:
+            reasons.append(template.format(v=shown, b=bound))
+    return reasons, lines
 
 
 def format_report(rep: dict) -> str:
-    """Text table for the console — the same view the students get."""
+    """Text table for the console — the same view the students get.
+
+    Every line shows what was measured beside what was required (`_apply` builds the rows from the
+    task file), because the verdict alone is the one thing a student cannot act on.
+    """
     lines = [f"grading robot '{rep['robot']}'  ({rep['time']} s)",
               "-" * 66]
     for e in rep["tasks"]:
@@ -501,8 +553,12 @@ def format_report(rep: dict) -> str:
                       f"{e['max_points']:3d} pts  {e['title']}")
         for pid, p in e["phases"].items():
             lines.append(f"   {'ok ' if p['ok'] else 'FAIL'}  {pid:7s} "
-                          f"{p['measured']} {'' if p['ok'] else p['reason']}")
-        if e["measured"]:
+                          f"{' | '.join(p['criteria']) or p['measured']}")
+            if not p["ok"]:
+                lines.append(f"          why: {p['reason']}")
+        for row in e["criteria"]:
+            lines.append(f"        required: {row}")
+        if e["measured"] and not e["criteria"]:
             lines.append(f"        measured: {e['measured']}")
         lines.append(f"        verdict: {e['reason']}")
     lines += ["-" * 66,

@@ -573,3 +573,115 @@ where the reading is), `robot_io.RobotIO` has no `poi()` accessor so a student n
 `rob.bus.last("poi", rob.name)[0]`, and there is no `student/` gradient-climbing example: `student/*`
 is not this package's to write, and the three exercises of `config/demo_poi_exploration.json` are
 written so that one of them can become that example.
+
+## 13. One access point per hall: the radio link (this pass)
+
+**One option, one seam, one decision.** `wifi.enabled` (false in `types.py`) builds a
+`mecanum_lab/wifi.py` radio; `_deliver()` in `engine.py` is the seam every external command goes
+through, and `Robot.mode = "autonomy"` is the one bit the radio is allowed to flip on a robot. With the
+option off, `_deliver()` is the old assignment, `_make_wifi()` returned `None`, and no random number is
+drawn for the radio anywhere — which is how the golden file `tests/test_sensor_reality.py` stayed at its
+30 passed tests and 30/30. `tests/test_wifi_w6.py` does not trust that claim: it records the same 12 s
+drive twice, once with the whole `wifi` block written out at its defaults, and compares the two CSVs
+row for row (and asserts the third recording, radio *on*, differs — a test that cannot fail is not a
+guard).
+
+**The AP belongs to the hall, so the hall has to be asked.** The package brief named
+`config/worlds/<name>.json` for the access point; that format does not exist here (§12 hit the same
+gap and refused to invent one). Asked and answered: `wifi.ap_by_world` in `DEFAULT_CONFIG` (one entry
+per shipped hall, each with a comment saying why that spot — `production`'s is (1.0, 2.0), above the
+loading area at the west wall next to the door the robots start at, because a technician mounts an AP
+where the cable and a socket are, which is a wall and not the middle of the ceiling above the racks),
+`wifi.ap` as the explicit override for one run, and **no sidecar file**. Two things came out of the
+same answer and are implemented: the effective AP is published (`wifi.effective_ap` on `/sim/config`,
+so neither a course nor a student has to guess which layer won) and `--set wifi.ap=[10,6]` is shown in
+README and demo file. `ap_point()` runs the same three checks `pois.load_sources()` runs — two numbers,
+inside the walls, not inside a wall — because an AP in a rectangle is a scenario that cannot work, and
+a hall nobody names is not an error but a hall with no radio (`access_point()` answers `None`).
+
+**The model, and the numbers it was tuned to.** `rssi = tx_dbm − 10 n log10(d/d0) − k·wall_db +
+shadow`, `q` linear between −85 and −50 dBm. Swept before choosing: (tx −40, wall 12) puts 23 % of
+`production`'s free floor below the failsafe level and 42 % below 0.35, which is enough shadow for one
+60 s drive to reach both the cliff and the dead corner; (−40, 8) gives 11 % and (−45, 15) gives 42 %.
+Measured at named open-floor spots (fade off, `Wifi.budget()`, identical to the formula to the last
+decimal): 2 m free −47.22 dBm q 1.00 · 8 m free −61.67 q 0.666 · 15 m free −68.23 q 0.479 · 8 m behind
+one rack −73.67 q 0.324 (p_drop 0.458, 47.1 ms) · 15 m behind two racks −92.23 q 0.000. Along the
+south aisle the quality falls 1.00 → 0.63 → 0.43 with nothing in between; turning north in the east
+aisle at x = 19 m, the first rack enters the line at **y = 3.69 m** (q 0.42 → 0.08) and the second at
+**y = 4.58 m** (q 0.00) — one crossing, not two, is already below what a robot can be driven on.
+
+**Walls cost dB and never metres.** `walls_between()` is the LIDAR's `_ray_rect` over `world.walls`, so
+the radio cannot know a wall the scan does not; a rectangle the robot is standing *inside* is not a
+crossing (the collision handler owns that problem). A test compares every term of the budget with the
+same hall at `wall_db: 0` — the dBm differs by exactly k·12 while the metres term is the same number.
+
+**Four things the tests taught, recorded because they are not obvious.** (1) `admit()` now recomputes
+the budget at the pose of the frame instead of trusting the last stepped state: the first command of a
+run arrives before the first `step()`, so it used to be judged against the `q = 1` a fresh `LinkState`
+starts with — one free frame per run, and a wrong one. (2) Loss has to be read from the radio's counter
+and not from `Robot.t_vel`: with `latency_ms` equal to exactly one physics step a frame can arrive in
+the step *after* the one it was sent in, and a step that delivers two frames hides the loss next to it —
+the instrument was wrong before the model was. (3) The failsafe timer is a per-step accumulator, so the
+finest statement this simulation can make about a 1.5 s timeout is ±1/50 s (measured 1.48 s); the tests
+assert `± STEP` and say why instead of writing `>= 1.5` and failing on a rounding. (4) The fade is
+sampled-and-interpolated and not a random walk, because a walk drifts and a link parked in a corner
+would end up somewhere its own budget cannot explain; the slope bound a test can assert is
+2·`shadow_db` per `shadow_period` (a new target may sit on the far side of the window), not 1×.
+
+**The example controller, and what it costs.** `student/link_autonomy_example.py` drives the hall's
+aisle circuit away from the AP — entered so the first leg goes away from it, because the direct way
+out of coverage in a warehouse runs through a rack — brakes at q ≤ 0.35 (deliberately *above* the
+simulator's own 0.15: a controller that waits until the link is gone has already lost every frame it
+sends after that) and reports the cause. Measured over seeds 1/3/7/11 with `--fixed-step`: it brakes
+at **t = 31.2–31.4 s at (18.85–18.87, 3.64–3.78)** every seed, ~690 frames lost, 0 wall contacts, and
+the link is down (mode `autonomy`) within the same run. A LIDAR brake is in it because a controller
+that only listens to the radio drives into a shelf on its way out of range — that is not part of the
+exercise, it is why the exercise finishes.
+
+**Files outside this package's list, each at its seam.** `render.py` +6 (the `n` key, its boolean, the
+calls, the readout segment — the three-line rule of §12 again; the layer itself is +148 lines of
+`overlays.py`), `menu.py` +3/-2 (the row and the key in the footer), `ros_bridge.py` +14 (`/link` out
+and in as JSON on a String, the `/poi` pattern: a custom interface would put a colcon build in front of
+someone who wants to read a quality), `node.py` +1 (the two topic lists, or `./lab docs` would promise
+a topic set that is wrong), `robot_io.py` +14 (`link()`, plus the row in the topic table),
+`tools/check.sh` +27 (two always-on steps and one `--ros` step), `tools/loc.py` (budgets raised with
+measured numbers and the argument for a new file instead of 363 lines inside `engine.py`).
+
+**A missing line in `cmd_run()`, found by the gate step that was meant to be a demo.** `./lab run
+--controller …` — the first command of the handout — started the student node and ran the loop but
+never called `node.subscribe()`, so every `cmd_vel` the node published sat on the bus and never
+reached a chassis. Measured before the fix: `./lab run --world production --robot alice --controller
+student/solution.py --task kinematik --headless --seconds 6` leaves `x_odom` at 2.2492 against a spawn
+of 2.2526 and `vx_truth 0.0000` for the whole run, while `/gps` fixes normally beside it — the sensors
+were wired, the commands were not. `student/steering_example.py` behaves the same, so the defect is
+older than this package and has nothing to do with the radio. Audit of the paths that own an engine:
+`cmd_sim()` subscribed every robot **and** every late spawn ✓, `cmd_grade()` subscribed its one robot
+✓, `cmd_run()` had nothing ✗, and `cmd_controller`/`cmd_teleop`/`cmd_client` have no engine in the
+process, so there is nothing to wire there. The fix is one function (`subscribe_all()`, now used by
+`cmd_sim` and `cmd_run` alike) and one call — not one more branch. What made a single missing line
+survive four command paths is the shape of the tests: every harness that runs a node calls
+`subscribe()` itself, so the line a student depends on was never on a tested path. The new test enters
+through `cmd_run()` and asserts on the logbook's own columns
+(`test_a_node_under_lab_run_reaches_the_robot`).
+
+**Two publishers, one topic — stated instead of left to dict order.** After the fix a node and the
+window's keys can both command one robot, and the precedence is a fact about the loop: the keys
+publish only while one is held, a node publishes every tick, so the node drives and the keys interrupt
+it, and `cmd_timeout` is what ends both. The window now says who was last (`cmd topic 0.04 s`,
+`cmd keys 0.02 s`, `cmd none`), the stamp for that is `types.Robot.cmd_keys`, and README and
+`./lab -h` carry the same sentence.
+
+**Left open on purpose.** No `link` columns in `logbook.py` — `q_link/rssi_link/lost_link` are one
+`COLUMNS` entry away, and whoever touches the CSV next should add them; until then the readout line and
+`ros2 topic echo /alice/link` are where the reading is. No second access point, no roaming and no shared
+airtime: one omnidirectional AP per hall is the whole radio, multipath stays in `gps.zones`, and a lost
+frame is lost (no retransmission) — which is why `p_drop` is allowed to be the whole story of a bad
+command. No `wifi` key appears in `config/tasks.json`: both experiments' grading thresholds are
+calibrated radio-off and stay that way. And the ROS half of this is only syntax-checked on this machine
+— `ros2` is not installed here, so `ros2 launch launch/wifi.launch.py headless:=true seconds:=15
+wifi:=true` in the `--ros` branch of `tools/check.sh` has never actually run; whoever has a ROS
+environment should run it once before this note's claim is repeated. And the steering example's
+documented numbers of §11 ("20.3 m driven, mission `done` after 45.2 s, odometry within 5 mm") cannot
+have come from `./lab run`, because until this pass that path never moved a robot at all — they were
+measured through a harness and have to be re-measured through the fixed command before README and
+handout quote them a third time.

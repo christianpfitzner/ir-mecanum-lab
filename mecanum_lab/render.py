@@ -46,7 +46,8 @@ KEYS = {"space": ("paused", "pause"), "l": ("show_scan", "toggle_lidar"),
         "t": ("show_trails", "toggle_trail"), "k": ("show_kf", "toggle_kf"),
         "g": ("show_gps", ""), "w": ("show_wheels", ""), "v": ("show_velocity", ""),
         "d": ("show_markers", ""), "z": ("show_goal", ""), "h": ("show_hud", ""),
-        "s": ("show_zones", ""), "o": ("show_ghost", ""), "p": ("show_pois", "")}
+        "s": ("show_zones", ""), "o": ("show_ghost", ""), "p": ("show_pois", ""),
+        "n": ("show_network", "")}
 
 
 def body(theta: float, dx: float, dy: float) -> tuple:
@@ -103,6 +104,7 @@ class Renderer:
         self.show_wheels = self.show_velocity = True
         self.show_markers = self.show_goal = self.show_hud = True
         self.show_zones = self.show_ghost = self.show_pois = True   # shadow, ghost, radiation source
+        self.show_network = True              # the radio link: AP, line, quality bar
         self.teleop = False                          # node.run_loop sets this, changes the help
         self.paused = False
         self.kf_trail, self.trails, self.phase = {}, {}, {}           # per robot name
@@ -182,6 +184,8 @@ class Renderer:
             overlays.zones(self)                              # where the GPS gets bad
         if self.show_pois:
             overlays.poi_sources(self)                     # sources: measured, rarely seen
+        if self.show_network:
+            overlays.network(self)                    # the access point and what it is worth
         self.trails = {k: v for k, v in self.trails.items() if k in eng.robots}
         self.kf_trail = {k: v for k, v in self.kf_trail.items() if k in eng.robots}
         self.phase = {k: v for k, v in self.phase.items() if k in eng.robots}
@@ -198,6 +202,7 @@ class Renderer:
                 self._estimate(robot)
         for robot in eng.robots.values():
             self._robot(robot, dt)
+            overlays.autonomy_mark(self, robot)     # amber outline, no layer: a fact, not a view
         if self.show_hud:
             self._hud()
         self.menu.draw(self.screen, (self.size[0], 52), self)
@@ -381,11 +386,14 @@ class Renderer:
                           (f"|v|={math.hypot(r.twist.vx, r.twist.vy):.2f} m/s", GREY),
                           (f"w={r.twist.omega:+.2f}", GREY), ("odom " + o, GREY),
                           *overlays.sensor_readout(self, r),
+                          *overlays.command_readout(self, r),
+                          *overlays.link_readout(self, r),
                           *overlays.poi_readout(self, r),
                           *overlays.steer_readout(self, r),
                           ("kf " + (f"x={r.kf.x:+.2f} y={r.kf.y:+.2f} "
                                     f"σ=({r.kf.sx:.2f},{r.kf.sy:.2f}) "
                                     f"Δ={r.kf_err:.2f} m" if r.kf else "-"), KF_COLOR),
+                          *overlays.sigma_legend(self, r),
                           (f"dist={r.distance:.1f}m", GREY), (f"contacts={r.contacts}", GREY),
                           (r.mission_state, GREY)]:
                 x += self._text(label[0], x + 13, y, label[1]) + 8

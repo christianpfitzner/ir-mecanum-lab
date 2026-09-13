@@ -97,6 +97,11 @@ class Scan:
     A beam that hit nothing is `inf` in `ranges` and is counted in `missing`. Both halves matter:
     a clipped reading looks like a wall at `range_max` to anything that only compares numbers, so
     the count is what lets a student say "17 beams came back with no echo".
+
+    `range_max` is the sensor's limit and is spelled that way after `sensor_msgs/msg/LaserScan`, whose
+    field this becomes one-to-one in `ros_bridge.py`. It is not the longest reading and not the size of
+    the hall; the alternative spelling `max_range` was considered and rejected, because it would have
+    been a second name for a field the ROS message already has.
     """
     t: float = 0.0
     angle_min: float = 0.0
@@ -111,18 +116,24 @@ class Scan:
 class Gps:
     """Global position (UWB/MoCap-like), noisy — and saying how much that number is worth.
 
-    `quality`: 2 good, 1 degraded (multipath bias, inflated σ, too few anchors in view), 0 = the
-    receiver has no fix. A missing message — `None` on the bus, an empty column in the log — says
-    something else: no radio (gap window, blackout zone, dropped packet). `quality 0` is a receiver
-    that answers and says it knows nothing. A filter has to tell those two apart, so the difference
-    is in the message and not only in the config that caused it.
+    `quality` in a message that exists: 2 good, 1 degraded (multipath bias, inflated σ, too few
+    anchors in view). **0 is not in a message, because a receiver that sees nothing sends nothing** —
+    `GpsSensor.fix()` answers `None` for such a position and the engine publishes no `/gps` at all
+    (`tests/test_sensor_reality.py` pins the resulting gaps). Quality 0 is a property of the *place* a
+    robot is standing at, which `GpsSensor.sky()` reports and the window, the log (`q_gps`) and
+    `/sensor/info` repeat; on `/gps` there is nothing to report it in.
+
+    So the two cases a filter has to tell apart are "no message" and "a message with quality 1", and
+    not two numbers in one message: no radio (gap window, blackout zone, dropped packet) against a fix
+    that is worthless where it was taken. This used to claim that a receiver could answer with quality
+    0, which no code path ever produced.
     """
     t: float = 0.0
     x: float = 0.0
     y: float = 0.0
     theta: float = 0.0
-    quality: int = 2              # 2 good · 1 degraded · 0 no fix (a message that says: unusable)
-    sats: int = 8                 # anchors in view (`gps.sats`); 0 whenever quality is 0
+    quality: int = 2              # 2 good · 1 degraded; 0 belongs to a place, not to a message
+    sats: int = 8                 # anchors in view (`GpsSensor.sky`), which is where 0 would come from
 
 
 @dataclass
@@ -170,6 +181,58 @@ class Poi:
 
 
 @dataclass
+class Link:
+    """The radio link to one robot — the state a student program is allowed to read (CONTRACT §6.14).
+
+    The point of this message is in the `ap` field: the position of the access point is published
+    next to the quality, so a controller can drive back into the radio shadow *by itself*, one
+    threshold before the failsafe does it for them. That is the difference between a robot that
+    reports its link and one that has to be rescued by it.
+
+    `quality` is `wifi.py`'s q (0 at the sensitivity floor, 1 on the flat part of the curve),
+    `rssi_dbm` the level it came from, `up` the autonomy decision (`false` once q has been under
+    `wifi.link_up_q` for `wifi.link_timeout`), `dropped` every command the radio did not deliver
+    since the robot spawned — a lost frame and an unanswerable link look identical from the outside,
+    so they share the counter — and `latency_ms` the delay the wire is adding right now.
+    """
+    t: float = 0.0
+    quality: float = 1.0            # 0 = at the floor, 1 = as good as it gets
+    rssi_dbm: float = -50.0         # the level that number came from
+    ap: tuple = (0.0, 0.0)          # (x, y) of the access point, in world metres
+    up: bool = True                 # False: nothing external is delivered at all
+    dropped: int = 0                # commands lost or refused since spawn
+    latency_ms: float = 0.0         # what the wire costs at this quality
+
+
+@dataclass
+class SensorInfo:
+    """What one robot's field instruments say about themselves — the `/sensor/info` message.
+
+    Five numbers that explain a measurement and fit into none of the measurement messages: the GPS
+    `quality`, its `sats` and the `lost` count (no field of `geometry_msgs/msg/PoseStamped`), the
+    chip `temp` (no field of `sensor_msgs/msg/Imu`) and the LIDAR's `scan_gaps` (`LaserScan` reports
+    `range_max` for a beam that came back as nothing, see CONTRACT §6.4). Over ROS those five were
+    therefore visible only in the window and in the log; this message is what makes
+    `ros2 topic echo /alice/sensor/info` answer the same question the readout line answers.
+
+    It is not a measurement and carries no position: it is the state of the instruments. The same
+    five numbers are columns of the log CSV (`q_gps`, `sats_gps`, `lost_gps`, `temp_imu`,
+    `noecho_scan`), so a run can be examined after the fact as well as while it is driving.
+
+    The name says sensors and not GPS although four of the five fields are the receiver's, because
+    the temperature is the IMU's and the gaps are the LIDAR's: a message called `/gps/info` that
+    answers for a chip would be the first thing a student disbelieves about it.
+    """
+    t: float = 0.0
+    quality: int = 0                # of the PLACE the robot is in: 2 usable, 1 degraded, 0 nothing
+    sats: int = 0                   # anchors in view (GpsSensor.sky), not "satellites in the sky"
+    lost: int = 0                   # messages this receiver discarded since the robot spawned
+    latency_ms: float = 0.0         # `gps.latency`, in ms: the delay the wire is configured to cost
+    temp: float = 0.0               # IMU chip temperature in °C, see CONTRACT §6.4 and CONTRACT-KF §3
+    scan_gaps: int = 0              # beams of the last scan that returned nothing
+
+
+@dataclass
 class Kf:
     """Students' own state estimate — the grader measures it against `truth`.
 
@@ -197,9 +260,10 @@ class Robot:
     wheels: list = field(default_factory=lambda: [0.0] * 4)
     wheel_cmd: list | None = None                    # last wheel commands (rad/s)
     vel_cmd: Twist | None = None                     # last cmd_vel
-    mode: str = "pass-through"                       # "pass-through" | "wheels"
+    mode: str = "pass-through"     # "pass-through" | "wheels" | "autonomy" (radio down, wifi.py)
     t_cmd: float = -1.0                              # timestamp of the last wheel command
     t_vel: float = -1.0                              # timestamp of the last cmd_vel
+    cmd_keys: float = -1.0             # sim time the window's teleop keys last published; HUD only
     odom: Odom | None = None
     scan: Scan | None = None
     gps: Gps | None = None
@@ -259,6 +323,16 @@ MSG_SPECS = {
     # No standard message fits a radiation reading, so /poi uses the JSON-on-a-String pattern of
     # §6.7 that /sim/robots and kf/info already use: the fields of `Poi` as one JSON object.
     "poi":     ("std_msgs/msg/String",              "poi",           "robot"),
+    # Same pattern as /poi: no standard message carries a link budget, so /link is the JSON form of
+    # types.Link on a String. The autonomy decision belongs on a topic: a student program has to be
+    # able to read the same `up` the window draws and the failsafe acts on.
+    "link":    ("std_msgs/msg/String",              "link",          "robot"),
+    # The five numbers about the instruments themselves, on a String: none of the three standard
+    # messages has a place for them (CONTRACT §6.4), so this is the JSON pattern of /poi and /link
+    # again, with the same reason — a custom interface would put a colcon build in front of someone
+    # who only wants to read a quality and a temperature. Named `/sensor/info` rather than
+    # `/gps/info`, because three instruments answer here and not one.
+    "sensorinfo": ("std_msgs/msg/String",           "sensor/info",    "robot"),
     "mission": ("std_msgs/msg/String",              "mission_state", "robot"),
     "robots":  ("std_msgs/msg/String",              "robots",        "sim"),
     "world":   ("std_msgs/msg/String",              "world",         "sim"),
@@ -396,6 +470,34 @@ DEFAULT_CONFIG = {
     # sqrt(counts), so a weak reading is a noisier reading, which is what a counter does), and
     # whether the true distance may travel with the message. Off by default: see types.Poi.
     "poi": {"rate": 5.0, "d0": 1.0, "counts": 400.0, "publish_distance": False},
+    # The radio link (`wifi.py`): one access point per hall, and the commands arrive through it.
+    # `enabled` is the one option, and it is off: the graded runs of both experiments are calibrated
+    # on a link that delivers everything at once, and every threshold in config/tasks.json stays that
+    # way. Off also means *nothing happens*: no radio is built, no random number is drawn, no /link
+    # message is published — the command stream is byte for byte the one the golden test guards.
+    "wifi": {
+        "enabled": False,
+        # Where the hall's AP hangs. `ap_by_world` is the installer's view — each hall gets the spot a
+        # real technician would use, above the loading area / the door the robots start at, never in
+        # the middle of the free floor — and is the reason a demo file does not have to know the hall.
+        # `ap` (null by default) overrides it for one run: `--set wifi.ap=[18,10]`.
+        "ap": None,
+        "ap_by_world": {"production": [1.0, 2.0], "arena": [1.0, 1.5], "maze": [1.5, 2.5],
+                        "track": [1.5, 1.5], "open": [1.0, 3.0]},
+        "rate": 5.0,                # /link messages per second
+        "tx_dbm": -40.0,            # level at the reference distance d0, not the radiated power
+        "d0": 1.0,                  # m: the metre the level above is measured at
+        "n": 2.4,                   # path-loss exponent: 2 free space, ~2.4 furnished hall, 4 concrete
+        "wall_db": 12.0,            # per wall *crossing*: a loaded rack, not a painted line
+        "floor_dbm": -85.0,         # q = 0 here (receiver sensitivity of a robot module)
+        "good_dbm": -50.0,          # q = 1 here (flat part of the rate curve)
+        "shadow_db": 3.0,           # amplitude of the slow fade, so a knife edge stops flickering
+        "shadow_period": 2.0,       # s between two fade targets
+        "latency_ms": 20.0,         # wire delay at q = 1; x3 at q = 0
+        "link_up_q": 0.15,          # below this for `link_timeout` the link is down
+        "link_timeout": 1.5,        # s of sim time the low level has to last before autonomy
+        "autonomy": "stop",         # "stop" (watchdog holds it) | "dead_reckoning" (last cmd stays)
+    },
     # Cell size per world: the robot is the same size everywhere, but the maze is built on a
     # coarser grid, so its corridors are wide enough to drive and to see. See worlds.py.
     "worlds": {"cell": 0.5, "cell_by_world": {"maze": 1.0}},

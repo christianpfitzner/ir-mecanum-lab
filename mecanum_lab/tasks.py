@@ -30,8 +30,11 @@ _LEGACY_KEYS = {
     "schaetzung": "estimate", "seite": "side", "sinus": "sine", "titel": "title",
     "verbesserung_min": "improvement_min", "versuch": "experiment", "weg_max": "path_max",
     "weg_min": "path_min", "welt": "world", "wiederhole": "repeat",
-    "winkel_betrag_max": "yaw_abs_max", "winkel_max_deg": "yaw_max_deg",
-    "winkel_min": "yaw_min", "zeit_max": "time_max", "ziel": "target",
+    "winkel_betrag_max": "yaw_abs_max", "winkel_max_deg": "yaw_max_deg", "winkel_min": "yaw_min",
+    # The mission time limit has one spelling today: `timeout`, the key grade.py reads for both
+    # experiments. `zeit_max` is its German name and `time_max` was the first English one — both are
+    # read, because a limit that lands on a key nobody reads is a limit that silently disappeared.
+    "zeit_max": "timeout", "time_max": "timeout", "ziel": "target",
     "ziel_index": "target_index", "ziel_max": "target_max",
 }
 

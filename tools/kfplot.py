@@ -41,12 +41,12 @@ def lese(path):
 
 
 def by_robot(rows):
-    gruppen = {}
+    groups = {}
     for r in rows:
-        gruppen.setdefault(r.get("robot") or "?", []).append(r)
-    for lines in gruppen.values():
+        groups.setdefault(r.get("robot") or "?", []).append(r)
+    for lines in groups.values():
         lines.sort(key=lambda r: num(r.get("t")) or 0.0)
-    return gruppen
+    return groups
 
 
 def accuracy(rows, sensor):
@@ -79,11 +79,11 @@ def fix_gaps(fixes):
     rounding wrinkles in the decimals that look like new fixes. So smooth over 2 cm of
     time and drop everything below 20 ms as jitter.
     """
-    folgen, gaps = None, []
+    previous, gaps = None, []
     for t in sorted(set(fixes)):
-        if folgen is not None and t - folgen > 0.02:
-            gaps.append(t - folgen)
-        folgen = t
+        if previous is not None and t - previous > 0.02:
+            gaps.append(t - previous)
+        previous = t
     return gaps
 
 
@@ -96,9 +96,9 @@ def center(points, interval):
         karten.setdefault(int(t / interval), []).append((t, e))
     out = []
     for key in sorted(karten):
-        gruppe = karten[key]
-        out.append((sum(t for t, _ in gruppe) / len(gruppe),
-                    sum(e for _, e in gruppe) / len(gruppe)))
+        group = karten[key]
+        out.append((sum(t for t, _ in group) / len(group),
+                    sum(e for _, e in group) / len(group)))
     return out
 
 
@@ -117,9 +117,9 @@ def ascii_chart(curves, width=76, height=13):
     raster = [[" "] * width for _ in range(height)]
     for _, zeichen, points in curves:
         for t, e in points:
-            spalte = int(round((t - tmin) / (tmax - tmin) * (width - 1))) if tmax > tmin else 0
+            col = int(round((t - tmin) / (tmax - tmin) * (width - 1))) if tmax > tmin else 0
             row_rect = int(round((ymax - e) / ymax * (height - 1)))
-            raster[max(0, min(height - 1, row_rect))][spalte] = zeichen
+            raster[max(0, min(height - 1, row_rect))][col] = zeichen
     legende = "   ".join(f"{z} = {n}" for n, z, _ in curves)
     ausgabe = [f"Error against the truth [m], scale 0 … {ymax:.2f} m   ({legende})"]
     for i, row_rect in enumerate(raster):
@@ -129,6 +129,60 @@ def ascii_chart(curves, width=76, height=13):
     started, end = f"{tmin:g}s", f"{tmax:g}s"
     ausgabe.append("       " + started + " " * max(1, width + 1 - len(started) - len(end)) + end)
     return "\n".join(ausgabe)
+
+
+# One glyph per eighth of a series' own range. A block per sample is how two minutes of a run fit on
+# one line, and these four columns are worth looking at as a shape rather than quoting as numbers:
+# where the sky went empty, when the chip had warmed enough to move its bias, when the counter began
+# to hear the source.
+BARS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(values, width=44):
+    """Values over time as one line of blocks, on their own scale: `(drawing, low, high)`.
+
+    Thinned to `width` samples by taking every k-th one rather than by averaging: a quality that was
+    at 0 for two seconds has vanished by averaging, and those two seconds are the point.
+    """
+    if not values:
+        return "", None, None
+    if len(values) > width:
+        values = values[::max(1, round(len(values) / width))]
+    low, high = min(values), max(values)
+    if high - low < 1e-12:
+        return BARS[0] * len(values), low, high
+    return "".join(BARS[min(7, int((v - low) / (high - low) * 7.999))] for v in values), low, high
+
+
+def sensor_state(rows):
+    """What the instruments did during the run — the four columns that explain all the others.
+
+    Each line on its own scale, because they share no unit: the quality is 0-2, the lost count starts
+    at 0 and only grows, the chip temperature sits near 24 °C and moves by tenths. On a shared axis
+    the temperature would be the only visible line, which is the opposite of what these columns are
+    there for. Where the model behind each one lives: `q_gps`, `lost_gps` and the LIDAR gaps in
+    CONTRACT §6.4, `temp_imu` in CONTRACT-KF §3, `intensity_poi` in CONTRACT §6.13.
+    """
+    series = [("q_gps", "fix quality 2 good · 1 degraded · 0 nothing usable"),
+              ("lost_gps", "fixes the transport dropped since the run started"),
+              ("temp_imu", "IMU chip temperature in °C — its bias walks with it"),
+              ("intensity_poi", "counts/s of the loudest radiation source")]
+    lines = []
+    for column, meaning in series:
+        values = [v for v in (num(r.get(column)) for r in rows) if v is not None]
+        if not values:
+            lines.append(f"  {column:13} —    nothing logged ({meaning})")
+            continue
+        drawing, low, high = sparkline(values)
+        span = f"{low:g}" if low == high else f"{low:g} … {high:g}"
+        lines.append(f"  {column:13} {drawing:<44} {span:>13}   {meaning}")
+    seen = sorted({(r.get("name_poi") or "").strip() for r in rows} - {""})
+    if seen:
+        # Named, not seen: the counter always says which contribution is loudest, and past the
+        # source's `range` that contribution is 0 — so this row is about the world, not about the run.
+        lines.append(f"  {'':13}{'':44} {'':>13}   named by the counter as loudest: "
+                     + ", ".join(seen))
+    return "\n".join(lines)
 
 
 def png(path, rows, curves, target):
@@ -184,17 +238,17 @@ def main_plot():
     rows = lese(a.log)
     if a.list:
         print(f"{len(rows)} lines, columns: " + ", ".join((rows[0] or {}).keys()))
-        for spalte, value in (rows[len(rows) // 2] or {}).items():
-            print(f"  {spalte:12} {value!r}")
+        for col, value in (rows[len(rows) // 2] or {}).items():
+            print(f"  {col:12} {value!r}")
         return 0
-    gruppen = by_robot(rows)
-    if a.robot and a.robot not in gruppen:
+    groups = by_robot(rows)
+    if a.robot and a.robot not in groups:
         sys.exit(f"robot '{a.robot}' is not in the log — it contains: "
-                 + ", ".join(sorted(gruppen)))
-    name = a.robot or ("" if len(gruppen) == 1 else
-                       max(gruppen, key=lambda k: sum(1 for r in gruppen[k] if num(r.get("x_kf")))))
-    for robot in [name] if name else sorted(gruppen):
-        bericht(gruppen[robot], a, robot, len(gruppen))
+                 + ", ".join(sorted(groups)))
+    name = a.robot or ("" if len(groups) == 1 else
+                       max(groups, key=lambda k: sum(1 for r in groups[k] if num(r.get("x_kf")))))
+    for robot in [name] if name else sorted(groups):
+        bericht(groups[robot], a, robot, len(groups))
     return 0
 
 
@@ -205,18 +259,18 @@ def bericht(rows, a, robot, n_robots):
     if not t:
         print(f"\n=== {a.log} · robot '{robot}' ===\nno timestamps in the file")
         return
-    zusatz = "" if n_robots == 1 else f" (1 of {n_robots}, --robot selects)"
-    print(f"\n=== {a.log} · Roboter '{robot}'{zusatz} ===")
+    extra = "" if n_robots == 1 else f" (1 of {n_robots}, --robot selects)"
+    print(f"\n=== {a.log} · robot '{robot}'{extra} ===")
     print(f"Lines: {len(rows)}   time: {t[0]:.1f} … {t[-1]:.1f} s   raw sensor: {a.sensor}")
-    r_kf, r_roh = rmse(kf), rmse(raw)
+    r_kf, r_raw = rmse(kf), rmse(raw)
     if not raw:
         print(f"No {a.sensor} value against the truth — are columns x_{a.sensor}/y_{a.sensor} empty?")
     else:
-        print(f"RMSE truth↔{a.sensor:<4}: {r_roh:6.3f} m   Max: {max(x[1] for x in raw):6.3f} m")
+        print(f"RMSE truth↔{a.sensor:<4}: {r_raw:6.3f} m   Max: {max(x[1] for x in raw):6.3f} m")
     if kf:
         print(f"RMSE truth↔kf  : {r_kf:6.3f} m   Max: {max(x[1] for x in kf):6.3f} m")
-        if r_roh and r_kf:
-            print(f"Improvement    : {r_roh / r_kf:5.2f}   (rmse_{a.sensor} / rmse_kf)")
+        if r_raw and r_kf:
+            print(f"Improvement    : {r_raw / r_kf:5.2f}   (rmse_{a.sensor} / rmse_kf)")
         if nees:
             print(f"NEES mean      : {sum(nees) / len(nees):5.2f}   (1 = honest standard deviation)")
         else:
@@ -237,6 +291,8 @@ def bericht(rows, a, robot, n_robots):
               f"largest {max(gaps):.2f} s  ({len(set(fixes))} fixes)")
     else:
         print(f"GPS fix gap    : —   ({len(set(fixes))} fixes)")
+    print("\nInstruments over time — each line on its own scale:")
+    print(sensor_state(rows))
     curves = [(f"{a.sensor}−truth", "o", center(raw, a.interval)),
               ("kf−truth", "*", center(kf, a.interval))]
     print()

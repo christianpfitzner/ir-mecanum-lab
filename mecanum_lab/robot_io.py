@@ -5,6 +5,8 @@ Topics (CONTRACT §3, CONTRACT-KF §2), the first ones relative to the robot nam
     wheel_speeds   4 rad/s       out  [VL, VR, HL, HR] — the task in experiment 1
     odom gps scan  Odom Gps Scan in   dead reckoning, global pose, 360 LIDAR rays
     imu            Imu           in   6-DOF inertial measurement (experiment 2, 100 Hz)
+    poi            Poi           in   radiation reading of the loudest source (`pois.py`), see poi()
+    link           Link          in   the radio this node's own commands travel on (`wifi.py`)
     kf/pose        Kf            out  your own estimate incl. 1σ (experiment 2)
     mission_state  String        out  idle | running | done | failed:<reason>
     /sim/task /sim/robots /sim/world /sim/config   task, robot list, world, sensor profile
@@ -86,7 +88,32 @@ class RobotIO:
     def imu(self): return self._value("imu")
     def kf(self): return self._value("kf")
     def cmd_vel(self): return self._value("twist", fresh=True)
+
+    def link(self, fresh: float = 2.0):
+        """Last `Link` on /<robot>/link, or None while the simulation runs without a radio.
+
+        Read with the same one topic call as `gps()` — but note what it is a measurement *of*: the
+        antenna, not the floor. A controller that only notices a dead link because the robot stopped
+        answering has learned the lesson one second too late; `link().quality` is the number that lets
+        it decide earlier, and `link().ap` is the position it has to drive back to. `fresh` bounds the
+        age, because a link message that is five seconds old is a radio that stopped talking.
+        """
+        value, age = self.bus.last("link", self.name)
+        return value if age <= fresh else None
+
     def task(self): return str(self.bus.last("task")[0] or "")
+
+    def poi(self):
+        """Last `Poi` on /<robot>/poi, or None while the world has no radiation source.
+
+        The accessor exists because the alternative was `rob.bus.last("poi", rob.name)[0]` — a call
+        through the bus, with the topic name and the tuple shape of the answer in the middle of a
+        student's controller. `poi().intensity` is the reading; `poi().name` says which source is
+        loudest, and `poi().distance` is `None` unless the simulation was started with
+        `poi.publish_distance` — turning this series into a distance is the exercise (CONTRACT §6.13).
+        """
+        return self._value("poi")
+
     def mission_state(self): return str(self.bus.last("mission", self.name)[0] or "")
     def robots(self) -> list: return json.loads(self.bus.last("robots")[0] or "[]")
 

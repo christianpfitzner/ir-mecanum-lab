@@ -26,7 +26,7 @@ import threading
 import time
 
 from . import stub, tf_bcast
-from .types import Gps, Imu, Kf, Odom, Poi, Pose, Scan, Twist, topic
+from .types import Gps, Imu, Kf, Link, Odom, Poi, Pose, Scan, SensorInfo, Twist, topic
 
 log = logging.getLogger("mecanum.ros")
 
@@ -35,7 +35,8 @@ KIND_MSG = {"twist": "Twist", "wheels": "Float64MultiArray", "odom": "Odometry",
             "scan": "LaserScan", "gps": "PoseStamped", "truth": "PoseStamped",
             "imu": "Imu", "kf": "PoseWithCovarianceStamped", "kfinfo": "String",
             "mission": "String", "robots": "String", "world": "String",
-            "task": "String", "config": "String", "clock": "Clock", "poi": "String"}
+            "task": "String", "config": "String", "clock": "Clock", "poi": "String",
+            "link": "String", "sensorinfo": "String"}
 # Frame names live in tf_bcast: the same names in the message headers and in /tf, each
 # carrying the robot as prefix. Nothing here invents frame names of its own.
 # Placeholder uncertainty of the IMU assembly (diagonal), so RViz and rqt do not work
@@ -149,6 +150,23 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         # echoable without a custom interface. `distance` is null unless poi.publish_distance is on.
         return M["String"](data=json.dumps({"t": payload.t, "intensity": payload.intensity,
                                             "name": payload.name, "distance": payload.distance}))
+    if kind == "link":
+        # /link is JSON on a String for the same reason as /poi (CONTRACT §6.14): a link budget has no
+        # standard message, and a custom interface would put a build step in front of a student who
+        # only wants to read a quality. All seven fields of types.Link, one object, echoable.
+        return M["String"](data=json.dumps({"t": payload.t, "quality": payload.quality,
+                                            "rssi_dbm": payload.rssi_dbm, "ap": list(payload.ap),
+                                            "up": payload.up, "dropped": payload.dropped,
+                                            "latency_ms": payload.latency_ms}))
+    if kind == "sensorinfo":
+        # The five numbers about the instruments, as JSON (CONTRACT §6.4): `PoseStamped`, `Imu` and
+        # `LaserScan` have no field for a quality, a satellite count, a loss count, a latency or a
+        # chip temperature, so without this message they would exist only in the window and in the
+        # log — which is the one thing a student cannot check from a second terminal.
+        return M["String"](data=json.dumps({"t": payload.t, "quality": payload.quality,
+                                            "sats": payload.sats, "lost": payload.lost,
+                                            "latency_ms": payload.latency_ms,
+                                            "temp": payload.temp, "scan_gaps": payload.scan_gaps}))
     if kind == "clock":
         return M["Clock"](clock=M["Time"](sec=int(payload), nanosec=int((payload % 1) * 1e9)))
     if kind == "odom":
@@ -218,6 +236,16 @@ def from_ros(kind: str, msg):
         got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
         return Poi(got.get("t", 0.0), got.get("intensity", 0.0), got.get("name", ""),
                    got.get("distance"))
+    if kind == "link":
+        got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
+        return Link(got.get("t", 0.0), got.get("quality", 1.0), got.get("rssi_dbm", 0.0),
+                    tuple(got.get("ap") or (0.0, 0.0)), got.get("up", True),
+                    got.get("dropped", 0), got.get("latency_ms", 0.0))
+    if kind == "sensorinfo":
+        got = json.loads(msg.data)                       # the JSON form of to_ros(), see above
+        return SensorInfo(got.get("t", 0.0), got.get("quality", 0), got.get("sats", 0),
+                          got.get("lost", 0), got.get("latency_ms", 0.0), got.get("temp", 0.0),
+                          got.get("scan_gaps", 0))
     if kind == "odom":
         p, v = msg.pose.pose, msg.twist.twist
         return Odom(_stamp(msg.header), p.position.x, p.position.y,

@@ -16,6 +16,13 @@ Effects that make the invisible visible, none of which changes physics or a topi
   `render._wheel()`; what belongs here is the number next to the picture.
 * `poi_sources()` draws the Points of Interest of the world (pois.py) and, with `debug_truth`, the
   rings of their field; `poi_readout()` puts the counter's current reading into the readout line.
+* `command_readout()` says who last commanded a robot — a node's topic or the window's keys, they
+  share `/cmd_vel`, and while both are running that is the only question with a straight answer.
+* `sigma_legend()` says what the ellipse around the estimate is made of — the half-axis in metres and
+  the same half-axis in pixels at the current zoom, because a green oval explains nothing by itself.
+* `network()` draws the radio: the access point, the line from it to every robot fading with the link
+  quality, and a quality bar per robot. `autonomy_mark()` is the amber outline of a robot the link
+  gave up on, and `link_readout()` the same numbers as text.
 
 Stdlib + pygame only, no state in the module (marks live on the renderer), stdlib drawing calls
 only (CONTRACT section 1). Text uses the renderer's own blit so both use the same fonts.
@@ -24,8 +31,14 @@ import math
 
 import pygame
 
+from .types import cfg_get
+
 SPUR_LEBEN = 3.0                # seconds a skid mark stays on the floor
 MARK_MAX = 600                  # bound for a long teleop session
+GOOD_LINK = (130, 225, 150)     # q = 1: the line to the access point is a line
+DEAD_LINK = (240, 120, 120)     # q = 0: the dashed stub that is left of it
+LINK_AMBER = (250, 205, 90)     # the colour of a robot the radio left alone
+BAR_W, BAR_H = 52, 9            # the quality bar beside a robot, in pixels
 
 
 def running_zones(rend) -> list:
@@ -71,8 +84,8 @@ def zone_label(zone: dict) -> str:
     """What the shadow is worth, straight out of the config: `shelf  σ×6, bias +0.8/-0.5 m`."""
     if zone["block"]:
         return zone["name"] + "  no fix"
-    zusatz = f", bias {zone['bias'][0]:+.1f}/{zone['bias'][1]:+.1f} m" if any(zone["bias"]) else ""
-    return f"{zone['name']}  σ×{zone['sigma_scale']:g}{zusatz}"
+    extra = f", bias {zone['bias'][0]:+.1f}/{zone['bias'][1]:+.1f} m" if any(zone["bias"]) else ""
+    return f"{zone['name']}  σ×{zone['sigma_scale']:g}{extra}"
 
 
 def odom_ghost(rend, robot) -> None:
@@ -261,6 +274,190 @@ def poi_readout(rend, robot) -> list:
 def above_bar(rend, y: float) -> float:
     """Keep a label out of the readout block: one 17 px line per robot, plus the header."""
     return max(y, 48 + 17 * len(getattr(rend.engine, "robots", {}) or {}))
+
+
+def sigma_legend(rend, robot) -> list:
+    """What the ellipse around the estimate is worth: `ellipse 2σ: half-axis 0.34 × 0.21 m = 18 × 11 px`.
+
+    The oval is `render._estimate()` and its half-axis is `KF_SICHERHEIT · σ · px_per_metre` — three
+    numbers from three places, and none of them is on screen. So a student looking at a green ellipse
+    cannot tell the estimate's own uncertainty apart from the distance to the truth, which is the one
+    thing task K3 punishes. The line names the same oval in the two units a reader has: metres on the
+    floor and pixels at the current zoom.
+
+    It goes into the readout line and not into the estimate layer on purpose: the σ of the estimate is
+    a fact about the numbers that are printed there anyway, and a fact should not disappear because a
+    drawing was switched off with `k`. (What the drawing does not show is the 4 px floor of the drawn
+    radius: under it the oval on screen is larger than the metres it stands for.)
+    """
+    kf = getattr(robot, "kf", None)
+    if kf is None:
+        return []
+    from .render import GREY, KF_SICHERHEIT              # lazy: render imports this module
+    metres = (KF_SICHERHEIT * kf.sx, KF_SICHERHEIT * kf.sy)
+    pixels = [round(m * rend.s) for m in metres]
+    return [(f"ellipse {KF_SICHERHEIT:g}σ: half-axis {metres[0]:.2f} × {metres[1]:.2f} m"
+             f" = {pixels[0]} × {pixels[1]} px at {rend.s:.0f} px/m", GREY)]
+
+
+# ---------------------------------------------------------------------------- the radio link
+
+
+def radio_health(rend, robot):
+    """The radio's own answer about one robot, or None: a lab without `wifi.enabled` has no antenna.
+
+    Asked of the engine and not of the last `/link` message, in the rule of `_gps_view()` — the moment
+    worth seeing is the one where nothing is delivered and so nothing is stamped. A renderer without a
+    live engine (a view test with a hand-built robot) gets None, and the layer stays empty.
+    """
+    eng = getattr(rend, "engine", None)
+    probe = getattr(eng, "link_health", None)
+    return probe(robot.spec.name) if probe is not None else None
+
+
+def access_point(rend):
+    """Where the hall's access point hangs — from the same answer the bars are drawn from."""
+    for robot in (getattr(rend.engine, "robots", {}) or {}).values():
+        view = radio_health(rend, robot)
+        if view is not None:
+            return view[8]
+    return None
+
+
+def link_text(view: tuple, colourless: bool = False) -> str:
+    """`wifi q 0.42 -72.3 dBm 1 wall lost 4/120 61 ms` — the bar's numbers as one readable line.
+
+    All of it terms a student can look up: the quality the model is written in, the level it came
+    from, how many rectangles that line crosses (the reason the level is what it is), the frames lost
+    of the frames ever asked for, and what the wire costs right now. With the link down the line
+    starts with DOWN, because "q 0.00" and "nothing will arrive" are two different sentences.
+    """
+    q, dbm, _metres, walls, up, dropped, sent, latency, _ap = view
+    state = "" if up else "DOWN "
+    return (f"wifi {state}q {q:.2f} {dbm:.1f} dBm"
+            + (f" {walls} wall{'s' if walls != 1 else ''}" if walls else " free")
+            + (f" lost {dropped}/{sent}" if sent else "")
+            + (f" {latency:.0f} ms" if latency and not colourless else ""))
+
+
+def link_readout(rend, robot) -> list:
+    """The link in the readout line, so the radio is observable without a second terminal.
+
+    An empty list for a run without a radio keeps the readout line of every graded run exactly as long
+    as it was — the rule of `steer_readout()` and `poi_readout()`.
+    """
+    from .render import GREY, mix                       # lazy: render imports this module
+    view = radio_health(rend, robot)
+    if view is None:
+        return []
+    colour = DEAD_LINK if not view[4] else mix(GREY, GOOD_LINK, view[0])
+    return [(link_text(view), colour)]
+
+
+def command_readout(rend, robot) -> list:
+    """`cmd topic 0.04 s` / `cmd keys 0.02 s` / `cmd none` — who last commanded this robot.
+
+    A student node and the window's teleop keys write to the *same* `/cmd_vel` (the keys publish only
+    while one is held, a node publishes continuously), so the freshest timestamp is the only honest
+    answer to "what is driving this one" — and after `cmd_timeout` without a frame, nothing is. With
+    `wifi.enabled` this segment can honestly say `topic` while the radio refuses every frame; that is
+    what the `wifi` segment next to it is for, and why both are in the line.
+    """
+    from .render import GREY, mix                        # lazy: render imports this module
+    timeout = float(cfg_get(getattr(rend, "cfg", None), "cmd_timeout", 0.35))
+    now = float(getattr(rend.engine, "t", 0.0))
+    arrived = max(robot.t_vel, robot.t_cmd)
+    if arrived < 0.0 or now - arrived > timeout:
+        return [("cmd none", mix(GREY, LINK_AMBER, 0.6))]
+    return [(f"cmd {'keys' if robot.cmd_keys >= arrived else 'topic'} "
+             f"{now - arrived:.2f} s", GREY)]
+
+
+def network(rend) -> None:
+    """The access point, one line per robot that fades with its quality, one bar per robot.
+
+    The line is the model in one stroke: it is drawn along the very straight line the budget is
+    computed on, so the moment the bar drops as the line crosses a rack is the same fact as "the LIDAR
+    reports that rectangle" — no coincidence, the radio reuses the LIDAR's ray test (wifi.py). The bar
+    answers "how is this robot doing", `link_readout()` answers "what is the number", and both are
+    drawn from one call into the radio, so they cannot disagree.
+    """
+    from .render import GREY, mix                        # lazy: render imports this module
+    sc = rend.screen
+    views = {r.spec.name: radio_health(rend, r) for r in (getattr(rend.engine, "robots", {})
+                                                          or {}).values()}
+    views = {k: v for k, v in views.items() if v is not None}
+    if not views:
+        return
+    ap = next(iter(views.values()))[8]
+    _ap_symbol(rend, ap)
+    for robot in (getattr(rend.engine, "robots", {}) or {}).values():
+        view = views.get(robot.spec.name)
+        if view is None:
+            continue
+        q, _dbm, _metres, _walls, up, _dropped, _sent, _latency, _ap = view
+        colour = mix(GREY, GOOD_LINK, q) if up else DEAD_LINK
+        a, b = rend.px(*ap), rend.px(robot.pose.x, robot.pose.y)
+        if up:
+            pygame.draw.line(sc, colour, a, b, 2 if q > 0.66 else 1)
+        else:
+            _dashed_line(sc, a, b, colour)               # no link: the line is a memory of one
+        bar = (b[0] - BAR_W // 2, b[1] - 30)
+        pygame.draw.rect(sc, mix(GREY, rend.col_floor, .35), (*bar, BAR_W, BAR_H), 1)
+        filled = int((BAR_W - 3) * q)
+        if filled:
+            pygame.draw.rect(sc, colour, (bar[0] + 1, bar[1] + 1, filled, BAR_H - 2))
+        rend._text(link_text(view), bar[0] - 8, above_bar(rend, bar[1] - 15), colour)
+
+
+def autonomy_mark(rend, robot) -> None:
+    """The amber outline of a robot the link gave up on — drawn whatever the layers show.
+
+    Deliberately not part of `network()`: a layer can be hidden, the fact that this robot is no longer
+    being told cannot. Draws nothing unless `mode` says autonomy, so in every run without a radio the
+    frame stays the frame it always was.
+    """
+    if getattr(robot, "mode", "") != "autonomy":
+        return
+    sc = rend.screen
+    geom = getattr(robot.chassis, "geom", None)
+    reach = float(getattr(geom, "footprint_r", 0.21)) * rend.s + 6.0
+    centre = rend.px(robot.pose.x, robot.pose.y)
+    pygame.draw.circle(sc, LINK_AMBER, centre, int(reach), 2)
+    for tick in range(3):                       # three ticks: nothing is coming in from anywhere
+        angle = math.pi / 2.0 + tick * 2.0 * math.pi / 3.0
+        ux, uy = math.cos(angle), math.sin(angle)
+        pygame.draw.line(sc, LINK_AMBER, (centre[0] + ux * reach, centre[1] - uy * reach),
+                         (centre[0] + ux * (reach + 7), centre[1] - uy * (reach + 7)), 2)
+
+
+def _ap_symbol(rend, ap) -> None:
+    """The access point: a box with three arcs — the one symbol in this lab that means "radio".
+
+    Drawn as a box and not as a burst like a radiation source: the source is a point that something
+    comes out of, this is a point everything has to come back to. The arcs are one symbol for all
+    qualities — the AP does not get worse, the line to it does.
+    """
+    from .render import mix                                   # lazy: render imports this module
+    sc, s = rend.screen, rend.s
+    centre = rend.px(*ap)
+    colour = mix(rend.col_floor, GOOD_LINK, .85)
+    pygame.draw.rect(sc, colour, (centre[0] - 5, centre[1] - 3, 10, 7))
+    for step in (1, 2):
+        box = pygame.Rect(centre[0] - 7 * step, centre[1] - 7 * step - 3, 14 * step, 14 * step)
+        pygame.draw.arc(sc, colour, box, 0.15 * math.pi, 0.85 * math.pi, 1)
+    if s > 26:
+        rend._text("access point", centre[0] + 13, above_bar(rend, centre[1] - 16), colour)
+
+
+def _dashed_line(sc, a, b, color) -> None:
+    """A dashed line between two points: what is left of a link that carries nothing."""
+    length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    for walk in range(0, int(length), 14):
+        end = min(walk + 8, length)
+        pygame.draw.line(sc, color, (a[0] + ux * walk, a[1] + uy * walk),
+                         (a[0] + ux * end, a[1] + uy * end), 1)
 
 
 def _plate(point, u, v, half_l, half_w) -> list:

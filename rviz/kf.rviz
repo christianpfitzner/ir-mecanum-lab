@@ -1,9 +1,18 @@
-# RViz2 view for Experiment 2 (state estimation) — robot "test".
+# RViz2 view for Experiment 2 (state estimation) — written for the robot named "test".
 #   rviz2 -d rviz/kf.rviz --ros-args -p use_sim_time:=true
-#   ros2 launch launch/kf.launch.py aufgabe:=kf_fusion rviz:=true   (starts rviz with that param)
-# Andere Roboternamen in den drei Themenfeldern unter Displays anpassen (/test/... -> /name/...).
+#   ros2 launch launch/kf.launch.py task:=kf_fusion rviz:=true      (starts rviz with that param)
+#
+# What this file is: the saved RViz window layout. The `Name:` entries under `Displays:` are the
+# labels RViz shows in its sidebar, so they are read by people and are English like everything else
+# here; the `Value:` entries under each `Topic:` are the ROS topic names RViz listens to.
+# Another robot name: change the three topic fields below (/test/odom, /test/gps, /test/kf/pose)
+# and the one frame name (/test/base_link) to /<your name>/... — or start the sim with
+# `robot:=test`, which is what this file was saved from.
+#
 # Fixed Frame is map: GPS and your own estimate point there, and the simulator publishes the
 # TF branch map -> test/odom -> test/base_link (plus laser and imu_link), so `map` really exists.
+# --ros-args -p use_sim_time:=true matters: without it RViz compares its wall clock with the
+# stamps of the simulation (seconds since start) and shows an empty map — the data is "in the past".
 # Dark background so the marker colours stay readable on the dark floor of the simulator view.
 Panels:
   - Class: rviz_common/Displays
@@ -29,7 +38,7 @@ Visualization Manager:
       Line Style:
         Line Width: 0.02
         Value: Lines
-      Name: Raster
+      Name: Grid
       Plane: XY
       Plane Cell Count: 24
       Reference Frame: <Fixed Frame>
@@ -51,7 +60,7 @@ Visualization Manager:
       Covariance: false
       Enabled: true
       Keep: 200
-      Name: Odometrie
+      Name: Odometry
       Position Arrow:
         Alpha: 1
         Length: 1

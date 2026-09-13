@@ -87,6 +87,8 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
 | `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity, name, distance}` of the radiation counter (§6.13) — a String topic because no standard message fits a counter, same pattern as `/sim/robots`; `distance` is `null` unless `poi.publish_distance` is on |
+| `/<robot>/link` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, rssi_dbm, ap, up, dropped, latency_ms}` of the radio the commands travel on (§6.14); only when `wifi.enabled` |
+| `/<robot>/sensor/info` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, sats, lost, latency_ms, temp, scan_gaps}` — what the instruments say about themselves, at `gps.rate`; the three measurement messages have no field for any of it (§6.4) |
 | `/<robot>/mission_state` | `std_msgs/msg/String` | students → sim/grader | `"idle"`, `"running"`, `"done"`, `"failed:<reason>"` |
 | `/sim/robots` | `std_msgs/msg/String` | sim → everyone | JSON: list of robots including color/marker/mode, plus `steer_deg` — the two rack angles in degrees — on a steering robot (§5.1), empty on a mecanum one |
 | `/sim/task` | `std_msgs/msg/String` | grader → sim → everyone | active task (`kinematik`, `quadrat`, …) |
@@ -317,20 +319,34 @@ Measured with a 25 s straight drive at 0.5 m/s in `production` (seed 1), one num
   averaging does not remove it because it is an offset and not noise. Measured over 25 s of
   driving: 24.00 → 29.52 °C, `az` bias +0.024 m/s², `gz` bias +0.00069 rad/s; with the defaults the
   chip stays at 24.00 °C and `az` stays at +9.81 while standing. The temperature itself is not a
-  field of `sensor_msgs/Imu`, so over ROS only its effect is visible — in the window and in the
-  `temp_imu` column of the log it is the number. (The rest of the IMU model: CONTRACT-KF §3.)
+  field of `sensor_msgs/Imu`, so on the wire it travels on `/sensor/info` (below); in the window and in
+  the `temp_imu` column of the log it is the number. (The rest of the IMU model: CONTRACT-KF §3.)
 * `lidar.reflectivity_min` is a sensitivity threshold in |cos| of the incidence angle on the face a
   ray entered, so `_ray_rect()` answers `(distance, face)` and `Lidar._reflects()` decides whether
   anything comes back at all. Measured 0.5 m off a 30 m wall: that wall is seen 7.17 m down its
   length with the default 0.0 and 1.93 m at 0.25, 20 of 360 beams report nothing, and the 0.500 m
   beam pointing straight at it is bit for bit the same. This is why real lidars miss painted posts.
 * `Scan.missing` counts the beams that came back `inf`, so a clipped reading cannot be mistaken for
-  a wall; `range_max` is the field that says where the sensor gives up. Over ROS neither of the two
-  survives the mapping — `ros_bridge.py` turns `inf` into `range_max` because `LaserScan` has
-  nothing else, so there the count is `sum(r >= range_max)` — and `quality`/`sats` have no place in
-  `geometry_msgs/msg/PoseStamped` either. What that means in practice: in a ROS run the position is
-  on the bus and its quality is in the window and in the log. A small `/gps/info` string topic (the
-  `kfinfo` pattern of §6.7) would carry it; that is `ros_bridge.py` work and not part of this pass.
+  a wall; `range_max` is the field that says where the sensor gives up — spelled that way after
+  `sensor_msgs/msg/LaserScan`, whose `range_max` it becomes one-to-one (§6.7). The alternative
+  `max_range` was considered and rejected: the ROS message already has a name for this.
+* **What the wire cannot carry, `/sensor/info` carries.** `LaserScan` has no field for the count, so
+  `ros_bridge.py` turns `inf` into `range_max` and there the count is `sum(r >= range_max)`;
+  `quality` and `sats` have no place in `geometry_msgs/msg/PoseStamped`, and the chip temperature has
+  none in `sensor_msgs/Imu`. Those five numbers used to exist only in the window and in the log, which
+  is the one place a second terminal cannot reach, so `engine.sensor_info()` publishes them as one
+  JSON object on `/<robot>/sensor/info` at `gps.rate` — `types.SensorInfo`, `t, quality, sats, lost,
+  latency_ms, temp, scan_gaps`, the same JSON-on-a-String pattern as `/poi` and `/link` (§6.13, §6.14)
+  and for the same reason: a custom interface would put a colcon build in front of someone who only
+  wants to read a quality. `ros2 topic echo /alice/sensor/info` therefore answers what the readout
+  line answers. Named for the instruments and not for the GPS, because the temperature is the IMU's
+  and the gaps are the LIDAR's.
+* `quality 0` is a property of a **place**, not of a message: `GpsSensor.sky()` says what the sky at a
+  position is worth, and a receiver standing where it is worth 0 sends nothing at all — `fix()` answers
+  `None` and no `/gps` message exists to carry the number. Where 0 does appear is the answer `/sensor/info`
+  gives, the `q_gps` column of the log and the readout line, all three of which ask the receiver rather
+  than the last message (that is `engine.gps_health()`, and `types.Gps` documents what a message can
+  and cannot contain).
 * `odom.jitter` stamps each odom message late by up to that fraction of its period (`Noise.late`,
   one-sided, so stamps never overtake each other). The values are integrated every physics step
   either way, so the message rate and the numbers stay: measured σ of the distance between stamps
@@ -695,6 +711,63 @@ Measured on 20 m driven straight at 0.5 m/s, seed 1, with `config/demo_open_odri
 off by a `gps.gap` opened to the length of the exercise): the odometry counts **21.01 m** of 20.00 m
 and the ghost is **1.00 m** ahead of the robot at 5 % wrong wheel radius — **0.01 m** with honest ones —
 and both runs end with **0 wall contacts**.
+
+### 6.14 `mecanum_lab/wifi.py` [integrator] — the radio the commands travel on
+
+```python
+def quality_of(rssi, floor = -85.0, good = -50.0) -> float      # 0 at the floor, 1 on the flat part
+def access_point(cfg, world) -> tuple | None                    # `ap` wins, else `ap_by_world[world]`
+class Wifi:
+    def __init__(self, world, ap, noise, cfg=None)              # cfg = the `wifi` block
+    def budget(self, x, y, shadow_db = 0.0) -> tuple            # (rssi, q, metres, wall crossings)
+    def latency(self, quality) -> float                         # s on the wire, quality-dependent
+    def admit(self, name, pose, kind, payload, t) -> bool       # may this frame be sent at all?
+    def due(self, name, t) -> list                              # frames whose flight time is over
+    def step(self, name, pose, dt) -> LinkState                 # timer for the failsafe
+    def message(self, name) -> Link | None                      # what /link publishes
+    def health(self, name) -> tuple                             # nine numbers for the window
+    def forget(self, name), def reset(self)                     # robot gone / run restart
+```
+
+Every command in the simulator arrives over a radio, and until this module existed every one of them
+arrived instantly and perfectly. The model is a **link budget**, not a WiFi simulation: no channels,
+no association, no OFDM, no DHCP, no retransmission — those are fields of their own and the lab has
+two other experiments. What it knows is dBm and the three things that decide a link in a hall
+(`rssi = tx_dbm − 10·n·log10(d/d0) − k·wall_db + shadow`), which the module docstring derives term by
+term. `n = 2.4` costs 7.2 dB per doubling of distance, at 2 m as much as at 16 m; `k` counts the
+wall crossings on the straight line AP → robot **with the LIDAR's own ray/rectangle test**
+(`sensors._ray_rect`), so a beam and a radio wave cannot disagree about which rectangles exist, and
+floor markings are paint and cross for free.
+
+**The seam is one `if` in one file.** `engine._deliver()` asks `wifi.admit()` where the plain
+assignment used to be, and `engine._step_link()` calls `wifi.due()` where the outbox used to go out
+the same tick. `engine.py` says what a robot does with a command; `wifi.py` says whether one arrives
+at all. With `wifi.enabled` false — the shipped default — `_build_sensors()` returns `None`, both
+calls are not made, and the command path is the old assignment: not one random number is drawn for
+the radio, which is why the graded command streams of both experiments are byte for byte what they
+were before a radio existed (`tests/test_wifi_w6.py`, on the recorded CSV).
+
+**The output is a decision, not a level.** Below `wifi.link_up_q` (0.15) for `wifi.link_timeout`
+(1.5 s) the link counts as down: `mode` flips to `autonomy`, the frames still on the wire are
+thrown away — a station that lost its association keeps nothing — and `wifi.autonomy` says what the
+robot does on its own (`stop`, or `hold` to keep driving the last command). The same numbers are what
+a student program may read: `types.Link` on `/<robot>/link` at `wifi.rate` (`t, quality, rssi_dbm,
+ap, up, dropped, latency_ms`), `robot_io.link()` for the accessor and `overlays.link_readout()` for
+the readout segment and the bar above the robot. `ap` is in a message about quality on purpose: a
+controller that knows where the access point is can drive out of the shadow itself, one threshold
+before the failsafe does it for them.
+
+Measured on `production` (AP at (1.0, 2.0), the shipped `config/demo_wifi.json`, no shadow term so
+the numbers are reproducible): the spawn pose at (2.25, 2.75) sits at −43.9 dBm, q 1.00; along the
+spawn row eastwards −54.6 dBm/q 0.87 at x = 5 m, −62.9/q 0.63 at 10 m, −67.5/q 0.50 at 15 m,
+−70.1 dBm/q 0.42 at the far wall — with the wire latency rising from 25 ms to 43 ms and the frame loss
+from 1.7 % to 33 %. Nowhere near the failsafe: in an unfurnished line this AP does not die, it degrades,
+which is the honest shape of the exercise — `student/link_autonomy_example.py` drives the aisles until
+something does give out.
+
+**On the wire** `/link` is JSON on a `std_msgs/msg/String` for the same reason as `/poi` (§6.13): a
+link budget has no standard message, and a custom interface would put a colcon build in front of a
+student who only wants to read a quality. `ros2 topic echo /alice/link` needs nothing but ROS.
 
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 

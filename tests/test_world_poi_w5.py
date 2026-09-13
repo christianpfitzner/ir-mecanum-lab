@@ -291,7 +291,10 @@ def test_without_a_source_no_detector_is_built_and_no_message_appears():
     kinds = {kind for kind, _r, _p in got}
     assert "poi" not in kinds
     assert {"odom", "scan", "gps", "imu", "truth"} <= kinds           # everything else still runs
-    assert kinds <= {"odom", "scan", "gps", "imu", "truth", "robots"}  # `robots`: the spawn report
+    # `robots`: the spawn report; `sensorinfo`: the instruments' self-report (CONTRACT §6.4), which
+    # the engine publishes whatever the world contains — it asks the receiver and the chip, and the
+    # detector as well, so with nothing planted the message says 0 and the claim below stays whole.
+    assert kinds <= {"odom", "scan", "gps", "imu", "truth", "robots", "sensorinfo"}
     assert eng.robots["muster"].poi is None
 
 

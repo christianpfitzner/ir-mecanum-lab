@@ -221,10 +221,12 @@ Topic & Type (ROS 2) & Meaning \\
   & exact pose — only if \thema{debug\_truth} is switched on \\
 \thema{<robot>/mission\_state} & \thema{std\_msgs/msg/String}
   & \thema{idle}, \thema{running}, \thema{done}, \thema{failed:<reason>} \\
+\thema{<robot>/link} & \thema{std\_msgs/msg/String} (JSON)
+  & quality of the radio link, only with \thema{wifi.enabled} — see \cref{sec:wifi} \\
 \thema{/sim/robots} & \thema{std\_msgs/msg/String} (JSON)
   & all robots with color, marker, motor variant, mode \\
 \thema{/sim/world} & \thema{std\_msgs/msg/String} (JSON)
-  & world name, size, goal, start poses \% TODO(integrator): add to CONTRACT 3 \\
+  & world name, size, goal, start poses (the same fields `docs/CONTRACT.md` §6.2 documents) \\
 \thema{/sim/task} & \thema{std\_msgs/msg/String}
   & active task of the grader \\
 \thema{/sim/spawn\_robot} & service, see \cref{sec:service}
@@ -308,6 +310,76 @@ because the rack needs half a second to reach \(30^\circ\) — and then parks in
 LIDAR. Read it before you write your own: it is one idea (point the wheels at the next waypoint) and
 forty lines.
 
+\subsection{The radio link: commands that can get lost}
+\label{sec:wifi}
+Nothing in the simulator hands a command to a robot directly; every \thema{cmd\_vel} and every
+\thema{wheel\_speeds} message reaches it over a radio link, and with \thema{wifi.enabled=true} that
+link is a model with two ways to fail: distance, and what stands in the straight line to the hall's
+one access point. The level at the robot is
+\begin{equation*}
+  P_{\text{rssi}} = P_{\text{tx}} - 10\,n\,\log_{10}\!\frac{d}{d_0}
+                    - N_{\text{walls}}\,L_{\text{wall}} + P_{\text{shadow}}
+  \qquad
+  q = \operatorname{clamp}\!\left(\frac{P_{\text{rssi}} - P_{\text{floor}}}
+                                      {P_{\text{good}} - P_{\text{floor}}},\; 0,\; 1\right)
+\end{equation*}
+with the defaults \(P_{\text{tx}} = -40\,\mathrm{dBm}\) at \(d_0 = 1\,\mathrm{m}\), path exponent
+\(n = 2.4\) (a furnished hall), \(L_{\text{wall}} = 12\,\mathrm{dB}\) per crossed wall and
+\(P_{\text{floor}}/P_{\text{good}} = -85/-50\,\mathrm{dBm}\). The wall count is the same ray test the
+LIDAR uses on the same rectangles, so the scan and the radio cannot disagree about which shelves exist.
+What quality is worth: a frame is lost with probability \((1-q)^2\) and every frame that arrives is
+late by \(t_{\text{wire}}(1 + 2(1-q))\), so with the default \(20\,\mathrm{ms}\) a good link costs
+\(20\,\mathrm{ms}\) and a link at \(q = 0.32\) costs \(47\,\mathrm{ms}\) and loses one frame in two.
+Measured in the \thema{production} hall (access point at \(1.0, 2.0\) m above the loading area), with
+the slow fade at zero:
+
+\begin{table}[ht]\centering\small
+\caption{Level and quality of the shipped link at spots of the \thema{production} hall
+  (\thema{config/demo\_wifi.json}); \(k\) is how many racks the line to the access point crosses.}
+\label{tab:funk}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & \(k=0\) & \(k=1\) & \(k=2\) \\
+\midrule
+2 m  & \(-47.2\,\mathrm{dBm}\), \(q=1.00\) & \(-59.2\), \(q=0.74\) & \(-71.2\), \(q=0.39\) \\
+8 m  & \(-61.7\), \(q=0.67\) & \(-73.7\), \(q=0.32\) & \(-85.7\), \(q=0.00\) \\
+15 m & \(-68.2\), \(q=0.48\) & \(-80.2\), \(q=0.14\) & \(-92.2\), \(q=0.00\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two things to take from the table. \emph{Walls, not metres, kill a link}: one rack between you and the
+access point at 8 m is worse than open floor at 15 m. And \(q\) reaches 0 while the robot is still
+\emph{inside} the hall: \(23\,\%\) of that hall's free floor is below the level a robot can be driven
+on, which is why a hall needs more than one access point in reality.
+
+Below \thema{wifi.link\_up\_q} (0.15) a countdown runs; if the level stays under it for
+\thema{wifi.link\_timeout} (1.5 s of simulation time), the link is \emph{down}: from then on nothing you
+send arrives, the robot is drawn with an amber outline, and its \thema{mode} on \thema{/sim/robots}
+says \thema{autonomy}. What it does then is the option \thema{wifi.autonomy} — \thema{stop} holds the
+place it was left at (what a command watchdog is for), \thema{dead\_reckoning} keeps executing the last
+command that really arrived and drives on into whatever stands there. That choice is a decision about a
+practice robot and not about a radio, and it is worth five minutes of discussion.
+
+\begin{lstlisting}[language=bash]
+./lab sim --world production --config config/demo_wifi.json      # look at layer n
+./lab run --world production --config config/demo_wifi.json --robot alice \
+          --controller student/link_autonomy_example.py --headless --seconds 60
+\end{lstlisting}
+
+Layer \thema{n} of the window draws the access point, the line to your robot and a quality bar over
+it; the readout line prints the same numbers as
+\thema{wifi q 0.42 -72.3 dBm 1 wall lost 4/120 43 ms}, and
+\thema{<robot>/link} (5 Hz, JSON in a \thema{std\_msgs/String}) carries
+\thema{t, quality, rssi\_dbm, ap, up, dropped, latency\_ms} — \thema{ap} included so that a controller
+can drive back into coverage \emph{before} the failsafe fires instead of being rescued by it. The
+example controller above does exactly that walk on purpose: it drives the hall's aisles away from the
+access point, brakes at \(q \le 0.35\) and prints where the link died (after \(\approx 31\,\mathrm{s}\)
+among the racks, with a few hundred frames lost). \thema{config/demo\_wifi.json} explains every number
+in the block, the four-step exercise and what this model deliberately does \emph{not} do: no second
+access point, no roaming, no shared airtime, no multipath and no retransmission — a frame lost here is
+lost, and the sequence is never shuffled.
+
 \section{Getting started}
 \subsection{Installation}
 \begin{lstlisting}[language=bash]
@@ -331,6 +403,11 @@ ros2 topic echo /alice/odom --once
 ros2 topic hz   /alice/scan              # ~20 Hz
 ros2 topic echo /alice/wheel_speeds      # your four wheel speeds
 \end{lstlisting}
+Your node and the keyboard share one topic. \thema{./lab run --controller mein.py} publishes your
+frames every tick, the keys publish only while one is held: the node drives, the keys interrupt it,
+and \thema{cmd\_timeout} is what ends both. The readout line says which of the two was the last
+command — \thema{cmd topic 0.04 s}, \thema{cmd keys 0.02 s}, \thema{cmd none} — so you never have to
+wonder which of them a screenshot shows.
 \subsection{Creating a robot through a service}\label{sec:service}
 One robot per participant, name unique (\thema{[a-z][a-z0-9\_]\{1,23\}}).
 \textbf{ROS 2 caution:} unlike in ROS 1 there is \emph{no} built-in
@@ -507,7 +584,7 @@ Copying solution parts (also from generated answers of other people or language
 models) leads to withdrawal from the experiment; you may discuss anything.
 Allowed aids: the script, this handout, \ordner{docs/}, your own notes. The
 reference solution \ordner{student/solution.py} is in the repo and is released
-\emph{only after the submission deadline} \% TODO(integrator): set the release time.
+\emph{only after the submission deadline}.
 The four tasks are to be worked in sequence; T1 is the prerequisite for
 everything else.
 
@@ -541,6 +618,8 @@ scan.angle_increment = 2*pi/360          # increasing index: CCW
 scan.ranges[i]                           # m; no hit = range_max (8.0)
 
 # /alice/gps : geometry_msgs/msg/PoseStamped   (map frame)
+# /alice/link : std_msgs/msg/String, JSON (only with wifi.enabled):
+#   {t, quality, rssi_dbm, ap, up, dropped, latency_ms}
 # /sim/world : std_msgs/msg/String, JSON: name, size, goal, spawns, walls
 \end{lstlisting}
 \subsection*{Student API (\texorpdfstring{\ordner{robot\_io.py}}{robot_io.py})}
@@ -548,6 +627,7 @@ scan.ranges[i]                           # m; no hit = range_max (8.0)
 rob = RobotIO("alice")           # ./lab run --robot alice
 rob.cmd_vel()                    # Twist or None
 rob.odom(); rob.gps(); rob.scan()
+rob.link()                       # radio quality, or None (wifi.enabled)
 rob.age("odom")                  # age of the last measurement in s
 rob.send_wheels([w1, w2, w3, w4])
 rob.publish_cmd_vel(vx, vy, omega)
@@ -558,8 +638,11 @@ serve(module)                    # runner behind the one line in the template
 \textbf{Contract with \thema{serve}:} If \thema{/sim/task} is empty or
 \thema{kinematik}, every \thema{cmd\_vel} is translated into wheels by
 \thema{inverse\_kinematics}. For any other task, \thema{mission(rob,
-task)} is called exactly once and the state is reported. \% TODO(integrator): check
-the final wording of the template
+task)} is called exactly once and the state is reported. On \thema{kinematik} the robot therefore never
+drives itself: \thema{mission()} is not called, \thema{/mission\_state} stays \thema{idle}, and nothing
+moves until a \thema{cmd\_vel} arrives --- from the keyboard in \kommando{./lab run} or from the grader.
+That is the exercise and not a bug: T1 is graded on what your conversion makes of the commands it is
+given, and the first task whose drive is yours is \thema{quadrat}.
 
 \section{Formula sheet}
 \begin{align}

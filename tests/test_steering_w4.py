@@ -20,6 +20,7 @@ import os
 
 import pytest
 
+from support_logging import logged, messages
 from mecanum_lab import node, physics, sensors, steering
 from mecanum_lab.engine import SimEngine
 from mecanum_lab.stub import StubBus
@@ -233,9 +234,9 @@ def test_the_drive_speed_is_limited_too():
 def test_strafe_is_dropped_once_and_the_car_keeps_driving(caplog):
     """"steering robot cannot strafe, vy=0.25 dropped" — said once, and then it drives anyway."""
     eng, car = car_engine()
-    with caplog.at_level("WARNING", logger="mecanum.steering"):
+    with logged("mecanum.steering") as records:
         turned, _ = drive(eng, 4.0, 0.5, 0.0, vy=0.25)
-    said = [rec.getMessage() for rec in caplog.records if "strafe" in rec.getMessage()]
+    said = [m for m in messages(records) if "strafe" in m]
     assert len(said) == 1, said                                     # one sentence, not 200
     assert "vy=0.25" in said[0]
     assert turned == pytest.approx(0.0)                             # straight ahead, not sideways

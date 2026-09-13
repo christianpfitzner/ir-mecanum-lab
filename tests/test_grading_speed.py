@@ -12,6 +12,8 @@ import logging
 import os
 import re
 
+from support_logging import logged, messages
+
 import pytest
 
 from mecanum_lab import node
@@ -140,9 +142,9 @@ def test_a_run_that_cannot_keep_up_says_so_once_with_the_number(monkeypatch, cap
     """The old code lost whole seconds in silence. That is how a seed stops being the seed."""
     eng, bus = an_engine(), RecordingBus(rounds=2)
     monkeypatch.setattr(node.time, "monotonic", ScriptedClock(step=2.0))   # 2 s per round
-    with caplog.at_level(logging.WARNING, logger="mecanum.node"):
+    with logged("mecanum.node", "mecanum.engine") as records:
         node.run_loop(eng, bus, speed=1.0)
-    warnings = [r.getMessage() for r in caplog.records if "wall clock" in r.getMessage()]
+    warnings = [m for m in messages(records) if "wall clock" in m]
     assert len(warnings) == 1, warnings
     assert "--speed" in warnings[0] and "--fixed-step" in warnings[0]
     lost = re.search(r"by (\d+\.\d) s", warnings[0])
@@ -154,24 +156,24 @@ def test_a_run_that_cannot_keep_up_says_so_once_with_the_number(monkeypatch, cap
 
 def test_the_engine_counts_the_seconds_its_accumulator_threw_away(caplog):
     eng = an_engine()
-    with caplog.at_level(logging.WARNING, logger="mecanum.engine"):
+    with logged("mecanum.engine") as records:
         eng.step(2.0)                                      # the cap keeps 0.5 s of catch-up
         assert eng.dropped == pytest.approx(1.5)
         eng.step(1.0)
         assert eng.dropped > 1.5                           # and it goes on counting
-    warnings = [r.getMessage() for r in caplog.records if "wall clock" in r.getMessage()]
+    warnings = [m for m in messages(records) if "wall clock" in m]
     assert len(warnings) == 1, "one warning per run, not one per step"
     assert "1.5 s" in warnings[0], warnings[0]
 
 
 def test_a_normal_step_drops_nothing(caplog):
     eng = an_engine()
-    with caplog.at_level(logging.WARNING, logger="mecanum.engine"):
+    with logged("mecanum.engine") as records:
         for _ in range(100):
             eng.step(0.02)
     assert eng.dropped == 0.0
     assert eng.t == pytest.approx(2.0, abs=1e-9)
-    assert not [r for r in caplog.records if "wall clock" in r.getMessage()]
+    assert not [m for m in messages(records) if "wall clock" in m]
 
 
 def test_the_loop_is_told_the_step_size_it_would_use():

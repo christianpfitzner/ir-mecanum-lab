@@ -51,12 +51,18 @@ tol umgebung vorwaerts vorzeichen waehrend wahr wahrheit wand wanduhr weg welten
 wiederhole wiederholung wirklich zeit zeile zeilen zeitpunkt zahl zaehlen zaehler zusammenfassung
 zustand zonen ziel
 """.split())
-# Documented API exceptions (CONTRACT §1 and §6.11): the wheel labels as printed on the robot,
-# the task groups and task ids one types on the command line.
-ALLOW_TOKENS = {"vl", "vr", "hl", "hr", "fl", "fr", "rl", "rr",           # wheel labels
-                "alle", "beide", "versuch", "versuche", "alle_versuche",  # task groups
-                "kinematik", "quadrat", "korridor", "anfahrt",            # task ids
-                "kf", "gps", "imu", "odom", "tf", "json", "csv"}
+# Names that are allowed to read as German although the detector sees them: the documented API
+# exceptions of CONTRACT §1 and §6.11 (the wheel labels as printed on the robot, the task groups and
+# the task ids one types on the command line).
+#
+# Only `quadrat` survives. Whether an entry does anything at all is decidable: a name is reported
+# over the words in `GERMAN`, and of the documented exceptions only that task id is a word the list
+# knows — `vl`, `vr`, `hl`, `hr`, `fl`, `fr`, `rl`, `rr`, `kinematik`, `korridor`, `anfahrt`,
+# `versuche`, `alle`, `kf`, `odom`, `gps`, `imu`, `tf`, `json`, `csv` are not in it, so listing them
+# guarded nothing. An allowlist that cannot bite is worse than a short one: the next person reads it
+# as "these names are checked and allowed" and stops looking. If a task is ever renamed to a word
+# that _is_ in `GERMAN`, its id belongs here and nowhere else.
+ALLOW_TOKENS = {"quadrat"}
 
 SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
 DATA_STRING = re.compile(r"^[a-z][a-z0-9_.\-]*$")
@@ -159,7 +165,8 @@ def main(argv) -> int:
         for path, nr, text in hits:
             print(f"{os.path.relpath(path, ROOT)}:{nr}: {text}")
     print(f"germanids: {len(hits)} German identifiers in "
-          f"{len({h[0] for h in hits})} files (allowlist: {len(ALLOW_TOKENS)} tokens, "
+          f"{len({h[0] for h in hits})} files (allowlist: {len(ALLOW_TOKENS)} "
+          f"{'token' if len(ALLOW_TOKENS) == 1 else 'tokens'}, "
           "the two compatibility maps read from the code)")
     return 1 if hits else 0
 

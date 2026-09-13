@@ -126,8 +126,7 @@
     "Braking: smallest value in the +/-30 degree sector; below 0.5 m the robot stands still, below 0.3 m continue only sideways or while turning.",
     "Sideways distance is only graded on straight driving (|omega| small), because corners inevitably cut the corners."
    ],
-   "deliverable": "Robot stands within 0.3 m of the gate, had zero wall contacts and never passed anything closer than 0.16 m sideways.",
-   "time_max": 120
+   "deliverable": "Robot stands within 0.3 m of the gate, had zero wall contacts and never passed anything closer than 0.16 m sideways."
   },
   {
    "id": "gps_anfahrt",
@@ -142,20 +141,19 @@
    "contacts_max": 0,
    "path_min": 0.5,
    "path_max": 40.0,
-   "text": "Return drive to the loading spot — that is the last goal of this world, deliberately NOT your own start pose, so that T4 is not satisfied just because you were already standing there. You are guided by GPS (PoseStamped, noisy, 5 Hz), not by odometry. A P controller on a noisy position otherwise circles the goal: a dead zone inside the goal circle and a damped turn rate are the actual learning point.",
+   "text": "Return drive to the loading spot — that is the LAST SPAWN POSE of this world, world()['spawns'][-1], deliberately not your own start pose, so that T4 is not satisfied just because you were already standing there. The world's goal ('gate') belongs to T3; here it is not the target. This task brings no own sensor profile, so the defaults of the simulator apply and are what you can read off /sim/config: GPS at gps.rate = 5 Hz, sigma_xy = 0.06 m, no outage, 8 anchors in view. You are guided by that GPS (geometry_msgs/PoseStamped), not by odometry. A P controller on a noisy position otherwise circles the goal: a dead zone inside the goal circle and a damped turn rate are the actual learning point.",
    "checks": [
     "A different sensor source: GPS instead of odometry (and hence no accumulated drift)",
     "Dead zone and hysteresis against sensor noise",
-    "Goal definition taken from the world (last spawns goal) instead of hard-coded numbers"
+    "Target definition taken from the world — the last entry of world()['spawns'], not world()['goal'] — instead of hard-coded numbers"
    ],
    "hints": [
-    "GPS has been arriving at ~5 Hz so far — regulate slowly enough (controller Hz < sensor rate) and keep the setpoint small.",
+    "The fix arrives at 5 Hz (gps.rate): a controller ticking faster acts twice on the same measurement, so regulate at or below the sensor rate and let the dead zone do the rest.",
     "Dead zone: inside 0.1-0.15 m of the goal distance command nothing at all, otherwise the controller swings around the goal.",
     "Always form the heading error with types.wrap_angle(), otherwise the robot turns 350 degrees around the goal.",
     "The loading spot is world()['spawns'][-1]; T3's gate is world()['goal']."
    ],
-   "deliverable": "Robot stands within 0.45 m of the loading spot (the world's last goal), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)",
-   "time_max": 90
+   "deliverable": "Robot stands within 0.45 m of the loading spot (the last spawn pose of the world), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)"
   },
   {
    "id": "kf_gps",

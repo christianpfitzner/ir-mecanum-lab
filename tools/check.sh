@@ -16,6 +16,10 @@ step "Unit tests (no ROS, no window)"
 run "python3 -m pytest tests -q"
 step "LOC budget"
 run "python3 tools/loc.py"
+step "Launch arguments (every one read is declared, every one declared has one line of help)"
+# `ros2 launch … --show-args` prints exactly these three things, and an argument that is read but
+# not declared is silently ignored — the classic "my setting does nothing" hour.
+run "python3 tools/launchargs.py --quiet"
 step "Language (CONTRACT section 1: written prose is English)"
 # Not cosmetics: handouts, comments and report text are what students read, and German creeps
 # back in with every new feature. langcheck reports umlauts anywhere and German words in prose.
@@ -59,7 +63,23 @@ run "./lab grade --robot muster --task alle --controller student/solution.py --h
     --speed 4 --json /tmp/grade_fast.json --seconds 150"
 
 step "Teleop path (pass-through) without a student node"
-run "./lab sim --world track --robots a,b --headless --seconds 3"
+# Two real names on purpose: `a` and `b` are shorter than NAME_RE allows, so the step used to pass
+# while the simulator answered two "invalid robot name" errors — a gate that reports errors and
+# calls it green is the one thing a gate must not be.
+run "./lab sim --world track --robots alice,bob --headless --seconds 3"
+
+step "Radio link: the demo config on the real-time path"
+# The one option of the feature is off in the defaults, so nothing above exercises it: this is the
+# run that shows `wifi.enabled` builds a radio, publishes /link and keeps the run alive for 20 s of
+# simulated driving. The graded thresholds of both experiments are calibrated without a radio, which
+# is exactly why this step and the pytest guard are separate: one proves the option works, the other
+# that switching it off changes nothing.
+run "./lab sim --world production --config config/demo_wifi.json --headless --seconds 20"
+step "Radio link: the example drive walks out of coverage and the failsafe stops it"
+# Not a wall-clock race: --fixed-step with the same physics step means the autonomy flip lands the
+# same sim second every time (tests/test_wifi_w6.py asserts the number, this asserts the exit code).
+run "./lab run --world production --config config/demo_wifi.json --robot muster \
+    --controller student/link_autonomy_example.py --headless --fixed-step --seconds 45"
 
 step "Experiment 2: arena world, installation, measurement log tool"
 run "python3 tools/worldcheck.py --world arena"
@@ -112,6 +132,20 @@ if [[ "${1:-}" == "--ros" ]]; then
   run "timeout 25 ros2 topic echo /sim/robots --once"
   step "ROS 2: launch files"
   run "timeout 25 ros2 launch launch/sim.launch.py headless:=true seconds:=15"
+  step "ROS 2: the radio link through launch/wifi.launch.py"
+  # Same rule as the kf step below: ros2 launch also waits for the node it started, so running into
+  # the timeout is the healthy end of the run and an early exit is a broken launch file.
+  mkdir -p .runs
+  timeout 45 ros2 launch launch/wifi.launch.py headless:=true seconds:=15 wifi:=true \
+      > .runs/wifi_launch.log 2>&1
+  rc=$?
+  if [[ $rc == 0 || $rc == 124 ]]; then
+    echo "  ok: wifi.launch.py ran 45 s with the example driver (rc $rc)"
+    grep -q "link to 'alice' down" .runs/wifi_launch.log \
+      && echo "  note: the link went down during that run (the demonstration worked)"
+  else
+    echo "  FAIL: wifi.launch.py exited with $rc"; tail -12 .runs/wifi_launch.log; fail=1
+  fi
   step "ROS 2: own student node against the real simulation"
   timeout 40 ros2 launch launch/lab.launch.py headless:=true seconds:=35 controller:=student/solution.py || true
   if [[ -f student/kf_template.py ]]; then

@@ -45,7 +45,8 @@ MAX_LOOP_DT = 0.25        # s of sim time one loop round may make up; beyond tha
 
 
 def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None,
-             speed: float = 1.0, fixed_step: bool = False):
+             speed: float = 1.0, fixed_step: bool = False, screenshot: str | None = None,
+             frame_max: int = 0):
     """One tick: step the simulation, put measurements on the bus, draw, grade, log.
 
     The pace is `speed` **simulation seconds per wall second** (default 1 = real time, as in the
@@ -57,15 +58,22 @@ def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0
     What the loop could not make up is counted (MAX_LOOP_DT per round) and named once, from 0.5 s
     of loss up: a run that quietly loses whole seconds is not grading the seed, it is grading the
     load on the host.
+
+    `frame_max` ends the run after N **drawn** frames and `screenshot` writes the last one to a PNG
+    (pygame's own `save`, no matplotlib). Together they are the reproducible picture: combined with
+    `--fixed-step` frame N always falls at the same simulation time, so the same command draws the
+    same figure on every machine — which is what the documentation pictures of this repository are.
     """
     pubs, prev_t, t_clock, t_json, sim_t = {}, time.monotonic(), 0.0, 0.0, eng.t
     last_estimate = {}                      # so the log counts each kf/pose message only once
     last_robots, t_robots = None, 0.0
     pub_task = bus.pub("task")
     behind, warned = 0.0, False
+    frames = 0                                       # drawn frames, for --frame-max / --screenshot
     if fixed_step and rend is not None:
         log.info("--fixed-step with a window: the frame rate paces the simulation — use --headless")
-    while bus.ok() and (rend is None or rend.ok) and (not seconds or eng.t < seconds):
+    while bus.ok() and (rend is None or rend.ok) and (not seconds or eng.t < seconds) \
+            and not (frame_max and rend is not None and frames >= frame_max):
         now = time.monotonic()
         if fixed_step:
             dt = eng.sub_step
@@ -114,18 +122,45 @@ def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0
             rend.teleop = True                             # HUD shows the driving keys
             tw = teleop_keys()
             if tw and tw != (0, 0, 0):
+                # The keys are one publisher among others: same topic, same radio, and only while a
+                # key is really held. A node's frames flow between the presses, so a node drives and
+                # the keys interrupt; `note_keys()` only lets the window say who was last.
                 for name in eng.robots:
                     pubs.setdefault(("twist", name), bus.pub("twist", name))(Twist(*tw))
+                    eng.note_keys(name)
         if rend is not None:
             if rend.poll()["quit"]:
                 break
             rend.draw()
+            frames += 1
         for g in graders:
             g.tick(elapsed)                 # its clock is simulation time, not the wall clock
         if graders and all(getattr(g, "done", False) for g in graders):
             break                                       # grader is done -> end the run
         bus.spin(0.0 if fixed_step else (1.0 / hz if rend is None else 0.002))
+    if screenshot:
+        save_picture(rend, screenshot, frames, eng.t)
     return eng
+
+
+def save_picture(rend, path: str, frames: int, sim_t: float) -> None:
+    """Write the frame that is currently drawn into a PNG — the documentation pictures are generated.
+
+    pygame's own writer, so no matplotlib and no second dependency, and it works with
+    `SDL_VIDEODRIVER=dummy`: that is how a figure of a GPS shadow or of a radio link is regenerated
+    on a machine with no screen, which is how every screenshot in README stayed true.
+    """
+    if rend is None:
+        log.warning("--screenshot wants a window to draw into — pass it without --headless, or set "
+                    "SDL_VIDEODRIVER=dummy")
+        return
+    import pygame
+    try:
+        pygame.image.save(rend.screen, path)
+    except pygame.error as exc:
+        log.error("screenshot '%s' not written: %s", path, exc)
+        return
+    print(f"picture: {path} — {frames} frame(s), simulation time {sim_t:.2f} s")
 
 
 def pacing(args) -> tuple:
@@ -284,6 +319,20 @@ def subscribe(bus, eng, name: str) -> None:
     bus.sub("kf", name, lambda k, n=name: eng.set_kf(n, k))
 
 
+def subscribe_all(bus, eng) -> None:
+    """Wire every robot the simulation has right now — the one call every command path needs.
+
+    This is the seam `cmd_run()` skipped: it started the student node and ran the loop, so every
+    `cmd_vel` the node published sat on the bus and never reached a chassis, and the robot stood at
+    its spawn pose for the whole run while its sensors ticked away merrily. `cmd_sim()` and
+    `cmd_grade()` had the call, the quick-start command of the handout did not. A robot added later
+    through the spawn service is wired by whoever accepts that request (`cmd_sim`), and the commands
+    without an engine in the process — `controller`, `teleop`, `client` — have nothing to wire.
+    """
+    for name in list(eng.robots):
+        subscribe(bus, eng, name)
+
+
 def task_profiles() -> dict:
     """{task id: task} — test profile and drive mode per task, not global."""
     try:
@@ -346,32 +395,98 @@ def open_logbook(args, eng):
         return None
 
 
+def spawn_player(args, eng) -> None:
+    """`run` and `grade`: your own robot has to be spawned explicitly, once.
+
+    `--robot` is the name of your own robot. Neither command spawns it through a topic — the
+    simulation is in this very process — so without this call the arena would stay empty and the
+    student would watch a node work next to a blank map. `--robots` (the list) is handled by
+    `make_engine()`; this is only the one robot a node or a grader is supposed to drive.
+    """
+    if not args.robot or args.robot in eng.robots:
+        return
+    try:
+        eng.spawn(args.robot, getattr(args, "variant", ""))
+    except (SpawnError, ValueError) as exc:
+        log.error("robot '%s': %s", args.robot, exc)
+
+
+def student_nodes(args, bus) -> list:
+    """The controller setup of `run` and `grade`: every `--controller` file as a thread on this bus.
+
+    One call for both commands, because the two used to disagree in silence: `grade` skipped files
+    ending in `.json` (the `--json` report path is not a node) and `run` did not, so a mistaken
+    `--controller bericht.json` ended the run with an import error instead of a warning.
+    """
+    files = [c for c in (args.controller or []) if not c.endswith(".json")]
+    if args.controller and len(files) != len(args.controller):
+        log.warning("--controller files that are not nodes are ignored: %s",
+                    ", ".join(c for c in args.controller if c.endswith(".json")))
+    return [add_node(path, args.robot, bus) for path in files]
+
+
+def time_limit(args, graders=()) -> str:
+    """One line saying when this run ends — `--seconds 0` is a decision, not an accident.
+
+    `0` means "run until interrupted" here and in every launch file (`sim.launch.py` and
+    `kf.launch.py` print the same promise in their `seconds` description); the one behaviour that is
+    documented in `./lab -h`, in `--show-args` and in README is that the run then ends with `q` / the
+    window's close button, or with Ctrl-C when there is no window. With a grader on board the tasks
+    themselves end the run, which is worth saying out loud as well.
+    """
+    if args.seconds:
+        return f"run ends after {args.seconds:g} s of simulation time"
+    if graders:
+        return "run ends when the graded tasks are through (--seconds 0 = no time limit of its own)"
+    return "--seconds 0: no time limit — ends with q or the close button, or with Ctrl-C headless"
+
+
+def timed_run(args, eng, bus, graders=(), teleop=True, tap=None, json_path=None) -> int:
+    """One run: say how long it will take, tick, tear down, print the reports.
+
+    The teardown is the reason this is a function: a `./lab` window that is closed with `q` and a run
+    that is interrupted must both still close the measurement log, or the last seconds of the drive
+    are missing from the file the lab report is written from.
+    """
+    rend = None
+    if args.screenshot and args.headless:
+        # A picture is drawn and then thrown away: with --headless the surface still has to exist,
+        # so the dummy driver is chosen here rather than demanded from the caller's environment.
+        os.environ["SDL_VIDEODRIVER"] = "dummy"
+    if wants_gui(args, eng.cfg) or args.screenshot:
+        rend = R.Renderer(eng, eng.cfg)
+    speed, fixed = pacing(args)
+    print(time_limit(args, graders))
+    code = 0
+    try:
+        run_loop(eng, bus, rend, graders, args.seconds, teleop=teleop, tap=tap,
+                 speed=speed, fixed_step=fixed, screenshot=args.screenshot,
+                 frame_max=args.frame_max)
+    except KeyboardInterrupt:
+        print("interrupted — closing the window and the log")
+        code = 130
+    if rend:
+        rend.close()
+    if tap:
+        tap.close()
+    report = _print_reports(graders, json_path)
+    return code or report
+
+
 def cmd_run(args):
     """Simulator + student node in one process, without ROS — the quick start."""
     args.stub = True
     eng, bus = make_engine(args), stub.get_bus()
     tap = open_logbook(args, eng)
-    if args.robot and args.robot not in eng.robots:
-        # `--robot` is the name of your own robot — without spawning it explicitly the arena
-        # would stay empty, and the student would see a blank map with a running node.
-        try:
-            eng.spawn(args.robot, getattr(args, "variant", ""))
-        except (SpawnError, ValueError) as exc:
-            log.error("robot '%s': %s", args.robot, exc)
+    spawn_player(args, eng)
     graders = [_grader(args.robot, args.task, bus, eng)] if args.grade else []
     wire_task(bus, eng, robot=args.robot if graders else None)
-    node_threads = [add_node(c, args.robot, bus) for c in (args.controller or [])]
-    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
-    speed, fixed = pacing(args)
-    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap,
-             speed=speed, fixed_step=fixed)
-    if rend:
-        rend.close()
+    subscribe_all(bus, eng)          # every robot, after --robot was added: see that docstring
+    node_threads = student_nodes(args, bus)
+    code = timed_run(args, eng, bus, graders, teleop=not args.no_teleop, tap=tap)
     for k in node_threads:
         k.join(timeout=0.5)
-    if tap:
-        tap.close()
-    return _print_reports(graders)
+    return code
 
 
 def _print_reports(graders, json_path: str | None = None) -> int:
@@ -402,8 +517,7 @@ def cmd_sim(args):
     if hasattr(bus, "enable_tf"):
         bus.enable_tf(eng, eng.cfg)               # /tf and /tf_static, so RViz can show the map
     tap = open_logbook(args, eng)
-    for name in list(eng.robots):
-        subscribe(bus, eng, name)
+    subscribe_all(bus, eng)
 
     def spawn(req):
         out = ros_bridge.spawn_handler(eng)(req)
@@ -417,20 +531,15 @@ def cmd_sim(args):
     bus.service(topic("reset"), lambda req: (eng.reset(), {"success": True,
                                                            "message": "world reset"})[1])
     graders = [_grader(args.robot, args.grade, bus, eng)] if args.grade else []
-    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
-    speed, fixed = pacing(args)
     if not args.stub:
-        log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,poi,kf/pose>  "
+        log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,poi,link,sensor/info,"
+                 "kf/pose>  "
                  "/sim/<robots,world,task,config>  "
                  "/sim/<spawn_robot,despawn_robot,reset>  /clock  /tf /tf_static", "/<robot>")
-    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap,
-             speed=speed, fixed_step=fixed)
-    if rend:
-        rend.close()
+    code = timed_run(args, eng, bus, graders, teleop=not args.no_teleop, tap=tap,
+                     json_path=args.json)
     bus.shutdown()
-    if tap:
-        tap.close()
-    return _print_reports(graders)
+    return code
 
 
 def cmd_controller(args):
@@ -481,42 +590,36 @@ def cmd_grade(args):
     args.stub = True
     eng, bus = make_engine(args), stub.get_bus()
     tap = open_logbook(args, eng)
-    if args.robot not in eng.robots:
-        eng.spawn(args.robot)
+    spawn_player(args, eng)
     subscribe(bus, eng, args.robot)                      # kf/pose must get back into the sim
     wire_task(bus, eng, robot=args.robot)   # each task its own test profile, KF: spawn pose
-    node_threads = [add_node(c, args.robot, bus)
-                    for c in (args.controller or []) if not c.endswith(".json")]
+    node_threads = student_nodes(args, bus)
     g = _grader(args.robot, args.task or "alle", bus, eng)
-    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
-    speed, fixed = pacing(args)
-    run_loop(eng, bus, rend, [g], args.seconds, teleop=False, tap=tap,
-             speed=speed, fixed_step=fixed)
-    if rend:
-        rend.close()
-    if tap:
-        tap.close()
-    return _print_reports([g], args.json)
+    code = timed_run(args, eng, bus, [g], teleop=False, tap=tap, json_path=args.json)
+    for k in node_threads:
+        k.join(timeout=0.5)
+    return code
 
 
 def cmd_docs(args):
     print(f"worlds: {WORLD_LIST}\n")
     print("Topics per robot:")
-    for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "poi", "kf", "kfinfo", "mission"):
+    for kind in ("twist", "wheels", "odom", "scan", "gps", "imu", "poi", "link", "sensorinfo",
+                 "kf", "kfinfo", "mission"):
         print(f"  {topic(kind, 'alice'):24} {MSG_SPECS[kind][0]}")
     print("  /alice/truth (only with --truth or debug_truth, then at truth.rate)")
     print("  /sim/robots /sim/world /sim/task /sim/config  (std_msgs/String, JSON)")
     print("  /tf /tf_static  (tf2_msgs/TFMessage: map -> alice/odom -> alice/base_link "
           "-> laser, imu_link)")
     print("  /sim/spawn_robot /sim/despawn_robot (mecanum_lab_interfaces/srv/SpawnRobot "
-          "oder JSON-Handshake)  /sim/reset (std_srvs/srv/Trigger)  /clock")
+          "or the JSON handshake)  /sim/reset (std_srvs/srv/Trigger)  /clock")
     print("\nTasks: " + T.short_help(T.load_tasks()))
     print("Groups: --task alle | kf_alle | v1 | v2 | a single task")
     print("\nExamples for lab 2 (Kalman filter):")
     print("  ./lab grade --task kf_alle --controller student/kf_solution.py --log messung.csv")
     print("  ./lab run --world arena --task kf_gps --robot alice \\")
     print("        --controller student/kf_template.py --truth --log messung.csv")
-    print("  ros2 launch launch/kf.launch.py aufgabe:=kf_fusion headless:=true")
+    print("  ros2 launch launch/kf.launch.py task:=kf_fusion headless:=true")
     return 0
 
 
@@ -533,7 +636,9 @@ def parser():
     p.add_argument("--controller", action="append", help="Student node file, repeatable")
     p.add_argument("--task", default="",
                    help=f"Task or group: {', '.join(T.task_ids(T.load_tasks()))}, kf_alle, v1, v2")
-    p.add_argument("--seconds", type=float, default=0.0, help="End after N s of simulation time")
+    p.add_argument("--seconds", type=float, default=0.0,
+                   help="end after N s of simulation time (0 = until interrupted: q or the close "
+                        "button in a window, Ctrl-C headless; a grader ends the run by itself)")
     p.add_argument("--speed", type=float, default=1.0, metavar="N",
                    help="simulation seconds per wall second (default 1.0 = real time): the same "
                         "seed, the same physics steps, N times as fast")
@@ -541,10 +646,19 @@ def parser():
                    help="step exactly 1/rate per round and never sleep: independent of the wall "
                         "clock, as fast as this CPU allows (combine with --headless)")
     p.add_argument("--headless", action="store_true", help="Without the Pygame window")
+    p.add_argument("--frame-max", type=int, default=0, metavar="N",
+                   help="end after N drawn window frames (0 = no limit); with --fixed-step frame N "
+                        "always falls at the same simulation time, which is what makes a picture "
+                        "reproducible")
+    p.add_argument("--screenshot", default=None, metavar="FILE.png",
+                   help="write the last window frame to this PNG (pygame's own writer, no "
+                        "matplotlib; works headless with SDL_VIDEODRIVER=dummy)")
     p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
     p.add_argument("--no-teleop", action="store_true",
                    help="turn keyboard control off (Up/Down drive, Left/Right strafe, "
-                        "q/, right, e/. left)")
+                        "q/, right, e/. left). Keys are one publisher among others: they publish "
+                        "on /cmd_vel only while held, so a --controller node drives and the keys "
+                        "interrupt it; the readout line says who commanded last")
     p.add_argument("--seed", type=int, default=1, help="Noise seed (reproducibility)")
     p.add_argument("--config", default=None, help="JSON config on top of config/default.json")
     p.add_argument("--set", action="append", metavar="PATH=VALUE",
@@ -577,13 +691,21 @@ def cmd_teleop(args):
     return cmd_sim(args)
 
 
-COMMANDS = {"run": cmd_run, "sim": cmd_sim, "teleop": cmd_teleop,
-            "controller": cmd_controller, "grade": cmd_grade,
-            "spawn": lambda a: cmd_client(a, "spawn"),
-            "despawn": lambda a: cmd_client(a, "despawn"),
-            "reset": lambda a: cmd_client(a, "reset"),
-            "robots": lambda a: cmd_client(a, "robots"),
-            "task": lambda a: cmd_client(a, "task"), "docs": cmd_docs}
+# The commands of `./lab <command>`, and one line each for `./lab -h`. The command is what a student
+# has to get right first — an option list without a command list is a help screen that explains the
+# flags of a program you cannot start, which is exactly what `-h` used to be (see main()).
+COMMANDS = {"run": (cmd_run, "simulator + your node + keyboard in one process — the quick start"),
+            "sim": (cmd_sim, "the simulator alone, on real ROS whenever there is some"),
+            "teleop": (cmd_teleop, "one robot, the keyboard is the remote"),
+            "controller": (cmd_controller, "only your node — the simulator runs in another terminal"),
+            "grade": (cmd_grade, "grade tasks for --robot; exit code 2 when one is not met"),
+            "spawn": (lambda a: cmd_client(a, "spawn"), "add a robot to a running simulation"),
+            "despawn": (lambda a: cmd_client(a, "despawn"), "remove a robot from a running simulation"),
+            "reset": (lambda a: cmd_client(a, "reset"), "back to the start poses, counters at zero"),
+            "robots": (lambda a: cmd_client(a, "robots"), "who is driving right now?"),
+            "task": (lambda a: cmd_client(a, "task"), "send a task name to a running simulation"),
+            "docs": (cmd_docs, "topics, tasks, groups and examples")}
+COMMAND_HELP = {name: text for name, (_fn, text) in COMMANDS.items()}
 
 
 # old German option names still work, but print which one to use now
@@ -595,18 +717,26 @@ def main(argv=None):
     for old, new in DEPRECATED_OPTIONS:
         if any(a == old or a.startswith(old + "=") for a in argv):
             print(f"deprecated option '{old}', use '{new}'")
-    command = argv[0] if argv and not argv[0].startswith("-") else "sim"
-    if command in ("-h", "--help", "help"):
+    first = argv[0] if argv else ""
+    if first in ("-h", "--help", "help"):
+        # Checked before the "no command given means sim" rule below — a bare `-h` starts with a
+        # dash, used to fall through to that rule, and the option list came out without a single
+        # word about the eleven things you can actually type after `./lab`.
         parser().print_help()
-        print("\nCommands: " + ", ".join(sorted(COMMANDS)))
+        print("\nCommands (the first argument, then the options above):")
+        for name in sorted(COMMAND_HELP):
+            print(f"  ./lab {name:11}{COMMAND_HELP[name]}")
         return 0
-    args = parser().parse_args(argv[1:] if argv and argv[0] in COMMANDS else argv)
+    command = first if first and not first.startswith("-") else "sim"
+    # Only a real command name is dropped from the front; `./lab --headless` has no command and its
+    # first argument is an option that argparse has to see.
+    args = parser().parse_args(argv[1:] if first in COMMANDS else argv)
     from . import setup_logging
     setup_logging()
     if command not in COMMANDS:
         log.error("unknown command '%s' — ./lab -h", command)
         return 2
-    return COMMANDS[command](args)
+    return COMMANDS[command][0](args)
 
 
 if __name__ == "__main__":

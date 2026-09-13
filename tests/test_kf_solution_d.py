@@ -137,14 +137,14 @@ def measurement_stream(sigma_gps=0.5, rate_gps=5.0, seconds=40.0, rate_odom=50.0
             series.append((ex * ex + ey * ey, (ex * ex / sx ** 2 + ey * ey / sy ** 2) / 2.0))
             raw.append(last_fix_value[0] ** 2 + last_fix_value[1] ** 2)
     rmse = math.sqrt(sum(w[0] for w in series) / len(series))
-    rmse_roh = math.sqrt(sum(raw) / len(raw))          # = sigma_xy·√2, the grader measures this way
-    return rmse, rmse_roh, sum(w[1] for w in series) / len(series)
+    rmse_raw = math.sqrt(sum(raw) / len(raw))          # = sigma_xy·√2, the grader measures this way
+    return rmse, rmse_raw, sum(w[1] for w in series) / len(series)
 
 
 def test_estimate_is_much_better_than_the_raw_sensor():
-    rmse, rmse_roh, _ = measurement_stream()
+    rmse, rmse_raw, _ = measurement_stream()
     assert rmse < 0.42, "K1 threshold: RMSE against truth"        # config/tasks.json: rmse_max
-    assert rmse_roh / rmse >= 1.6, "K1 threshold: improvement"    # and it is clearly larger
+    assert rmse_raw / rmse >= 1.6, "K1 threshold: improvement"    # and it is clearly larger
 
 
 def test_nees_is_of_order_one():

@@ -23,6 +23,21 @@ internet connection: `sudo apt install python3-pygame` (or `./install.sh --user`
 ./lab grade --task v1 --controller student/solution.py               # grade all tasks
 ```
 
+`./lab run` is the one-process form: the simulator, your node as a thread and the keyboard, all three
+on the same `/cmd_vel`. A node publishes every tick and the keys publish only while one is held, so
+your node drives and the keys interrupt it — and the readout line says which of the two was last
+(`cmd topic 0.04 s`, `cmd keys 0.02 s`, `cmd none` once `cmd_timeout` passed without a frame).
+
+**On `kinematik` your node's job is the conversion alone, and the robot does not drive itself.** For the
+task `""` or `kinematik` the runner behind `serve()` never calls `mission()`: it reads every `cmd_vel`
+that arrives, pushes it through your `inverse_kinematics()` and publishes the four wheel speeds — full
+stop, because T1 is graded by the grader sending commands blind and measuring what the wheels do, not by
+anything your program decides. So `./lab run --task kinematik --controller student/solution.py` shows a
+robot standing still, with `/mission_state` at `idle`: nothing is broken, nothing is waiting for a goal,
+and the way to see the conversion work is to hold an arrow key (a key *is* a `cmd_vel`, and it is your IK
+that turns it into wheels — which is exactly what the window is for). Missions start at T2: `--task
+quadrat` runs `mission()` once and the robot drives the square by itself.
+
 ## First steps — Experiment 2 (state estimation)
 
 The simulation drives; your node only measures and reports its estimate on
@@ -64,8 +79,8 @@ To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless
 | `Up`/`Down` drive · `Left`/`Right` **strafe** | keyboard driving, on unless `--no-teleop`; the keys set body speeds, this is not a game |
 | `q` or `,` turn right · `e` or `.` turn left | ±0.9 rad/s yaw. With teleop on, `q` **turns** instead of quitting — `ESC` or the window's close button ends the run |
 | `SPACE` pause | `q` quits only when teleop is off |
-| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ, wheels, velocity, floor markings, goal, readout lines, gps shadow zones, odometry ghost, radiation source |
-| `l t g k w v d z h s o p` | switch a single layer — the same as clicking its row (`s` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings) |
+| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ ellipse, wheels, velocity vector, floor markings, goal, readout lines, gps shadow zones, odometry ghost + drift, radiation source + field, radio link + access point |
+| `l t g k w v d z h s o p n` | switch a single layer — the same as clicking its row (`s` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings, `n` the radio link) |
 
 The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu`, `/poi` and your `kf/pose`
 keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
@@ -120,9 +135,21 @@ with honest odometry. Measured in `arena`, 4 s of full throttle east into the wa
 | `0` | 0.69 m | 0.69 m | −0.003 m |
 
 By hand: `./lab sim --world arena`, then `Up` into the east wall — the `odom x` in the readout
-climbs while the robot's dot stays where it is. To record it: `./lab grade --task kinematik
---controller student/solution.py --log messung.csv` writes `ax_imu, ay_imu, gz_imu` next to the
-other columns (`python3 tools/kfplot.py messung.csv --list` shows all of them).
+climbs while the robot's dot stays where it is. To drive it yourself with nothing but the counter —
+no `/gps`, no truth, no `distance` field — `student/poi_seek_example.py` is the worked example:
+
+```bash
+./lab run --world open --config config/demo_poi_field.json \
+          --controller student/poi_seek_example.py --seconds 100 --log poi.csv
+```
+
+It climbs while the reading rises, arcs when it stops rising, and drives back to where it was loudest
+when the field goes silent; the why of all three rules is in the file, and `intensity_poi`/`name_poi`
+in `poi.csv` is what `tools/kfplot.py` plots afterwards. To record the IMU instead: `./lab grade --task
+kinematik --controller student/solution.py --log messung.csv` writes `ax_imu, ay_imu, gz_imu` next to
+the other columns (`python3 tools/kfplot.py messung.csv --list` shows all of them, and
+`sensor_state:` prints `q_gps`, `lost_gps`, `temp_imu` and `intensity_poi` as four sparklines — what
+the instruments reported about themselves, each on its own scale).
 
 ### Odometry with the wrong wheel radius: the model-error demo (not the default)
 
@@ -159,22 +186,27 @@ so one drive shows what a real sensor delivers on top of its number:
 
 | knob in the demo | what it changes | measured on one 25 s straight drive |
 |---|---|---|
-| `gps.quality`, `gps.sats` | says how good the fix is: 2 good, 1 degraded, 0 no fix | q2 with 8 anchors on open floor, q1 with 3 between the racks, q0 in the dock (from x = 16.6 m) |
+| `gps.sats = 8`, `gps.sats_min = 4`, `gps.zones` | what the fix is worth **where the robot is standing** | q2 with 8 anchors on open floor, q1 with 3 between the racks, and in the dock (`"block": true`) the window reads q0 while `/gps` publishes nothing at all — from x = 16.6 m |
 | `gps.dropout = 0.15` | probability per message that the transport loses it | 12 of 122 emissions gone, `lost 12` in the readout; the pattern belongs to `--seed`, not to where the robot stood |
 | `gps.latency = 0.25` | seconds on the wire, ±50 % jittered | a fix is 0.45 s old when it arrives (0.25 s of wire + the wait for the next slot), at most 1.0 s, and it is still the position it measured then |
 | `imu.temp_*` | the chip warms up and the bias walks with it | 24.00 → 29.52 °C, `az` bias +0.024 m/s², `gz` bias +0.00069 rad/s; standing still stays cold and `az` stays +9.81 |
 | `lidar.reflectivity_min = 0.25` | a wall echoes only if the cosine of the incidence angle reaches the threshold | 0.5 m off a 30 m wall: seen 7.17 m down its length by default, 1.93 m here; 20 of 360 beams come back empty (`Scan.missing`) |
 | `odom.jitter = 0.35` | an encoder report arrives when it arrives | stamps 13.3…26.8 ms instead of exactly 20.0 ms (σ 2.8 ms), values and message count unchanged |
 
-Two of these are the exercise, not the decoration. **No fix and no message are different faults:** a
-receiver in the loading dock knows that it has no solution, and a packet that never arrived leaves
-no trace at all — which is why quality, satellite count and the lost count are in the readout and in
-the log rather than only in a config file nobody looks at during a run. (Over ROS 2 they are in
-neither of the standard messages: `/gps` is a `PoseStamped` and `/scan` a `LaserScan`, so on a ROS
-run the window and the CSV are where the quality of a fix appears — `docs/CONTRACT.md` §6.4.) And a
-filter that treats every message as equally good is a filter tuned for a sensor that does not exist;
-with `q_gps`, `sats_gps`, `lost_gps`, `temp_imu` and `noecho_scan` in the same CSV as the errors of
-the student's own filter, the drive becomes an argument instead of a demo.
+Two of these are the exercise, not the decoration. **No fix and no message are different faults.**
+Quality 0 belongs to a *place*, not to a message: `GpsSensor.sky()` says what the sky at a position is
+worth, the window, the log and `/sensor/info` repeat that answer, and a receiver standing in a place
+worth 0 sends **nothing** — `fix()` returns `None` and there is no `/gps` message to attach a quality
+to. A dropped packet looks the same from outside and is counted separately, in `lost`. So a filter that
+treats every message as equally good is a filter tuned for a sensor that does not exist, and one that
+treats every gap as a blackout cannot tell the dock from a radio failure. With `q_gps`, `sats_gps`,
+`lost_gps`, `temp_imu` and `noecho_scan` in the same CSV as the errors of the student's own filter, the
+drive becomes an argument instead of a demo.
+
+Over ROS 2 none of the three standard messages can carry any of it — `/gps` is a `PoseStamped`, `/imu`
+an `Imu`, `/scan` a `LaserScan` — which is what `/<robot>/sensor/info` is for: one JSON object per
+`gps.rate` with `quality`, `sats`, `lost`, `latency_ms`, `temp` and `scan_gaps`, so
+`ros2 topic echo /alice/sensor/info` answers what the readout line answers (`docs/CONTRACT.md` §6.4).
 
 ### How fast a run goes: `--speed` and `--fixed-step`
 
@@ -192,6 +224,46 @@ speed (`rate_hz` is the node's message rate per **sim** second): `docs/CONTRACT.
 ./lab grade --task alle --controller student/solution.py --fixed-step   # the same in 5 s
 python3 tools/fastgrade.py --task kf_alle --speed 8                     # without the window at all
 ```
+
+The same determinism is what makes a **screenshot** reproducible, and these two pictures are built
+that way rather than photographed off a monitor: `--frame-max N` stops after N drawn frames and
+`--screenshot FILE.png` saves the last one through `pygame.image.save`, so a figure is a build product
+of the build that checks it —
+
+```bash
+./lab sim --world production --config config/demo_gps_shadow.json --headless --fixed-step \
+          --frame-max 30 --screenshot docs/img/readout-gps-shadow.png
+./lab sim --world production --config config/demo_wifi.json --headless --fixed-step \
+          --frame-max 30 --screenshot docs/img/readout-radio.png
+```
+
+Both lines run in the headless CI (dummy video driver) and `tests/test_readout_pictures_w7.py` runs
+them, checks the PNG and its size against the config, checks that the frame is not one flat colour, and
+checks that the sim time printed for frame 30 is the same number twice. `tools/worldpic.py` draws the
+arenas the same way and `check.sh` draws both, so a stale picture cannot survive a build.
+
+![Frame 30 of `config/demo_gps_shadow.json` on `production`, 0.60 s of simulation time: the robot at
+its spawn pose with the readout line under it. The shadow zones are the two grey rectangles at the
+right edge of the hall — this frame is before the robot reaches one, and the `ellipse 2σ: half-axis
+… m = … px at 54 px/m` segment is what one pixel of that ellipse is worth.](docs/img/readout-gps-shadow.png)
+
+![Frame 30 of `config/demo_wifi.json`, the same 0.60 s: the access point at the left wall, the robot at
+the spawn pose with the link bar above it and the `link …` segment in the readout line — the best the
+link gets in this hall, which is the other half of the story the table below measures.](docs/img/readout-radio.png)
+
+*What these two frames are and are not:* they are the readout line and the map at the spawn pose, which
+is the state a headless build reaches without anyone driving. A picture of a robot **inside** the shadow
+or **under** the failsafe needs a controller and a few thousand frames — `--frame-max` counts drawn
+frames, and 30 of them is 0.60 s — so the in-flight numbers in this file stay quoted transcripts of
+driven runs (`./lab run … --controller student/link_autonomy_example.py`, `./lab grade … --log`), and
+`tests/test_wifi_w6.py` asserts the positions those transcripts name. What the two frames above prove
+is the part a screenshot can prove: that the segments exist, that they are drawn from the same numbers
+the topics carry, and that the picture is rebuildable.
+
+*Both frames are 1120 × 700 pixels — `view.width` × `view.height` of `config/default.json`, which is
+what the `--screenshot` line saves and what the test compares against — at the default `view.scale` of
+54 px/m, the ruler the σ segment prints.* The size is a config value and not a constant: change the
+window, and both the picture and the assertion change with it.
 
 ## Second drive train: steering (Ackermann)
 
@@ -305,6 +377,68 @@ built, no message is published and no random number is drawn in any graded run.
 Model, validation (a source outside the walls is refused, not dropped) and the noise model:
 `docs/CONTRACT.md` §6.13.
 
+## One access point per hall: the radio link `/link`
+
+Every command your robot receives arrives by radio in this simulator too — with `wifi.enabled` true,
+`/cmd_vel` and `/wheels` go through one access point per hall, and the two things that kill a real
+link kill it here: **distance and walls in the straight line to that access point**. The model is one
+line of arithmetic (`mecanum_lab/wifi.py`, stdlib `math`, no WiFi stack and no wish to have one):
+
+```
+rssi = tx_dbm − 10 · n · log10(d / d0) − (walls crossed) · wall_db + shadow      [dBm]
+q    = clamp((rssi − floor_dbm) / (good_dbm − floor_dbm), 0, 1)
+```
+
+Wall crossings use the LIDAR's own ray test, so a beam and a radio wave cannot disagree about which
+rectangles exist. Measured with the shipped numbers (`tx_dbm −40`, `n 2.4`, `wall_db 12`, floor
+−85 dBm, good −50 dBm) at spots in `production`, whose access point hangs at (1.0, 2.0):
+
+| distance | free floor | 1 wall | 2 walls |
+|---|---|---|---|
+| 2 m | −47.2 dBm · q 1.00 | −59.2 · q 0.74 | −71.2 · q 0.39 |
+| 8 m | −61.7 · q 0.67 | −73.7 · q 0.32 | −85.7 · q 0.00 |
+| 15 m | −68.2 · q 0.48 | −80.2 · q 0.14 | −92.2 · q 0.00 |
+
+Six of these nine cells are open floor in `production` and measurable by driving there; the six spots
+and the three that the furniture does not offer are all asserted in `tests/test_wifi_w6.py`. What
+quality is worth: `p_drop = (1 − q)²` — q 0.90 loses a frame in 100, q 0.50 one in four, q 0.32 one
+in 2.2 — and the wire costs `latency_ms · (1 + 2(1 − q))`, so 20 ms on a good link and 47 ms at
+q 0.32. **Walls, not metres, are what kills a link in a furnished hall**: one rack between you and
+the AP at 8 m is worse than open floor at 15 m, and 23 % of this hall's free floor is below the level
+a robot can be driven on.
+
+Below `wifi.link_up_q` (0.15) a countdown runs; if the level stays under it for `wifi.link_timeout`
+(1.5 s of **simulation** time), the link is down: nothing external arrives any more, the robot's
+outline turns amber, `/sim/robots` says `mode: autonomy`, and `wifi.autonomy` decides what it does
+then — `stop` holds the place it was left at (what a command watchdog is), `dead_reckoning` keeps
+executing the last command that really arrived (what "the robot walks itself home" means, wall in the
+way or not). Which of the two a practice robot should ship is a question for the practice team, and
+the run below lets you drive both.
+
+`/<robot>/link` comes out at `wifi.rate` (5 Hz) with `t, quality, rssi_dbm, ap, up, dropped,
+latency_ms` — `ap` included on purpose, so a controller can drive back into coverage *before* the
+failsafe fires. Layer `n` draws the access point, the line to each robot on the very segment the
+budget is computed on and a quality bar over each; the readout line prints
+`wifi q 0.42 -72.3 dBm 1 wall lost 4/120 43 ms`. The access point belongs to the hall
+(`wifi.ap_by_world`), and `--set wifi.ap=[10,6]` moves it for one run — `wifi.effective_ap` on
+`/sim/config` names whichever layer won, so nobody has to guess.
+
+```bash
+./lab sim --world production --config config/demo_wifi.json          # drive it, look at layer n
+./lab run --world production --config config/demo_wifi.json --robot muster \
+        --controller student/link_autonomy_example.py --seconds 60    # it drives into the shadow
+./lab sim --world production --config config/demo_wifi.json --set wifi.autonomy=dead_reckoning
+ros2 launch launch/wifi.launch.py wall_db:=20 ap:=[10,6]             # the same knobs as --set
+```
+
+`wifi.enabled` is false in `mecanum_lab/types.py`, and that is not a hint but a guarantee: with the
+option off no radio is built, no random number is drawn for it and no `/link` is published, so the
+command stream and the recorded CSV of a graded run are byte for byte what they were before a radio
+existed (`tests/test_wifi_w6.py` compares two recorded files). The exercise, the four numbers to
+check with a tape measure and what this model deliberately does **not** do — no second access point,
+no roaming, no shared airtime, no multipath and no retransmission — is spelled out line by line in
+`config/demo_wifi.json`. Model and delivery rules: `docs/CONTRACT.md` §6.14.
+
 ## Task and arena belong together
 
 `--task` takes task ids, groups or a comma list: `v1` and `alle` (Experiment 1),
@@ -342,6 +476,7 @@ rather than with this file.
 | Task profile | `config/tasks.json` → `sim` | measured sensing per task (GPS rate, σ, outage, IMU) |
 | Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
 | Launch file | `ros2 launch launch/kf.launch.py --show-args` | 47 arguments, all mapped onto `--set` |
+| Launch file, radio | `ros2 launch launch/wifi.launch.py --show-args` | the 15 `wifi` keys |
 
 Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track`, `open` (nothing but floor and
 border, for drift work) — or your own
