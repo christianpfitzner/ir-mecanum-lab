@@ -141,6 +141,43 @@ def test_pressed_names_reads_a_keyboard_state():
     assert keys.driving_twist(keys.pressed_names(state)) == (keys.TELEOP_SPEED, keys.TELEOP_SPEED, 0)
 
 
+def test_a_shift_found_after_the_drive_key_still_doubles(monkeypatch):
+    """The gesture as it is actually made: `w` first, shift second, and one robot speed out of it.
+
+    `driving_twist({"w", "lshift"})` was green for all the time the window ignored shift, because a
+    test that types the name set by hand skips the one step where the gesture can get lost: asking
+    pygame which keys are down. This asks at the same height the run loop asks, array and modifier
+    word together, and covers both shift keys as well as the modifiers that are not a shift.
+    """
+    import pygame
+    from mecanum_lab import node
+
+    monkeypatch.setattr(pygame.key, "get_pressed",
+                        lambda *_: FakeKeyboard({pygame.key.key_code("w"): 1}))
+    for mods, factor in ((0, 1), (pygame.KMOD_SHIFT, 2), (pygame.KMOD_LSHIFT, 2),
+                         (pygame.KMOD_RSHIFT, 2), (pygame.KMOD_ALT, 1), (pygame.KMOD_CAPS, 1)):
+        monkeypatch.setattr(pygame.key, "get_mods", lambda mods=mods: mods)
+        assert node.teleop_keys()[0] == pytest.approx(keys.TELEOP_SPEED * factor), \
+            f"mods={mods}: a held shift must reach the speed, however it was pressed"
+
+
+def test_the_shift_is_a_modifier_word_and_not_a_slot_in_the_array():
+    """Why `pressed_names()` takes a second argument — the measurement, kept where it cannot be undone.
+
+    A keyboard state that *claims* the shift keysyms are pressed must still give no boost: `get_pressed()`
+    is indexed by scancode, the keysym of a shift key has none, and asking the array for it is the
+    mistake that made both shift keys do nothing without raising. `key.get_mods()` is the word that
+    knows, and the label it produces is the label `driving_twist()` honours.
+    """
+    import pygame
+    claimed = FakeKeyboard({pygame.K_LSHIFT: 1, pygame.K_RSHIFT: 1})
+    assert keys.pressed_names(claimed) == set(), "the polled array cannot be asked about a shift"
+    assert keys.pressed_names(FakeKeyboard(), mods=pygame.KMOD_SHIFT) == {keys.BOOST_LABEL}
+    assert keys.driving_twist({keys.BOOST_LABEL})[0] == 0.0, "shift alone drives nothing"
+    assert keys.driving_twist({"w", keys.BOOST_LABEL})[0] == pytest.approx(
+        keys.TELEOP_SPEED * keys.BOOST_FACTOR), "the label the loop makes is the label that boosts"
+
+
 def test_the_run_loop_asks_the_table_and_not_itself(monkeypatch):
     """`node.teleop_keys()` is the table's polling side — no second set of formulas in the loop."""
     from mecanum_lab import node

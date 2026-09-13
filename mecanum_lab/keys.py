@@ -68,10 +68,20 @@ DRIVING = {
 TELEOP_SPEED = 0.35          # m/s of body speed while a drive key is held — walking pace, on purpose
 TELEOP_YAW = 0.9             # rad/s while a turn key is held
 BOOST_FACTOR = 2.0           # while SHIFT is held: both at once, so a curve keeps its shape
-# pygame's own names for the two shift keys; polled like every other key, so a held shift is read
-# from the scancode and survives a keyboard that writes something else on those keys.
+# The shift keys are the one pair on the keyboard that the *polled array cannot answer for*. Measured
+# on pygame 2.6.1: the names do not resolve either way — `key_code("lshift")` and `key_code("leftshift")`
+# both raise ValueError — and `key.get_pressed()[K_LSHIFT]` answers False while the key is held down,
+# because that array is indexed by scancode and a keysym above 0x40000000 has none to look one up
+# from. So a name in BOOST_KEYS is a label of this file and never something to ask pygame about, and a
+# held shift is read from `key.get_mods()`: the modifier word, which SDL keeps current from the
+# keyboard's own state while events are pumped. Nothing else in this program has needed that word, and
+# this is the one place where getting it wrong costs a student forty seconds per lane.
 BOOST_KEYS = ("lshift", "rshift")
-BOOST_LABEL = "shift"          # what the window and the handout call them, one word for both keys
+BOOST_LABEL = "shift"          # what the window, the panel and the handout call the gesture
+# A shift on either side is the same gesture, so the set of held keys carries the label rather than a
+# claim about which hand pressed. Both spellings arrive here: the label from `pressed_names()`, the
+# two key names from whoever types them — one gesture in, one boost out.
+BOOST_NAMES = BOOST_KEYS + (BOOST_LABEL,)
 FORWARD_KEYS = ("w", "s", "up", "down")
 STRAFE_KEYS = ("a", "d", "left", "right")
 TURN_KEYS = ("q", "e", ",", ".")
@@ -144,15 +154,41 @@ def code(name: str) -> int:
     return pygame.key.key_code(name)
 
 
-def pressed_names(state) -> set:
-    """A `pygame.key.get_pressed()` sequence -> the names of the keys that matter, that are down.
+def pressed_names(state, mods: int = 0) -> set:
+    """The polled array and the modifier word -> the names of the keys that matter, that are down.
 
-    Asks for the code of every name in the table instead of walking all 512 slots of the state:
-    the names above are then the whole contract, and a key a keyboard does not have reads as not
-    pressed instead of raising in the middle of a run. The shift keys come along for the same
-    price — `driving_twist()` reads the boost out of the same set, so a caller cannot forget it.
+    Asks for the code of every driving name instead of walking all 512 slots of the state: the names
+    above are then the whole contract, and a key a keyboard does not have reads as not pressed
+    instead of raising in the middle of a run. SHIFT comes in through `mods`, because it is not a slot
+    in that array — see the measurement at `BOOST_KEYS`. `driving_twist()` reads the boost out of the
+    same set, so a caller cannot forget it and the loop cannot ask for one without the other.
     """
-    return {name for name in tuple(DRIVING) + BOOST_KEYS if _down(state, name)}
+    held = {name for name in DRIVING if _down(state, name)}
+    if boost_down(mods):
+        held.add(BOOST_LABEL)
+    return held
+
+
+def boost_down(mods: int) -> bool:
+    """Is a shift held — asked of the one word that knows, `key.get_mods()`."""
+    import pygame
+    return bool(mods & pygame.KMOD_SHIFT)
+
+
+def held_mods() -> int:
+    """The modifier word of this moment, and 0 where the event system cannot answer.
+
+    `key.get_mods()` belongs to the video system: asked before a window exists it raises rather than
+    answering 0. A held modifier has never been a reason to end a run, so the answer taken here is the
+    one that costs a student nothing — the same judgement `_down()` makes for a key this keyboard
+    happens not to have. Every real teleop run has a window; this is the path where something ran the
+    loop without one, and it should drive at walking pace instead of dying at the first round.
+    """
+    import pygame
+    try:
+        return pygame.key.get_mods()
+    except pygame.error:
+        return 0
 
 
 def _down(state, name: str) -> bool:
@@ -179,7 +215,7 @@ def driving_twist(names: set) -> tuple:
         if key in names:
             axes = [total + part for total, part in zip(axes, vector)]
     speed, strafe, yaw = (max(-1.0, min(1.0, axis)) for axis in axes)
-    boost = BOOST_FACTOR if any(name in names for name in BOOST_KEYS) else 1.0
+    boost = BOOST_FACTOR if names & set(BOOST_NAMES) else 1.0
     return (boost * speed * TELEOP_SPEED, boost * strafe * TELEOP_SPEED, boost * yaw * TELEOP_YAW)
 
 

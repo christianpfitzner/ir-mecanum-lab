@@ -207,9 +207,16 @@ def teleop_keys() -> tuple:
     bindings and for the reason the letters that drive are never layer switches. The result goes on
     /<robot>/cmd_vel as one Twist, exactly like the frames of a node (CONTRACT section 6.9), so the
     radio, the physics and the readout line treat the keyboard and a program the same.
+
+    The letters come out of the polled array, the shift keys out of the modifier word — and that word
+    is kept up to date while events are pumped, which `run_loop` does every frame in `rend.poll()`. A
+    shift pressed between two rounds is therefore seen by the next one: one frame of delay, not one
+    press, which is the whole reason this is polled and not counted from key events. Pressing `w` and
+    finding the shift afterwards, or the other way round, gives the same robot the same speed.
     """
     import pygame
-    return keys.driving_twist(keys.pressed_names(pygame.key.get_pressed()))
+    state = pygame.key.get_pressed()
+    return keys.driving_twist(keys.pressed_names(state, keys.held_mods()))
 
 
 def parse_set(text: str) -> tuple:
