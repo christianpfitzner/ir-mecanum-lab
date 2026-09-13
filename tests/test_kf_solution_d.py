@@ -26,7 +26,7 @@ PATH = os.path.join(ROOT, "student", "kf_solution.py")
 
 def _solution():
     """Import the reference solution the way robot_io.serve() loads it — as a file."""
-    spec = importlib.util.spec_from_file_location("kf_solution_unter_test", PATH)
+    spec = importlib.util.spec_from_file_location("kf_solution_under_test", PATH)
     modul = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modul)
     return modul
@@ -314,7 +314,7 @@ def test_reference_solution_stays_in_the_line_budget():
 def test_template_and_solution_are_wired_the_same_way():
     """The template must expect nothing other than the solution: same helpers, same classes."""
     spec = importlib.util.spec_from_file_location(
-        "kf_template_unter_test", os.path.join(ROOT, "student", "kf_template.py"))
+        "kf_template_under_test", os.path.join(ROOT, "student", "kf_template.py"))
     tpl = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tpl)
     for name in ("mul", "mv", "transpose", "inv2", "cv_matrix", "q_matrix", "KF", "mission"):

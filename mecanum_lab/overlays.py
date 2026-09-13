@@ -33,7 +33,7 @@ import pygame
 
 from .types import cfg_get
 
-SPUR_LEBEN = 3.0                # seconds a skid mark stays on the floor
+TRAIL_LIFE = 3.0                # seconds a skid mark stays on the floor
 MARK_MAX = 600                  # bound for a long teleop session
 GOOD_LINK = (130, 225, 150)     # q = 1: the line to the access point is a line
 DEAD_LINK = (240, 120, 120)     # q = 0: the dashed stub that is left of it
@@ -128,7 +128,7 @@ def skid_marks(rend, robot, dt: float) -> None:
     sc, bg = rend.screen, mix(rend.col_floor, (0, 0, 0), .55)
     alive = []
     for x, y, theta, life in trail:
-        life -= dt / SPUR_LEBEN
+        life -= dt / TRAIL_LIFE
         if life <= 0:
             continue
         alive.append((x, y, theta, life))
@@ -279,7 +279,7 @@ def above_bar(rend, y: float) -> float:
 def sigma_legend(rend, robot) -> list:
     """What the ellipse around the estimate is worth: `ellipse 2σ: half-axis 0.34 × 0.21 m = 18 × 11 px`.
 
-    The oval is `render._estimate()` and its half-axis is `KF_SICHERHEIT · σ · px_per_metre` — three
+    The oval is `render._estimate()` and its half-axis is `KF_SIGMA · σ · px_per_metre` — three
     numbers from three places, and none of them is on screen. So a student looking at a green ellipse
     cannot tell the estimate's own uncertainty apart from the distance to the truth, which is the one
     thing task K3 punishes. The line names the same oval in the two units a reader has: metres on the
@@ -293,10 +293,10 @@ def sigma_legend(rend, robot) -> list:
     kf = getattr(robot, "kf", None)
     if kf is None:
         return []
-    from .render import GREY, KF_SICHERHEIT              # lazy: render imports this module
-    metres = (KF_SICHERHEIT * kf.sx, KF_SICHERHEIT * kf.sy)
+    from .render import GREY, KF_SIGMA              # lazy: render imports this module
+    metres = (KF_SIGMA * kf.sx, KF_SIGMA * kf.sy)
     pixels = [round(m * rend.s) for m in metres]
-    return [(f"ellipse {KF_SICHERHEIT:g}σ: half-axis {metres[0]:.2f} × {metres[1]:.2f} m"
+    return [(f"ellipse {KF_SIGMA:g}σ: half-axis {metres[0]:.2f} × {metres[1]:.2f} m"
              f" = {pixels[0]} × {pixels[1]} px at {rend.s:.0f} px/m", GREY)]
 
 

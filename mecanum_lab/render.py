@@ -27,7 +27,7 @@ log = logging.getLogger("mecanum.render")
 GREY = (210, 212, 218)
 GPS_COLOR = (250, 210, 90)                         # measurement: flat and angular
 KF_COLOR = (120, 240, 170)                         # estimate: bright and round
-KF_SICHERHEIT = 2.0                                # how many σ the GUI ellipse shows
+KF_SIGMA = 2.0                                # how many σ the GUI ellipse shows
 CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))     # FL, FR, RL, RR in the body frame
 # Roller axis of each wheel, body frame, same order as `CORNERS` (= `physics.WHEELS`). These four
 # axes are the **X arrangement** that `physics.inverse_kinematics()` implements: a wheel driven
@@ -355,8 +355,8 @@ class Renderer:
             del trail[:-max(1, self.trail_len)]
         if len(trail) > 1:
             pygame.draw.lines(sc, KF_COLOR, False, [self.px(x, y) for x, y in trail], 2)
-        center, radius = self.px(kf.x, kf.y), max(4, KF_SICHERHEIT * self.s * max(kf.sx, 1e-4))
-        height = max(4, KF_SICHERHEIT * self.s * max(kf.sy, 1e-4))
+        center, radius = self.px(kf.x, kf.y), max(4, KF_SIGMA * self.s * max(kf.sx, 1e-4))
+        height = max(4, KF_SIGMA * self.s * max(kf.sy, 1e-4))
         pygame.draw.ellipse(sc, KF_COLOR, (center[0] - radius, center[1] - height,
                                           2 * radius, 2 * height), 1)
         pygame.draw.polygon(sc, KF_COLOR, [(center[0], center[1] - 6), (center[0] + 6, center[1]),

@@ -36,12 +36,12 @@ from mecanum_lab.worlds import load_world, list_worlds           # noqa: E402
 from worldcheck import check                                    # noqa: E402
 
 SCALE = 20.0                                    # pixels per metre, the same in every panel
-POLSTER, TITLE_H, UNTER, LEGENDE = 16, 30, 54, 46  # panel padding, title and caption strips
+PADDING, TITLE_H, CAPTION_H, LEGEND = 16, 30, 54, 46  # panel padding, title and caption strips
 MARGIN, COLUMNS = 24, 3                             # gaps between panels, columns of the grid
 # 3 columns: five arenas, three rows of two at two columns, two rows of three at three. With `open`
 # (30 x 20 m) in the set the second shape is the one that stays near square — see docs/img/worlds.png.
 BG, TITLE, CAPTION = (248, 248, 251), (36, 40, 52), (98, 104, 118)
-BODEN, WAND = (.13, .14, .17), (.42, .45, .52)     # floor and wall, close to the GUI's gui_style
+FLOOR, WALL = (.13, .14, .17), (.42, .45, .52)     # floor and wall, close to the GUI's gui_style
 TARGET, HELL = (255, 226, 110), (238, 241, 247)
 FREI = 0.25                                        # same clearance the world checker defaults to
 ENG = re.compile(r"narrowest point ([\d.]+) m free \(needs ([\d.]+) m\)")
@@ -53,8 +53,8 @@ ENG_FREI = re.compile(r"widest free spot ([\d.]+) m free \(needs ([\d.]+) m\)")
 def colors(cfg: dict) -> tuple:
     """Floor, wall, edge and paint colours — the same gui_style values the window reads."""
     stil = cfg_get(cfg or {}, "gui_style") or {}
-    boden = tuple(int(255 * v) for v in stil.get("floor", BODEN))
-    wand = tuple(int(255 * v) for v in stil.get("wall", WAND))
+    boden = tuple(int(255 * v) for v in stil.get("floor", FLOOR))
+    wand = tuple(int(255 * v) for v in stil.get("wall", WALL))
     edge = tuple((2 * c + 255) // 3 for c in wand)             # lit edge of a solid body
     malung = tuple((3 * c + 255) // 4 for c in boden)          # painted line, clearly not wall
     return boden, edge, wand, malung
@@ -111,7 +111,7 @@ def _px(origin, s, x, y):
     return (origin[0] + x * s, origin[1] - y * s)
 
 
-def _strich(sc, a, b, color, stich=5, outage=4):
+def _dashed(sc, a, b, color, stich=5, outage=4):
     """Dashed line — the only honest way to draw paint on the floor."""
     (x0, y0), (x1, y1) = a, b
     length = math.hypot(x1 - x0, y1 - y0) or 1.0
@@ -138,7 +138,7 @@ def cell_size(sc, world, corner, s, pairs):
         pygame.draw.rect(sc, wand, fill)
         pygame.draw.rect(sc, edge, fill, 1)              # reads as a body, not as a stroke
     for x0, y0, x1, y1 in world.markings or []:
-        _strich(sc, _px(corner, s, x0, y0), _px(corner, s, x1, y1), malung)
+        _dashed(sc, _px(corner, s, x0, y0), _px(corner, s, x1, y1), malung)
     pygame.draw.rect(sc, edge, frame, 2)                # where the world ends
     if world.goal:
         mitte = _px(corner, s, world.goal.x, world.goal.y)
@@ -157,14 +157,14 @@ def _palette(index: int) -> tuple:
     return tuple(min(255, int(255 * w)) for w in PALETTE[index % len(PALETTE)][1])
 
 
-def legende(sc, y, font, pairs, s):
+def draw_legend(sc, y, font, pairs, s):
     """Drawn, not typeset: the default pygame font has no reliable symbol glyphs."""
     boden, edge, wand, malung = pairs
     x, row_rect = MARGIN, y
     for text, male in (("wall (collision)",
                         lambda cx, cy: pygame.draw.rect(sc, wand, (cx - 9, cy - 6, 18, 12))),
                        ("floor marking (paint, no collision)",
-                        lambda cx, cy: _strich(sc, (cx - 16, cy), (cx + 16, cy), malung)),
+                        lambda cx, cy: _dashed(sc, (cx - 16, cy), (cx + 16, cy), malung)),
                        ("start pose — colour = robot n",
                         lambda cx, cy: pygame.draw.circle(sc, _palette(0), (cx, cy), 6)),
                        ("goal",
@@ -192,7 +192,7 @@ def make(names, path: str, zoom: float = 1.0) -> str:
     pygame.init()
     big, small = pygame.font.Font(None, 32), pygame.font.Font(None, 23)
     pairs, s = colors(cfg), SCALE
-    messen = [(int(w.size[0] * s) + 2 * POLSTER, int(w.size[1] * s) + 2 * POLSTER)
+    messen = [(int(w.size[0] * s) + 2 * PADDING, int(w.size[1] * s) + 2 * PADDING)
               for _, w in worlds]
     columns = max(1, min(COLUMNS, len(worlds)))
     reihen = -(-len(worlds) // columns)
@@ -200,9 +200,9 @@ def make(names, path: str, zoom: float = 1.0) -> str:
                for c in range(columns)]
     reihen_h = [max([messen[i][1] for i in range(len(worlds)) if i // columns == r] or [0])
                 for r in range(reihen)]
-    streifen = TITLE_H + UNTER                       # title + caption around each panel
+    streifen = TITLE_H + CAPTION_H                       # title + caption around each panel
     sc = pygame.Surface((sum(spalt_b) + (columns + 1) * MARGIN,
-                         sum(reihen_h) + reihen * streifen + 2 * MARGIN + LEGENDE))
+                         sum(reihen_h) + reihen * streifen + 2 * MARGIN + LEGEND))
     sc.fill(BG)
     tasks = tasks_per_world()
     for index, (name, world) in enumerate(worlds):
@@ -212,13 +212,13 @@ def make(names, path: str, zoom: float = 1.0) -> str:
         y = MARGIN + sum(reihen_h[:reihe]) + reihe * (streifen + MARGIN)
         sc.blit(big.render(f"{name}  —  {world.size[0]:g} × {world.size[1]:g} m  ·  "
                              f"cell {world.cell:g} m", True, TITLE), (x, y))
-        cell_size(sc, world, (x + POLSTER, y + TITLE_H + messen[index][1] - POLSTER), s, pairs)
+        cell_size(sc, world, (x + PADDING, y + TITLE_H + messen[index][1] - PADDING), s, pairs)
         rand_text = (f"{tasks.get(name, 'no task names it — free driving')}  ·  "
                      f"{clearance(name, cfg)}")
         for nr_z, row_rect in enumerate(caption_lines(small, rand_text, messen[index][0])):
             sc.blit(small.render(row_rect, True, CAPTION),
                     (x, y + TITLE_H + messen[index][1] + 10 + 17 * nr_z))
-    legende(sc, sc.get_height() - LEGENDE + 20, small, pairs, s)
+    draw_legend(sc, sc.get_height() - LEGEND + 20, small, pairs, s)
     if zoom != 1.0:
         sc = pygame.transform.smoothscale(sc, (int(sc.get_width() * zoom),
                                               int(sc.get_height() * zoom)))

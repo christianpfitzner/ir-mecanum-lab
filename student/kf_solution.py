@@ -53,14 +53,14 @@ Q_ACC = 6.0          # m²/s³  process noise: everything the CV model cannot do
 Q_GAP = 3.0          # factor while no GPS is correcting (outage longer than 2 s)
 SIGMA_V = 0.08        # m/s    scatter of the measured wheel speed (update 2)
 SIGMA_TH = 0.03       # rad/√s gyro heading uncertainty — only used for the reported sth
-BIAS_PROBEN = 80      # IMU samples at standstill, after that the gyro bias is averaged
+BIAS_SAMPLES = 80      # IMU samples at standstill, after that the gyro bias is averaged
 STANDSTILL = 0.02     # m/s: below this the robot counts as standing (calibration window)
 P0_POS = 0.50         # m      initial 1σ position — deliberately large, the GPS leads first
 P0_VEL = 0.50         # m/s    initial 1σ velocity
 P0_TH = 0.05          # rad    initial 1σ heading
 REPORT_DT = 0.02       # s = 50 Hz: kf/pose report rate (threshold: at least 10 Hz)
 BUFFER = 120          # steps that can be rewound for late fixes
-VERJAEHT = 2.0        # s: older fixes no longer belong to this task
+STALE_AFTER = 2.0         # s: older fixes no longer belong to this task
 SLEEP = 2.0          # s: a longer step means the node slept — not a prediction
 
 
@@ -255,7 +255,7 @@ def mission(rob, task):
 
         # 1) Average the gyro bias at standstill — a short calibration, then it is frozen.
         #    The rest of the bias story (random walk) sits in Q; retuning it would be cheating.
-        if bias_n < BIAS_PROBEN and i is not None:
+        if bias_n < BIAS_SAMPLES and i is not None:
             if math.hypot(o.vx, o.vy) < STANDSTILL and abs(i.gz) < 0.2:
                 bias_sum, bias_n = bias_sum + i.gz, bias_n + 1
                 bias = bias_sum / bias_n
@@ -276,7 +276,7 @@ def mission(rob, task):
 
         # 3) Position update at the fix's measurement time — not at "now"
         #    a fix from the previous task (the bus remembers the last message!) would be a lie.
-        if gps is not None and gps.t >= f.start and gps.t > last_fix and gps.t >= f.t - VERJAEHT:
+        if gps is not None and gps.t >= f.start and gps.t > last_fix and gps.t >= f.t - STALE_AFTER:
             last_fix = f.last_fix = gps.t
             nachfahren = f.smoothing(gps.t)                # back to fix.t ...
             if gps.t > f.t:

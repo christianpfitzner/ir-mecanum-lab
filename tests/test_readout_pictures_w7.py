@@ -24,7 +24,7 @@ import pygame
 import pytest
 
 from mecanum_lab import node, overlays, stub
-from mecanum_lab.render import KF_SICHERHEIT, Renderer
+from mecanum_lab.render import KF_SIGMA, Renderer
 from mecanum_lab.render import rgb as rgb_value
 from support_logging import logged, messages
 from mecanum_lab.types import (Gps, Imu, Kf, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Twist,
@@ -82,9 +82,9 @@ def test_sigma_legend_names_metres_and_the_same_half_axis_in_pixels():
     robot = make_robot()
     with gui(robot) as rend:
         text = overlays.sigma_legend(rend, robot)[0][0]
-        metres = KF_SICHERHEIT * robot.kf.sx
-        assert f"{metres:.2f} × {KF_SICHERHEIT * robot.kf.sy:.2f} m" in text
-        assert f"{round(metres * rend.s)} × {round(KF_SICHERHEIT * robot.kf.sy * rend.s)} px" in text
+        metres = KF_SIGMA * robot.kf.sx
+        assert f"{metres:.2f} × {KF_SIGMA * robot.kf.sy:.2f} m" in text
+        assert f"{round(metres * rend.s)} × {round(KF_SIGMA * robot.kf.sy * rend.s)} px" in text
         assert f"{rend.s:.0f} px/m" in text
 
 

@@ -385,10 +385,11 @@ Stdlib + pygame (no numpy/scipy/yaml in the simulator or in the student files), 
 written and everything named in English** — comments, docstrings, report text, handouts,
 identifiers, launch arguments, the keys of `config/tasks.json`. Two tools check it, both a step in
 `tools/check.sh`: `python3 tools/langcheck.py` reads the prose, `python3 tools/germanids.py` reads
-the names — definitions, arguments, attributes and the short strings that carry data. **Local
-variables are outside its scope**, and its docstring says so with the measured size of that open end
-(reading them would report 114 spots over 23 identifiers, 29 of them in the student example files —
-renaming those is a package with grading runs around it, not a line in a checker). What stays German is
+the names — definitions, arguments, attributes, the constants a file assigns at module level, and the
+short strings that carry data. **Local variables are counted and printed on every run, and fail it only
+with `--locals`** (294 spots in 56 names on today's tree, most of them in the student example files;
+renaming those is a package with the grading runs of both experiments around it, not a line in a
+checker). What stays German is
 what the tool lets through: ROS topic and message field
 names, the wheel names `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`,
 `kf_alle`), and the German side of the two compatibility maps that keep old files and old shell

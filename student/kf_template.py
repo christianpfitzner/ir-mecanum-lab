@@ -61,7 +61,7 @@ from mecanum_lab.types import wrap_angle
 Q_ACC = 12.0          # m²/s³  process noise: everything the CV model cannot do
 SIGMA_V = 0.08        # m/s    scatter of the measured wheel speed (motion update)
 SIGMA_TH = 0.03       # rad/√s gyro heading uncertainty — only used for the reported sth
-BIAS_PROBEN, STANDSTILL = 80, 0.02     # IMU averaging at standstill: samples, still limit
+BIAS_SAMPLES, STANDSTILL = 80, 0.02     # IMU averaging at standstill: samples, still limit
 P0_POS, P0_VEL, P0_TH = 0.50, 0.50, 0.05   # initial 1σ: position, velocity, heading
 REPORT_DT = 0.02       # s = 50 Hz: kf/pose report rate (K4 requires at least 10 Hz)
 SLEEP = 2.0          # s: a longer step means the node slept — not a prediction
@@ -200,7 +200,7 @@ def mission(rob, task):
         if f is None and stamp(o, i, gps) <= baseline:
             continue        # still the last messages of the previous task, not this drive
         # TODO 7: average the gyro bias at standstill — while hypot(o.vx, o.vy) < STANDSTILL and
-        #   bias_n < BIAS_PROBEN: bias_sum += i.gz, bias_n += 1, bias = bias_sum / bias_n.
+        #   bias_n < BIAS_SAMPLES: bias_sum += i.gz, bias_n += 1, bias = bias_sum / bias_n.
         #   Without averaging a 5 mrad/s bias drags the heading 3 degrees off in 10 s.
         if f is None:                                   # start from the odometry: pose is good
             f = KF(o.x, o.y, o.vx, o.vy, o.theta, o.t)

@@ -16,7 +16,7 @@ dependencies**, **runs immediately**, readable and editable by students.
 |---|-------|
 | 1 | **Dependencies:** Python stdlib + `pygame`. `rclpy` is *optional* (it runs without ROS too). No numpy, no yaml, no scipy, no ROS message generation as a must. |
 | 2 | **Python:** 3.10+, stdlib types only (`dataclasses`, `math`, `json`, `random`, `argparse`, `threading`). No type ceremony without value — where an annotation costs readability, a comment wins. |
-| 3 | **Everything written and everything named is English**: comments, docstrings, log and report text, identifiers, launch arguments, the keys of `config/tasks.json`, handouts, contracts. Two tools enforce it as steps of `tools/check.sh`: `tools/langcheck.py` reads the prose (umlauts, German function words), `tools/germanids.py` reads the names — definitions, arguments, attributes and data strings, not local variables (§6.11). What `germanids.py` allows is the exception list: ROS topic, service and message field names, the wheel labels `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`, `kf_alle`, `v1`, `v2`) and the German *values* of the two compatibility maps — `tasks._LEGACY_KEYS` and the `DEPRECATED` tables in `launch/`. Those maps exist so that files and shell histories from before the migration keep working; see §6.11. |
+| 3 | **Everything written and everything named is English**: comments, docstrings, log and report text, identifiers, launch arguments, the keys of `config/tasks.json`, handouts, contracts. Two tools enforce it as steps of `tools/check.sh`: `tools/langcheck.py` reads the prose (umlauts, German function words), `tools/germanids.py` reads the names — definitions, arguments, attributes, module-level constants and data strings; local variables are counted and reported on every run and fail it only with `--locals` (§6.11). What `germanids.py` allows is the exception list: ROS topic, service and message field names, the wheel labels `VL/VR/HL/HR`, the task groups on the command line (`alle`, `beide`, `kf_alle`, `v1`, `v2`) and the German *values* of the two compatibility maps — `tasks._LEGACY_KEYS` and the `DEPRECATED` tables in `launch/`. Those maps exist so that files and shell histories from before the migration keep working; see §6.11. |
 | 4 | **No class that only forwards.** If a function is under 4 lines and used once, inline it. |
 | 5 | **Keep the LOC budgets** (see §7). At the end of every file: no blank-line junk, no banner comments. |
 | 6 | **Determinism:** world physics depends only on `dt` and the seeds, never on wall clock time or thread order. |
@@ -532,9 +532,11 @@ Identifiers, launch arguments and JSON keys are English. The migration renamed t
 where a name was printed in a handout or typed daily by a student, the old spelling still works as
 a **deprecated alias** that prints one line on stdout and is otherwise inert. `tools/germanids.py`
 fails when a German name appears outside these tables — for the names it reads: definitions, arguments,
-attributes and the short strings that are data. Local variables are not among them, and the docstring of
-that tool carries the measured size of the open end (114 further hits over 23 identifiers on today's
-tree, 29 of them in the three student files), so a green run is not read as a clean tree.
+attributes, the constants a file assigns at module level, and the short strings that are data. Local
+variables are counted on every run and their size is printed in the same summary line (today: 294 spots in 56 identifiers, most in the student example files); `--locals` turns that count into failures, which
+is a rename package with the grading runs of both experiments hanging off it. A green run is therefore
+not a clean tree — the number in the summary line is the difference, stated where a release gate reads
+it.
 
 | launch argument (today) | deprecated alias | | launch argument (today) | deprecated alias |
 |---|---|---|---|---|

@@ -32,14 +32,14 @@ def free_cells(world):
             if gap(world, (i + .5) * z, (j + .5) * z) > 1e-9}
 
 
-def reachable(von, zellen):
-    seen, offen = {von}, [von]
-    while offen:
-        i, j = offen.pop()
-        for nachbar in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
-            if nachbar in zellen and nachbar not in seen:
-                seen.add(nachbar)
-                offen.append(nachbar)
+def reachable(start, cells):
+    seen, frontier = {start}, [start]
+    while frontier:
+        i, j = frontier.pop()
+        for neighbor in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
+            if neighbor in cells and neighbor not in seen:
+                seen.add(neighbor)
+                frontier.append(neighbor)
     return seen
 
 
@@ -58,10 +58,10 @@ def test_every_world_is_closed(name):
 @pytest.mark.parametrize("name", list_worlds())
 def test_every_spawn_and_the_goal_reach_each_other(name):
     world = load_world(name, cfg=CFG)
-    zellen = free_cells(world)
-    assert zellen, f"{name} has no free cell"
-    start = min(zellen, key=lambda ij: (ij[0] ** 2 + ij[1] ** 2))
-    erreichbar_von = reachable(start, zellen)
+    cells = free_cells(world)
+    assert cells, f"{name} has no free cell"
+    start = min(cells, key=lambda ij: (ij[0] ** 2 + ij[1] ** 2))
+    erreichbar_von = reachable(start, cells)
     for pose in world.spawns + ([world.goal] if world.goal else []):
         i, j = int(pose.x / world.cell), int(pose.y / world.cell)
         assert (i, j) in erreichbar_von, f"{name}: {pose} is cut off"

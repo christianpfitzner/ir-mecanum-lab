@@ -22,7 +22,7 @@ from mecanum_lab.worlds import list_worlds, parse_grid               # noqa: E40
 from mecanum_lab.worlds import cell_size as cell_size_for                     # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RICHTUNGEN = ((1, 0), (-1, 0), (0, 1), (0, -1))
+DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
 def rows(path):
@@ -59,11 +59,11 @@ def check(name, cfg, free_lift=0.0, start_page=1.0, open_max=None):
 
     # Compute the clearance of every cell ONCE (the neighbourhood search reads it thousands of
     # times; otherwise the check goes quadratic and a maze never runs to the end).
-    freiheit = {(r, k): gap(*center(r, k))
+    free_space = {(r, k): gap(*center(r, k))
                 for r in range(height) for k in range(len(cells[r])) if not wall(r, k)}
 
     def wall_gap(r, k):
-        return freiheit.get((r, k), 0.0)
+        return free_space.get((r, k), 0.0)
 
     clearance = start_page + cfg_get(cfg, "robot.footprint_r", 0.21) + 0.05
 
@@ -125,7 +125,7 @@ def check(name, cfg, free_lift=0.0, start_page=1.0, open_max=None):
             if (r, k) == ziel:
                 reachable = True
                 break
-            for dr, dk in RICHTUNGEN:
+            for dr, dk in DIRECTIONS:
                 nr, nk = r + dr, k + dk
                 if wall(nr, nk) or (nr, nk) in prev:
                     continue
@@ -141,28 +141,28 @@ def check(name, cfg, free_lift=0.0, start_page=1.0, open_max=None):
             # grows -> binary search over the clearance values that occur, each step a
             # plain flood fill. (A maximin Dijkstra with updates takes minutes here,
             # because a maze has a great many different widths.)
-            values = sorted(set(freiheit.values()))
+            values = sorted(set(free_space.values()))
 
-            def verbunden_ab(start, b):
-                seen, Menge = {start}, [start]
-                while Menge:
-                    r, k = Menge.pop()
-                    for dr, dk in RICHTUNGEN:
+            def reachable_from(start, b):
+                seen, stack = {start}, [start]
+                while stack:
+                    r, k = stack.pop()
+                    for dr, dk in DIRECTIONS:
                         nachbar = (r + dr, k + dk)
-                        if nachbar not in seen and freiheit.get(nachbar, 0.0) >= b:
+                        if nachbar not in seen and free_space.get(nachbar, 0.0) >= b:
                             seen.add(nachbar)
-                            Menge.append(nachbar)
+                            stack.append(nachbar)
                 return ziel in seen
 
             widest = 0.0
             for start in starts:                    # every participant starts elsewhere
                 lo, hi = 0, len(values)              # Invariant: everything below lo is connected
                 while lo < hi:
-                    mitte = (lo + hi) // 2
-                    if verbunden_ab(start, values[mitte]):
-                        lo = mitte + 1
+                    mid = (lo + hi) // 2
+                    if reachable_from(start, values[mid]):
+                        lo = mid + 1
                     else:
-                        hi = mitte
+                        hi = mid
                 widest = max(widest, values[lo - 1] if lo else 0.0)
             problems.append(f"widest start->goal path: narrowest point {widest:.2f} m free "
                            f"(needs {radius:.2f} m)" + ("" if widest >= radius else "  << too narrow"))
@@ -173,7 +173,7 @@ def check(name, cfg, free_lift=0.0, start_page=1.0, open_max=None):
         # width, and it says it with the same number the path check uses: the clearance of a cell is
         # its distance to the nearest wall, so the largest one in the file is the widest spot there
         # is. `open` is that hall: border walls, floor, and 9.25 m of nothing in the middle.
-        widest_free = max(freiheit.values()) if freiheit else 0.0
+        widest_free = max(free_space.values()) if free_space else 0.0
         problems.append(f"no start->goal pair (free driving): widest free spot {widest_free:.2f} m "
                         f"free (needs {radius:.2f} m)")
 

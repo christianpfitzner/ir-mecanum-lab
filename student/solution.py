@@ -25,7 +25,7 @@ DRIVE = 2 * RADIUS                                 # clearance we intend to keep
 V_MAX, OM_MAX = 0.45, 1.1                          # m/s, rad/s — deliberately below the max
 K_POS, K_ROT = 1.1, 2.2                            # P gains [1/s]
 TOL_XY, TOL_TH = 0.035, 0.06                        # goal tolerances of the P controller
-RICHTUNGEN = 24                                    # sectors of the freedom field (15 deg)
+DIRECTIONS = 24                                    # sectors of the freedom field (15 deg)
 
 
 # ------------------------------------------------------------- T1: inverse kinematics
@@ -60,7 +60,7 @@ def clamp(value, magnitude):
 
 # ------------------------------------------------------------------ Sensor helpers
 
-def clearance_field(scan, directions=RICHTUNGEN):
+def clearance_field(scan, directions=DIRECTIONS):
     """Shortest hit per driving direction: 360 beams become 24 sectors.
 
     Take the minimum per sector, not the mean — whoever averages misses the table edge.
@@ -158,7 +158,7 @@ def drive_to_pose(rob, target, read_out, vmax=V_MAX, time_max=20.0, tolerance=TO
             feld = clearance_field(rob.scan())
             if feld[0] < DRIVE:                       # obstacle in the way: do not drive
                 vx = min(vx, 0.05)                    # into it, turn past it instead
-                om = clamp(om + (1.2 if feld[RICHTUNGEN // 4] > feld[3 * RICHTUNGEN // 4]
+                om = clamp(om + (1.2 if feld[DIRECTIONS // 4] > feld[3 * DIRECTIONS // 4]
                                  else -1.2), OM_MAX)
         rob.publish_cmd_vel(vx, vy, om)
         rob.spin(0.02)
@@ -203,7 +203,7 @@ def drive_to(rob, target, hysteresis="odom", tolerance=0.20, time_max=100.0, vma
     quelle = rob.odom if hysteresis == "odom" else rob.gps
     smooth = Smoothing() if quelle is rob.gps else None
     letzte_entfernung, standstill, ende, umweg_bis, letzte_messt = None, 0.0, None, 0.0, None
-    step = 2 * math.pi / RICHTUNGEN
+    step = 2 * math.pi / DIRECTIONS
     while rob.running():
         measured, scan = quelle(), rob.scan()
         if measured is None or scan is None:
@@ -234,9 +234,9 @@ def drive_to(rob, target, hysteresis="odom", tolerance=0.20, time_max=100.0, vma
         if not umweg and standstill > 15.0:
             umweg_bis, standstill = measured.t + 3.0, 0.0
         feld = clearance_field(scan)
-        fahrbar = [k for k in range(RICHTUNGEN) if feld[k] >= DRIVE]
+        fahrbar = [k for k in range(DIRECTIONS) if feld[k] >= DRIVE]
         if not fahrbar:                               # no room anywhere: freest direction
-            k = max(range(RICHTUNGEN), key=lambda k: feld[k])
+            k = max(range(DIRECTIONS), key=lambda k: feld[k])
             vx, om = 0.0, clamp(1.4 * wrap_angle(k * step), 1.4)
         else:
             zielwinkel = wrap_angle(math.atan2(target[1] - measured.y, target[0] - measured.x)

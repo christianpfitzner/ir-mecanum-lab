@@ -13,7 +13,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WERKZEUG = os.path.join(ROOT, "tools", "worldpic.py")
-BILD = os.path.join(ROOT, "docs", "img", "worlds.png")
+IMAGE = os.path.join(ROOT, "docs", "img", "worlds.png")
 
 
 def test_worldpic_draws_every_world(tmp_path):
@@ -32,4 +32,4 @@ def test_readme_picture_is_in_the_repo():
     """The README links docs/img/worlds.png — the file has to be in the repository."""
     with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
         assert "docs/img/worlds.png" in fh.read()
-    assert os.path.getsize(BILD) > 5000, "run: python3 tools/worldpic.py"
+    assert os.path.getsize(IMAGE) > 5000, "run: python3 tools/worldpic.py"
