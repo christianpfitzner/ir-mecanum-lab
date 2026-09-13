@@ -11,6 +11,8 @@ import os
 import subprocess
 import sys
 
+from support_docs import where
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WERKZEUG = os.path.join(ROOT, "tools", "worldpic.py")
 IMAGE = os.path.join(ROOT, "docs", "img", "worlds.png")
@@ -28,8 +30,12 @@ def test_worldpic_draws_every_world(tmp_path):
         assert name in result.stdout, f"{name} not drawn: {result.stdout}"
 
 
-def test_readme_picture_is_in_the_repo():
-    """The README links docs/img/worlds.png — the file has to be in the repository."""
-    with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
-        assert "docs/img/worlds.png" in fh.read()
+def test_the_arena_picture_is_linked_by_a_page_and_present():
+    """Some documentation page links docs/img/worlds.png, and the file has to be in the repository.
+
+    Which page is an editorial decision — the figure moved from the front page to the page about the
+    arenas when the README was cut. A guard that pins a picture to one filename checks the filename, not
+    whether a reader can reach the figure, so it asks the whole documentation and says where it lives.
+    """
+    assert where("docs/img/worlds.png"), "no documentation page links docs/img/worlds.png"
     assert os.path.getsize(IMAGE) > 5000, "run: python3 tools/worldpic.py"

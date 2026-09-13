@@ -25,6 +25,7 @@ import pytest
 from mecanum_lab import node, overlays, stub
 from mecanum_lab.render import KF_SIGMA, Renderer
 from mecanum_lab.render import rgb as rgb_value
+from support_docs import text as pages_text
 from support_logging import logged, messages
 from mecanum_lab.types import (Gps, Imu, Kf, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Twist,
                                World)
@@ -151,11 +152,8 @@ def readme_picture_commands():
     figure is allowed to live on the page about its subject (`docs/demos.md` carries the demo figures),
     and a reader finds that page from the front page.
     """
-    root = DOCS_IMG.parent.parent
-    text = (root / "README.md").read_text() + "\n" + "\n".join(
-        p.read_text() for p in sorted((root / "docs").glob("*.md")))
     found = {}
-    for block in re.findall(r"```bash\n(.*?)\n```", text, re.S):
+    for block in re.findall(r"```bash\n(.*?)\n```", pages_text(), re.S):
         for line in re.sub(r"\\\n\s*", " ", block).splitlines():
             line = line.strip()
             if "./lab sim" in line and "--screenshot docs/img/" in line:

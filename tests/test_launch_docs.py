@@ -17,6 +17,8 @@ tables (name, default, one line of help) without ROS; what is checked here is th
 """
 import ast
 import glob
+
+from support_docs import pages
 import os
 import re
 import sys
@@ -291,20 +293,18 @@ def test_every_demo_name_in_the_documentation_launches():
 
     Three short names and one config file were invented on the way to a shorter front page: the launcher
     checks its names against `config/`, the tests checked the *launch file's* argument text, and the prose
-    in between — the part a student actually copies — was nobody's subject. So the names on the
-    documentation pages are looked up in the same list the launcher uses.
+    in between — the part a student actually copies — was nobody's subject. So the names on every
+    documentation page are looked up in the same list the launcher uses, including the launcher file
+    names, which are a claim that a file exists.
     """
     from mecanum_lab import demo_launch
     real = set(demo_launch.demos())
-    named, files = set(), set()
-    for page in ("README.md", os.path.join("docs", "demos.md")):
-        text = open(os.path.join(REPO, page), encoding="utf-8").read()
+    named, files, launchers = set(), set(), set()
+    for path in pages():
+        text = path.read_text(encoding="utf-8")
         named |= set(re.findall(r"demo:=([a-z_]+)", text))
         files |= set(re.findall(r"config/demo_([a-z_]+)\.json", text))
-    launchers = set()
-    for page in ("README.md", os.path.join("docs", "demos.md")):
-        launchers |= set(re.findall(r"(demo_[a-z_]+)\.launch\.py",
-                                    open(os.path.join(REPO, page), encoding="utf-8").read()))
+        launchers |= set(re.findall(r"(demo_[a-z_]+)\.launch\.py", text))
     for launcher in sorted(launchers):
         assert os.path.exists(os.path.join(LAUNCH, launcher + ".launch.py")), (
             f"the documentation tells a reader to start {launcher}, and there is no such file")

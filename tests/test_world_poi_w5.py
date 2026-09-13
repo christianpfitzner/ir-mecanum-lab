@@ -22,6 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from support_docs import text
+
 from mecanum_lab import overlays, pois, render, sensors
 from mecanum_lab.engine import SimEngine
 from mecanum_lab.types import (Poi, Pose, Rect, Robot, RobotSpec, Twist, World, cfg_get,
@@ -112,14 +114,14 @@ def test_the_picture_draws_every_world_including_the_empty_one(tmp_path):
     assert len(open(target, "rb").read()) > 5000, "picture too small to contain five arenas"
 
 
-def test_the_readme_quotes_the_widths_the_checker_measures():
-    """The README states passage widths; the numbers have to be the checker's, not the author's."""
-    readme = open(os.path.join(REPO, "README.md"), encoding="utf-8").read()
+def test_the_documentation_quotes_the_widths_the_checker_measures():
+    """The documentation states passage widths; the numbers have to be the checker's, not the author's."""
+    pages = text()
     quoted = {"arena": "5.25", "maze": "0.50", "open": "9.25"}
     for name, number in quoted.items():
-        text = worldpic.clearance(name, CFG)                 # what goes under the panel
-        assert number in text, f"{name}: the picture says {text!r}"
-        assert f"{number} m" in readme, f"{name}: README lost its {number} m (picture: {text})"
+        caption = worldpic.clearance(name, CFG)              # what goes under the panel
+        assert number in caption, f"{name}: the picture says {caption!r}"
+        assert f"{number} m" in pages, f"{name}: no page states {number} m (picture: {caption})"
     report, ok = worldcheck.check("open", CFG, CLEARANCE)
     assert ok, report
     assert any("no start->goal pair" in row for row in report), report

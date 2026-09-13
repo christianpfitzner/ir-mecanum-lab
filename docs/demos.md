@@ -1,7 +1,7 @@
-# The four demo configurations, and how fast a run goes
+# The six demo configurations, and how fast a run goes
 
 The front page lists the demos; this page is what each one is for, what it changes in the message
-stream, and what a run with it actually measured. Nothing here is graded: all four ship as separate
+stream, and what a run with it actually measured. Nothing here is graded: all six ship as separate
 files under `config/` because the graded tasks are calibrated on the plain sensor settings of each
 experiment, and a default that lies would move what every filter is graded against.
 
@@ -9,7 +9,7 @@ Started either way — in the window of one process, or beside RViz through the 
 
 ```bash
 ./lab sim --config config/demo_gps_shadow.json                        # window, no build needed
-ros2 launch mecanum_lab demo_gps_shadow.launch.py           # same through ROS, with RViz beside it
+ros2 launch mecanum_lab demo_gps_shadow.launch.py    # same through ROS, with RViz beside it
 ```
 
 ### GPS that gets bad by place: the shadow demo (not the default)
