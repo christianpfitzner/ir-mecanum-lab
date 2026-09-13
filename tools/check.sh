@@ -158,9 +158,12 @@ if [[ "${1:-}" == "--ros" ]]; then
     tail -6 "$call"; fail=1
   fi
   gone=.runs/despawn_call.log
+  # The name taken from the answer and not from what was hoped for: two simulators on one machine answer
+  # the same service name, and whichever replied to the spawn has to be the one that takes it away.
+  born=$(grep -o "spawned '[^']*'" "$call" | head -1 | cut -d"'" -f2)
   if timeout 20 ros2 service call /sim/despawn_last std_srvs/srv/Trigger > "$gone" 2>&1 \
-     && grep -q "removed" "$gone"; then
-    echo "  ok: $(grep -o "'[^']*' removed" .runs/despawn_call.log | head -1)"
+     && grep -q "'$born' removed" "$gone"; then
+    echo "  ok: $(grep -o "'[^']*' removed" "$gone" | head -1)"
   else
     echo "  FAIL: /sim/despawn_last did not answer"; tail -6 "$gone"; fail=1
   fi
