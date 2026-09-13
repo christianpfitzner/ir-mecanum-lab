@@ -30,6 +30,9 @@ import launch.actions as L
 from launch.substitutions import LaunchConfiguration
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.append(REPO)         # *behind* the ROS packages, never in front: see lab.launch.py
+from mecanum_lab import rviz_view                                   # noqa: E402
 TRUE = ("true", "1", "yes", "on")
 
 # launch argument -> path in the simulator config (types.DEFAULT_CONFIG["wifi"]); empty = do not set.
@@ -63,7 +66,8 @@ BASICS = [
     ("headless", "false", "without the Pygame window (sets SDL_VIDEODRIVER=dummy)"),
     ("seed", "1", "noise and fade seed: same seed, same drop pattern (reproducibility)"),
     ("config", "", "extra JSON config, e.g. config/demo_wifi.json (this file's arguments win)"),
-    ("rviz", "false", "also start rviz2 (with rviz/kf.rviz, if the file exists)"),
+    ("rviz", "false", "start rviz2 on this robot's topics: auto | true | false "
+     "(auto = only when rviz2 is installed; true without it says so and continues)"),
     ("log_level", "info", "info | debug | warning"),
     ("use_sim_time", "true", "use simulation time (/clock) for timestamps"),
 ]
@@ -106,13 +110,13 @@ def setup(context, *args, **kwargs):
                     "--controller", _path(read_arg("controller"))]
         parts.append(L.ExecuteProcess(cmd=node_cmd, additional_env=env, output="screen",
                                       name=f"node_{robot}", emulate_tty=True))
-    rviz_config = os.path.join(REPO, "rviz", "kf.rviz")
-    if read_arg("rviz").lower() in TRUE and os.path.exists(rviz_config):
-        command = ["rviz2", "-d", rviz_config]
-        if read_arg("use_sim_time").lower() in TRUE:
-            command += ["--ros-args", "-p", "use_sim_time:=true"]
-        parts.append(L.ExecuteProcess(cmd=command, additional_env=env, output="screen",
-                                      name="rviz"))
+    start_rviz, note = rviz_view.plan(read_arg("rviz"))
+    if start_rviz:
+        config = rviz_view.render_config(REPO, robot)
+        viewer = rviz_view.command(config, sim_time=read_arg("use_sim_time").lower() in TRUE)
+        parts.append(L.ExecuteProcess(cmd=viewer, additional_env=env, output="screen", name="rviz"))
+    if note:
+        parts.append(L.LogInfo(msg=note))
     knobs = "  ".join(f"{name}={read_arg(name)}" for name, _, _ in SETTINGS if read_arg(name))
     parts.insert(0, L.LogInfo(msg=f"[wifi] world: {read_arg('world')}  robots: "
                                   f"{read_arg('robots') or robot}  enabled: {read_arg('wifi')}  "

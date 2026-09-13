@@ -26,6 +26,9 @@ import launch.actions as L
 from launch.substitutions import LaunchConfiguration
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.append(REPO)         # *behind* the ROS packages, never in front: see lab.launch.py
+from mecanum_lab import rviz_view                                   # noqa: E402
 TRUE = ("true", "1", "yes", "on")
 
 # launch argument -> path in the simulator config (types.DEFAULT_CONFIG); empty = do not set
@@ -78,7 +81,8 @@ BASICS = [
     ("log", "", "CSV measurement log, e.g. measurement.csv — tools/kfplot.py works on it"),
     ("log_interval", "0.05", "distance between log lines in s of simulation time"),
     ("recording", "", "ros2 bag name, e.g. kf_experiment (empty = no recording)"),
-    ("rviz", "false", "also start rviz2 with rviz/kf.rviz, if the file exists"),
+    ("rviz", "false", "start rviz2 on this robot's topics: auto | true | false "
+     "(auto = only when rviz2 is installed; true without it says so and continues)"),
     ("log_level", "info", "info | debug | warning"),
     ("use_sim_time", "true", "use simulation time (/clock) for timestamps"),
 ]
@@ -162,15 +166,15 @@ def setup(context, *args, **kwargs):
         parts.append(L.ExecuteProcess(
             cmd=["ros2", "bag", "record", "-o", _path(read_arg("recording")), *topics],
             additional_env=env, output="screen", name="bag_record"))
-    rviz_config = os.path.join(REPO, "rviz", "kf.rviz")
-    if read_arg("rviz").lower() in TRUE and os.path.exists(rviz_config):
-        # Without use_sim_time, rviz compares its wall clock with the TF stamps of the sim
-        # (seconds since start) and shows an empty map — the tree is there, just "in the past".
-        command = ["rviz2", "-d", rviz_config]
-        if read_arg("use_sim_time").lower() in TRUE:
-            command += ["--ros-args", "-p", "use_sim_time:=true"]
-        parts.append(L.ExecuteProcess(cmd=command, additional_env=env, output="screen",
-                                      name="rviz"))
+    start_rviz, note = rviz_view.plan(read_arg("rviz"))
+    if start_rviz:
+        # one config for every launch file, written for this robot: a hand-kept .rviz with one robot's
+        # name in its topics is an empty window for everyone else in the room
+        config = rviz_view.render_config(REPO, robot)
+        viewer = rviz_view.command(config, sim_time=read_arg("use_sim_time").lower() in TRUE)
+        parts.append(L.ExecuteProcess(cmd=viewer, additional_env=env, output="screen", name="rviz"))
+    if note:
+        parts.append(L.LogInfo(msg=note))
     sensors = "  ".join(f"{name}={read_arg(name)}" for name, _, _ in SETTINGS if read_arg(name))
     started = f"task: {read_arg('task') or '—'} · world: {read_arg('world')}"
     parts.insert(0, L.LogInfo(msg=f"[kf] {started} · robot: {read_arg('robots') or robot}"

@@ -251,7 +251,7 @@ tools/kfplot.py                CSV -> numbers + ASCII chart (matplotlib optional
 tools/fastgrade.py             the same Grader without the wall-clock pace, see §5.1         [F]
 docs/praktikum/kalman.tex      handout for experiment 2                                      [E]
 install.sh, README.md          one-command install and quickstart                            [E]
-rviz/kf.rviz                   view for odom + gps + kf/pose                                 [F]
+config/rviz/template/lab.rviz   RViz view, written per robot at launch                       [F]
 tests/test_sensors_imu_b.py        noise density, bias, double integration, outage           [A]
 tests/test_kf_grading_integrator.py  the verdict over scripted truth/gps/kf/pose             [Int.]
 tests/test_kf_solution_d.py          reference solution, API rules, its line budget          [D]

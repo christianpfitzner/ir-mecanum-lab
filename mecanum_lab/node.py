@@ -39,6 +39,7 @@ from .worlds import list_worlds, load_world
 
 log = logging.getLogger("mecanum.node")
 WORLD_LIST = ", ".join(list_worlds())
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the source tree: config/, launch/
 MAX_LOOP_DT = 0.25        # s of sim time one loop round may make up; beyond that: time is lost
 
 
@@ -634,6 +635,28 @@ def cmd_grade(args):
     return code
 
 
+def cmd_rviz(args):
+    """RViz 2 on the topics of this project — the view `ros2 launch … rviz:=true` opens, on its own.
+
+    The display config is written for the robot named, because every topic here carries the name of its
+    robot and RViz has no way to substitute one into a display: a config that says `/alice/scan` is an
+    empty window for the class that drives `muster`. The file under version control is the template in
+    `config/rviz/template/`; what is written here is a build product, which is why the default location is
+    /tmp and why editing that file is a change that vanishes on the next start. Without rviz2 installed
+    the command says so and stops — an absent window nobody explained is how a student ends up debugging
+    their own node over a view that was simply not installed.
+    """
+    from . import rviz_view
+    path = rviz_view.render_config(REPO, args.robot, args.rviz_config)
+    print(f"rviz config for '{args.robot}': {path}")
+    start, note = rviz_view.plan("true")
+    if not start:
+        print(note)
+        return 1
+    import subprocess                                 # only here: the refusal above needs no child
+    return subprocess.call(rviz_view.command(path))
+
+
 def cmd_docs(args):
     print(f"worlds: {WORLD_LIST}\n")
     print("Topics per robot:")
@@ -686,6 +709,9 @@ def parser():
     p.add_argument("--screenshot", default=None, metavar="FILE.png",
                    help="write the last window frame to this PNG (pygame's own writer, no "
                         "matplotlib; works headless with SDL_VIDEODRIVER=dummy)")
+    p.add_argument("--rviz-config", default=None, metavar="FILE.rviz", dest="rviz_config",
+                   help="`./lab rviz`: where to write the generated display config (default "
+                        "/tmp/mecanum_rviz_<robot>.rviz; it is a build product, edit the template)")
     p.add_argument("--view", default=None, metavar="PROFILE",
                    help="which layers the window starts with: \"clean\" (the default — robot, wheels,"
                         " estimate, no raw sensor dots) or \"sensors\" (everything the sensors"
@@ -747,7 +773,8 @@ COMMANDS = {"run": (cmd_run, "simulator + your node + keyboard in one process �
             "reset": (lambda a: cmd_client(a, "reset"), "back to the start poses, counters at zero"),
             "robots": (lambda a: cmd_client(a, "robots"), "who is driving right now?"),
             "task": (lambda a: cmd_client(a, "task"), "send a task name to a running simulation"),
-            "docs": (cmd_docs, "topics, tasks, groups and examples")}
+            "docs": (cmd_docs, "topics, tasks, groups and examples"),
+            "rviz": (cmd_rviz, "RViz 2 on one robot's topics, config written for --robot")}
 COMMAND_HELP = {name: text for name, (_fn, text) in COMMANDS.items()}
 
 

@@ -130,17 +130,21 @@ def test_requirements_only_pygame():
 # ---------------------------------------------------------------------- launch files
 
 
-@pytest.mark.parametrize("file_name,args", [
+@pytest.mark.parametrize("file_name,args,max_lines", [
     ("sim.launch.py", {"world", "robots", "task", "seconds", "headless", "config",
-                       "use_sim_time"}),
-    ("student.launch.py", {"robot", "controller", "config", "use_sim_time"}),
+                       "use_sim_time"}, 60),
+    ("student.launch.py", {"robot", "controller", "config", "use_sim_time"}, 60),
+    # lab.launch.py starts four things (sim, node, optional RViz, optional bag) and explains fourteen
+    # arguments in the table `--show-args` prints; the cap is on that shape, not on a round number. A
+    # launch file here stays a *list*: any decision with more than one branch lives in mecanum_lab/,
+    # which is what the checks in test_launch_docs.py hold it to.
     ("lab.launch.py", {"world", "robot", "robots", "controller", "task", "grade", "seconds",
-                       "headless", "use_sim_time"}),
+                       "headless", "use_sim_time", "config", "view", "layers", "rviz"}, 95),
 ])
-def test_launch_file_small_and_with_arguments(file_name, args):
+def test_launch_file_small_and_with_arguments(file_name, args, max_lines):
     path = os.path.join(WURZEL, "launch", file_name)
     text = reads(path)
-    assert lines(path) < 60, f"{file_name} over 60 lines"
+    assert lines(path) < max_lines, f"{file_name} over {max_lines} lines"
     assert "generate_launch_description" in text
     ast.parse(text)
     for arg in args:

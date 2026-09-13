@@ -78,9 +78,11 @@ source /opt/ros/kilted/setup.bash
 ros2 launch launch/kf.launch.py                   # Experiment 2, everything configurable
 ros2 launch launch/kf.launch.py grade:=kf_alle controller:=student/kf_solution.py
 ros2 launch launch/sim.launch.py robots:=alice,bob  # Experiment 1
+ros2 launch launch/demo.launch.py demo:=wifi       # one demo config, RViz when it is installed
+ros2 launch launch/lab.launch.py config:=config/demo_gps_shadow.json view:=sensors
 ros2 topic echo /alice/imu --once                 # az at rest ≈ +9.81 — that is correct
 ros2 topic echo /tf --once                        # map → alice/odom → alice/base_link → laser
-rviz2 -d rviz/kf.rviz --ros-args -p use_sim_time:=true   # the sim stamps TF in sim seconds
+./lab rviz --robot alice                          # RViz alone, on a config written for alice
 ```
 
 To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless`.
@@ -104,7 +106,8 @@ The window starts in the **clean view**: the robot, the world and the readout li
 map a student is meant to look at. Nothing is hidden on the bus — a `ros2 topic echo` sees all of it —
 only on screen. `--view sensors` starts with everything on, `--layers scan,ghost` turns single layers on
 and `--layers -hud` turns one off, and one demo config that is about a raw layer (`config/demo_*.json`)
-asks for that layer itself, so `./lab demo …` always shows what the demo is about.
+asks for that layer itself, so a demo always shows what the demo is about: `./lab sim
+--config config/demo_wifi.json`, or `ros2 launch launch/demo.launch.py demo:=wifi` with RViz beside it.
 
 The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu`, `/poi` and your `kf/pose`
 keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
@@ -506,6 +509,7 @@ rather than with this file.
 | Task profile | `config/tasks.json` → `sim` | measured sensing per task (GPS rate, σ, outage, IMU) |
 | Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
 | Launch file | `ros2 launch launch/kf.launch.py --show-args` | 47 arguments, all mapped onto `--set` |
+| Launch file, demos | `ros2 launch launch/demo.launch.py --show-args` | the six demo configs, `rviz:=auto` |
 | Launch file, radio | `ros2 launch launch/wifi.launch.py --show-args` | the 15 `wifi` keys |
 
 Arenas: `arena` (open, Experiment 2), `production`, `maze`, `track`, `open` (nothing but floor and
