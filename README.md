@@ -70,9 +70,12 @@ To keep the in-process bus even with ROS: `MECANUM_ROS=stub ./lab sim --headless
 The menu switches **drawing only**. `/<robot>/scan`, `/odom`, `/gps`, `/imu` and your `kf/pose`
 keep running at full rate; `ros2 topic hz /alice/scan` does not care what the window shows. That
 is deliberate: hide the dots, keep the data, and see which layer belongs to which topic. The
-per-robot readout line also carries the IMU (`ax`, `ay`, `gz`) — it is live in **every** run, not
-only in Experiment 2: default `imu.rate` is 100 Hz with bias random walk, scale error, tilt
-cross-coupling and vibration, and `az ≈ +9.81 m/s²` while standing still.
+per-robot readout line also carries the IMU (`ax`, `ay`, `gz` and the chip temperature) — it is live
+in **every** run, not only in Experiment 2: default `imu.rate` is 100 Hz with bias random walk,
+scale error, tilt cross-coupling and vibration, and `az ≈ +9.81 m/s²` while standing still. The GPS
+part of the same line says what the fix is worth (`q2 8 sats`, or `q0 0 sats` in a blackout) and how
+many messages were lost (`lost 3`), and the LIDAR part how many beams came back with no echo — all
+of it without a second terminal running `ros2 topic echo` beside the window.
 
 ### GPS that gets bad by place: the shadow demo (not the default)
 
@@ -120,6 +123,75 @@ By hand: `./lab sim --world arena`, then `Up` into the east wall — the `odom x
 climbs while the robot's dot stays where it is. To record it: `./lab grade --task kinematik
 --controller student/solution.py --log messung.csv` writes `ax_imu, ay_imu, gz_imu` next to the
 other columns (`python3 tools/kfplot.py messung.csv --list` shows all of them).
+
+### Odometry with the wrong wheel radius: the model-error demo (not the default)
+
+Slip is one way to make odometry lie; the commonest one is that the wheel constants are wrong —
+worn tyres, a reprinted hub, the diameter used where the radius belongs. `odom.geometry` lets the
+odometry integrator believe a geometry of its own (`wheel_radius_scale`, `lever_scale`,
+`wheel_base_scale`, `scale_xy`, `bias_xy`; see `docs/CONTRACT.md` §6.4), while the chassis keeps
+the true one. Default `{}` = correct wheel constants, so nothing graded moved.
+`config/demo_odom_error.json` is the demo (radius 1.05, lever 0.97):
+
+```bash
+./lab sim --world track --config config/demo_odom_error.json      # drive straight, watch `o`
+./lab grade --config config/demo_odom_error.json --task alle --controller student/solution.py
+```
+
+Measured with the reference solution: after 12 m of straight lane the ghost is **0.61 m** ahead of
+the robot (5 % too many metres), one commanded revolution ends **28°** rotated, and the graded run
+drops to 70/100 — T1 and T2 stay green (T2 corrects its own drift), but T3 navigates by odometry
+between the tables and comes out in one: **26 wall contacts**. That is the argument for why this is
+a demo file and not a default.
+
+### What a sensor says besides its number: the reality demo (not the default)
+
+Every knob here is off in `DEFAULT_CONFIG`, and off means that not one random number is drawn that
+the sensors of the graded tasks did not draw — measured message for message, not assumed
+(`tests/test_sensor_reality.py`). `config/demo_sensor_reality.json` asks for all of them at once,
+so one drive shows what a real sensor delivers on top of its number:
+
+```bash
+./lab sim --world production --config config/demo_sensor_reality.json    # drive it yourself
+./lab grade --world production --config config/demo_sensor_reality.json \
+            --task kinematik --controller student/solution.py --log messung.csv
+```
+
+| knob in the demo | what it changes | measured on one 25 s straight drive |
+|---|---|---|
+| `gps.quality`, `gps.sats` | says how good the fix is: 2 good, 1 degraded, 0 no fix | q2 with 8 anchors on open floor, q1 with 3 between the racks, q0 in the dock (from x = 16.6 m) |
+| `gps.dropout = 0.15` | probability per message that the transport loses it | 12 of 122 emissions gone, `lost 12` in the readout; the pattern belongs to `--seed`, not to where the robot stood |
+| `gps.latency = 0.25` | seconds on the wire, ±50 % jittered | a fix is 0.45 s old when it arrives (0.25 s of wire + the wait for the next slot), at most 1.0 s, and it is still the position it measured then |
+| `imu.temp_*` | the chip warms up and the bias walks with it | 24.00 → 29.52 °C, `az` bias +0.024 m/s², `gz` bias +0.00069 rad/s; standing still stays cold and `az` stays +9.81 |
+| `lidar.reflectivity_min = 0.25` | a wall echoes only if the cosine of the incidence angle reaches the threshold | 0.5 m off a 30 m wall: seen 7.17 m down its length by default, 1.93 m here; 20 of 360 beams come back empty (`Scan.missing`) |
+| `odom.jitter = 0.35` | an encoder report arrives when it arrives | stamps 13.3…26.8 ms instead of exactly 20.0 ms (σ 2.8 ms), values and message count unchanged |
+
+Two of these are the exercise, not the decoration. **No fix and no message are different faults:** a
+receiver in the loading dock knows that it has no solution, and a packet that never arrived leaves
+no trace at all — which is why quality, satellite count and the lost count are in the readout and in
+the log rather than only in a config file nobody looks at during a run. (Over ROS 2 they are in
+neither of the standard messages: `/gps` is a `PoseStamped` and `/scan` a `LaserScan`, so on a ROS
+run the window and the CSV are where the quality of a fix appears — `docs/CONTRACT.md` §6.4.) And a
+filter that treats every message as equally good is a filter tuned for a sensor that does not exist;
+with `q_gps`, `sats_gps`, `lost_gps`, `temp_imu` and `noecho_scan` in the same CSV as the errors of
+the student's own filter, the drive becomes an argument instead of a demo.
+
+### How fast a run goes: `--speed` and `--fixed-step`
+
+`./lab grade` runs in real time, because that is what the lab course does. For supervisors who want
+the same run again and again: `--speed 4` takes four simulation seconds per wall second,
+`--fixed-step` steps exactly 1/`rate` per round and never sleeps (≈36× realtime, and it switches
+the sleeps of the in-process bus off, so a student node can keep up). Both keep the fixed physics
+step and the seed, and a run that cannot keep up says so once with the seconds it lost instead of
+quietly dropping them. What each pace measures — including why experiment 2 must stay near real
+speed (`rate_hz` is the node's message rate per **sim** second): `docs/CONTRACT.md` §9.1 and
+`docs/CONTRACT-KF.md` §5.1.
+
+```bash
+./lab grade --task alle --controller student/solution.py --speed 4      # 104 s of sim in 26 s
+./lab grade --task alle --controller student/solution.py --fixed-step   # the same in 5 s
+python3 tools/fastgrade.py --task kf_alle --speed 8                     # without the window at all
+```
 
 ## Task and arena belong together
 

@@ -48,6 +48,16 @@ step "Grading the reference solution on all tasks (experiment 1)"
 # --controller is not a detail: without a node nobody drives, and T2..T4 come out as "barely
 # moved" — a test rig that runs without the reference solution checks nothing.
 run "./lab grade --robot muster --task alle --controller student/solution.py --json /tmp/grade.json --seconds 150"
+step "Grading the same seed again at four times real time (a loaded host must not be the variable)"
+# The same reference solution through the same grader, only at a defined pace: --speed N takes N
+# simulation seconds per wall second, --fixed-step leaves the wall clock out of the loop entirely.
+# A limit that only holds on an idle machine is not a limit. Measured spread and the reason why
+# this extra run is experiment 1: docs/CONTRACT.md §9 (experiment 2 has rate_min limits, which are
+# a limit on the node's CPU share, not on the filter - so they cannot be graded faster than the
+# node can tick).
+run "./lab grade --robot muster --task alle --controller student/solution.py --headless \
+    --speed 4 --json /tmp/grade_fast.json --seconds 150"
+
 step "Teleop path (pass-through) without a student node"
 run "./lab sim --world track --robots a,b --headless --seconds 3"
 

@@ -1,5 +1,5 @@
 {
- "_comment": "Tasks for both experiments — the single source of truth for thresholds AND worksheet text. The grader (mecanum_lab/grade.py) reads the same file the LaTeX handouts read: changing a threshold is a JSON edit, not a change of code. Tasks with 'versuch': 2 belong to the Kalman-filter experiment ('--task kf_alle'); a 'sim' block is the test profile that node.py applies as the sensor setup before grading.",
+ "_comment": "Tasks for both experiments — the single source of truth for thresholds AND worksheet text. The grader (mecanum_lab/grade.py) reads the same file the LaTeX handouts read: changing a threshold is a JSON edit, not a change of code. Tasks with 'versuch': 2 belong to the Kalman-filter experiment ('--task kf_alle'); a 'sim' block is the test profile that node.py applies as the sensor setup before grading. A setting the next task does not want is switched off with [] (an empty list), never with null: in a config layer null means 'nothing overridden', so profiles accumulate and each task must name its own profile completely.",
  "pass_from": 50,
  "order": [
   "kinematik",
@@ -208,7 +208,7 @@
      "rate": 5.0,
      "sigma_xy": 0.5,
      "sigma_theta": 0.15,
-     "gap": null
+     "gap": []
     },
     "imu": {
      "rate": 100.0
@@ -367,7 +367,7 @@
      "rate": 5.0,
      "sigma_xy": 0.5,
      "sigma_theta": 0.15,
-     "gap": null
+     "gap": []
     },
     "imu": {
      "rate": 100.0
@@ -434,7 +434,7 @@
      "rate": 5.0,
      "sigma_xy": 0.6,
      "sigma_theta": 0.2,
-     "gap": null
+     "gap": []
     },
     "imu": {
      "rate": 200.0

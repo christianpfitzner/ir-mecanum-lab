@@ -93,22 +93,36 @@ class Scan:
 
     Same handedness as everything else (CONTRACT §5: x forward, y left, theta CCW) — reading
     it the other way round mirrors the whole exercise, so this is not a detail.
+
+    A beam that hit nothing is `inf` in `ranges` and is counted in `missing`. Both halves matter:
+    a clipped reading looks like a wall at `range_max` to anything that only compares numbers, so
+    the count is what lets a student say "17 beams came back with no echo".
     """
     t: float = 0.0
     angle_min: float = 0.0
     angle_increment: float = 0.0
     range_min: float = 0.05
-    range_max: float = 8.0
+    range_max: float = 8.0                          # the sensor's limit: beyond this -> `inf`
     ranges: list = field(default_factory=list)       # len == beams, inf where nothing was hit
+    missing: int = 0                                 # how many of those beams are `inf`
 
 
 @dataclass
 class Gps:
-    """Global position (UWB/MoCap-like), noisy."""
+    """Global position (UWB/MoCap-like), noisy — and saying how much that number is worth.
+
+    `quality`: 2 good, 1 degraded (multipath bias, inflated σ, too few anchors in view), 0 = the
+    receiver has no fix. A missing message — `None` on the bus, an empty column in the log — says
+    something else: no radio (gap window, blackout zone, dropped packet). `quality 0` is a receiver
+    that answers and says it knows nothing. A filter has to tell those two apart, so the difference
+    is in the message and not only in the config that caused it.
+    """
     t: float = 0.0
     x: float = 0.0
     y: float = 0.0
     theta: float = 0.0
+    quality: int = 2              # 2 good · 1 degraded · 0 no fix (a message that says: unusable)
+    sats: int = 8                 # anchors in view (`gps.sats`); 0 whenever quality is 0
 
 
 @dataclass
@@ -130,6 +144,7 @@ class Imu:
     gz: float = 0.0                 # rad/s about z (yaw rate — the main signal in 2D)
     roll: float = 0.0               # radius
     pitch: float = 0.0              # radius
+    temp: float = 24.0              # °C at the chip: the bias walks with it, see sensors.ImuSensor
 
 
 @dataclass
@@ -261,10 +276,37 @@ DEFAULT_CONFIG = {
     },
     "truth": {"rate": 20.0},          # s. debug_truth: rate of the exact pose
     "odom": {"rate": 50.0, "sigma_wheel": 0.04, "sigma_xy": 0.0015,
-             "sigma_theta": 0.0012, "bias_omega": 0.0},
+             "sigma_theta": 0.0012, "bias_omega": 0.0,
+             # Uneven stamps: a real encoder report reaches the bus when it arrives, not every
+             # 1/rate s. Upper bound of that lateness as a fraction of the period, drawn per
+             # message and always positive (a stamp can be late, never early, never out of order).
+             # Only the stamp moves — the values are integrated every physics step either way.
+             "jitter": 0.0,
+             # Model error of the *geometry the integrator believes* (sensors.odom_geometry):
+             # real odometry is wrong mainly because the wheels are not what the drawing says.
+             #   wheel_radius_scale  every driven metre scales with it — the path grows/shrinks,
+             #                       yaw included (the whole kinematics divides by r)
+             #   lever_scale         the lever arm a = lx + ly you assume; a != truth turns every
+             #                       straight command into a arc and lands a full circle rotated
+             #   wheel_base_scale    only the vehicle length mis-measured (lx), so yaw and lateral
+             #                       mix differently while |v| stays right
+             #   scale_xy            body velocity too fast/slow while the yaw rate stays right
+             #                       (wrong radius, honest gyro): a circle becomes a spiral
+             #   bias_xy             constant offset of the reported pose (wrong odom origin)
+             # {} means: the integrator believes the true geometry, i.e. perfect wheel constants.
+             "geometry": {}},
     "lidar": {"rate": 20.0, "beams": 360, "range_max": 8.0, "range_min": 0.05,
-              "sigma": 0.015, "max_walls": 400},
+              "sigma": 0.015, "max_walls": 400,   # max_walls: segments one scan may use
+              # Weakest echo a beam may return, as |cos| of the incidence angle on the surface it
+              # hit. 0.0 = every wall reflects like a mirror (experiment 1); 0.25 loses the walls
+              # seen at a grazing angle, which is why real lidars miss painted posts.
+              "reflectivity_min": 0.0},
     "gps": {"rate": 5.0, "sigma_xy": 0.06, "sigma_theta": 0.03, "bias_xy": [0, 0],
+            "delay_ticks": 0,         # deliver each fix N emissions late (ring buffer)
+            "dropout": 0.0,           # probability per message that the transport loses it
+            "latency": 0.0,           # s on the way, jittered ±50 %; shifts the stamp, not the fix
+            "sats": 8,                # anchors in view on open floor -> Gps.sats / quality 2
+            "sats_min": 4,            # below this the fix is only degraded (quality 1)
             "gap": None,              # [start, duration] in s: no fix in this window
             "bias_step": None,        # [start, duration, dx, dy]: jumping bias (outlier)
             "zones": []},             # place-based degradation, see sensors.GpsSensor._zones
@@ -276,9 +318,17 @@ DEFAULT_CONFIG = {
             "accel_noise": 2.0e-3, "accel_bias": 0.05, "accel_bias_walk": 5.0e-4,
             "accel_scale": 1.0e-3, "tilt_sigma": 0.006, "tilt_tau": 0.4,
             "vibration": 0.08, "vibration_hz": 16.0, "gravity": 9.81,
-            "startup": 0.4, "startup_bias": 0.5},
-    # Note for the students: the simulation does not use this block, it is the
-    # starting recommendation for their own filter (see student/kf_template.py).
+            "startup": 0.4, "startup_bias": 0.5,
+            # Temperature: a MEMS module warms up with its own electronics and the bias walks with
+            # it. All three default to "cold and stays cold", because a graded filter must not be
+            # tuned against a drift the lab course cannot see: temp_motor = °C the drive adds at
+            # full speed, temp_tau = s to reach it, temp_walk/temp_walk_gyro = bias per °C.
+            "temp_start": 24.0, "temp_motor": 0.0, "temp_tau": 30.0,
+            "temp_walk": 0.0, "temp_walk_gyro": 0.0},
+    # Note for the students: the simulation does not tune itself with this block, it is the
+    # starting recommendation for their own filter (see student/kf_template.py). The one
+    # exception is gps_delay: that is the delay their filter has to live with, so the engine
+    # simulates it as a late GPS fix (equivalent to gps.delay_ticks, in seconds).
     "kf": {"rate": 20.0, "q_acc": 0.6, "q_turn": 0.02, "gps_delay": 0.0},
     # Cell size per world: the robot is the same size everywhere, but the maze is built on a
     # coarser grid, so its corridors are wide enough to drive and to see. See worlds.py.
@@ -306,9 +356,16 @@ def load_config(path: str | None = None, overrides: dict | None = None) -> dict:
 
 
 def _merge(dst: dict, src: dict) -> None:
+    """Overlay `src` on `dst`. A value of None means "nothing overridden", never "delete".
+
+    The layers arrive as one tree from the CLI (`{"world": args.world}` with no `--world`
+    given is `{"world": None}`), so treating None as a deletion erased the `world` from
+    config/default.json on every run without `--world`. A list is the way to say "off":
+    `"gap": []` disables the GPS outage, `"zones": []` the shadow zones.
+    """
     for key, val in src.items():
         if val is None:
-            dst.pop(key, None)
+            continue
         elif isinstance(val, dict) and isinstance(dst.get(key), dict):
             _merge(dst[key], val)
         else:

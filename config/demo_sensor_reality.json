@@ -1,0 +1,88 @@
+{
+  "_comment": [
+    "DEMO, not the default: sensors that report something about themselves, not only a number.",
+    "",
+    "Run it in the window (teleop on, so you drive the whole arena yourself):",
+    "    ./lab sim --world production --config config/demo_sensor_reality.json",
+    "Watch it from the outside (the readout line carries q, sats, degC and the lost count):",
+    "    ./lab run --world production --config config/demo_sensor_reality.json \\",
+    "            --robot muster --controller student/solution.py --seconds 30",
+    "Record it, and the same numbers land in the CSV that the lab report is written from:",
+    "    ./lab grade --world production --config config/demo_sensor_reality.json --task kinematik \\",
+    "                --controller student/solution.py --log messung.csv",
+    "",
+    "Why a file and not the default: the graded tasks in config/tasks.json are calibrated on the",
+    "clean sensors of each experiment. Every knob here is off in DEFAULT_CONFIG, and off means not",
+    "one random number is drawn that the old sensor did not draw - measured, see CONTRACT §6.4. A",
+    "demo asks for its imperfections; a graded run does not have them.",
+    "",
+    "gps.dropout  = 0.15   probability per message that the transport loses it. The coin is tossed",
+    "                     before anything is measured, so the pattern of holes is the same for the",
+    "                     same --seed and has nothing to do with where the robot was. The readout",
+    "                     counts them (`lost 7`), the log writes them in `lost_gps`.",
+    "gps.latency  = 0.25   s on the wire, ±50 % jittered. A fix that is still travelling is not a",
+    "                     position that is wrong: it keeps the stamp it was measured with, so a",
+    "                     filter can see now - fix.t and predict over the gap. Measured over 25 s of",
+    "                     straight drive: a fix is 0.45 s old when it arrives (0.25 s of wire plus the",
+    "                     wait for the next emission slot), never older than 1.0 s. Watch `t_age_gps`.",
+    "gps.zones    = two rectangles, and they are here for `quality` and `sats`: 8 anchors on open",
+    "                     floor (quality 2), 3 between them and the pallet rack (quality 1), none",
+    "                     behind the loading-dock door (quality 0 = no fix, and the receiver then",
+    "                     sends nothing at all, which the readout shows as `q0 0 sats`).",
+    "imu.temp_*   = the chip warms 14 °C towards the temperature the drive current asks for, with",
+    "             25 s of time constant, and the bias walks 3.5 mm/s² and 0.12 mrad/s per °C. That",
+    "             is the drift a datasheet draws as a curve over temperature: it follows the load,",
+    "             so it grows while the robot drives and walks back while it stands - and averaging",
+    "             does not remove it, because it is an offset and not noise. `temp` itself is not a",
+    "             field of sensor_msgs/Imu, so it is in the readout and in `temp_imu`, not on /imu.",
+    "lidar.reflectivity_min = 0.25  a beam only comes back if the wall returns at least a quarter",
+    "                     of what it got, which is |cos| of the incidence angle. Below it the beam",
+    "                     reports no echo (inf), so a long wall the robot drives alongside vanishes",
+    "                     in a wedge around the beam direction - why a real lidar does not see a",
+    "                     painted post you drive past. Measured 0.5 m off a 30 m wall: the wall is",
+    "                     seen 7.17 m down its length by default and 1.93 m here, 20 of 360 beams",
+    "                     come back with nothing. Counted in Scan.missing (`noecho_scan` column).",
+    "odom.jitter  = 0.35   each odom report reaches the bus up to 35 % of a period late, because that",
+    "                     is when an encoder report arrives. Never early and never out of order, so",
+    "                     only the stamps become uneven (20 ms ± 2.8 ms measured, mean and rate",
+    "                     unchanged); the values are integrated every physics step either way.",
+    "",
+    "What a student does with it: drive the same line twice, once with this file and once without,",
+    "and compare `q_gps`, `lost_gps`, `temp_imu` and `noecho_scan` against the error of their own",
+    "filter. The conclusion is the exercise: a filter that treats every message as equally good is",
+    "a filter that is tuned for a sensor that does not exist."
+  ],
+  "gps": {
+    "dropout": 0.15,
+    "latency": 0.25,
+    "sats": 8,
+    "sats_min": 4,
+    "zones": [
+      {
+        "name": "between the pallet racks",
+        "rect": [8.0, 0.6, 11.5, 3.4],
+        "sats": 3,
+        "sigma_scale": 3
+      },
+      {
+        "name": "loading dock, no sky",
+        "rect": [16.6, 0.6, 19.4, 3.4],
+        "block": true
+      }
+    ]
+  },
+  "imu": {
+    "temp_motor": 14.0,
+    "temp_tau": 25.0,
+    "temp_walk": 0.0035,
+    "temp_walk_gyro": 0.00012
+  },
+  "lidar": {
+    "reflectivity_min": 0.25
+  },
+  "odom": {
+    "jitter": 0.35
+  },
+  "debug_truth": true,
+  "_comment_tail": "debug_truth publishes /<robot>/truth, so ghost, truth and GPS can be compared."
+}

@@ -13,6 +13,10 @@ rclpy is available.
 
 Settings without a JSON file: repeat `--set gps.sigma_xy=0.8 --set imu.rate=400` as often
 as you like; `--log messung.csv` writes the measurement log.
+
+How fast: `--speed 4` runs four simulation seconds per wall second, `--fixed-step` leaves the wall
+clock out of the loop entirely. Without both, a grading run paces on the wall clock and so
+measures whatever this machine happens to manage.
 """
 import argparse
 import importlib.util
@@ -34,20 +38,46 @@ from .worlds import list_worlds, load_world
 
 log = logging.getLogger("mecanum.node")
 WORLD_LIST = ", ".join(list_worlds())
+MAX_LOOP_DT = 0.25        # s of sim time one loop round may make up; beyond that: time is lost
 
 
 # --------------------------------------------------------------------- Run core
 
 
-def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None):
-    """One tick: step the simulation, put measurements on the bus, draw, grade, log."""
+def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0, tap=None,
+             speed: float = 1.0, fixed_step: bool = False):
+    """One tick: step the simulation, put measurements on the bus, draw, grade, log.
+
+    The pace is `speed` **simulation seconds per wall second** (default 1 = real time, as in the
+    lab course); `fixed_step` drops the wall clock out of the loop and steps exactly one physics
+    step per round, as fast as the CPU allows. Either way the physics keeps its fixed step, so one
+    seed is the same measurement series at every speed — only how often the wall clock is sampled
+    changes.
+
+    What the loop could not make up is counted (MAX_LOOP_DT per round) and named once, from 0.5 s
+    of loss up: a run that quietly loses whole seconds is not grading the seed, it is grading the
+    load on the host.
+    """
     pubs, prev_t, t_clock, t_json, sim_t = {}, time.monotonic(), 0.0, 0.0, eng.t
     last_estimate = {}                      # so the log counts each kf/pose message only once
     last_robots, t_robots = None, 0.0
     pub_task = bus.pub("task")
+    behind, warned = 0.0, False
+    if fixed_step and rend is not None:
+        log.info("--fixed-step with a window: the frame rate paces the simulation — use --headless")
     while bus.ok() and (rend is None or rend.ok) and (not seconds or eng.t < seconds):
         now = time.monotonic()
-        dt = min(now - prev_t, 0.25)
+        if fixed_step:
+            dt = eng.sub_step
+        else:
+            want = (now - prev_t) * speed            # sim seconds this wall slice is worth
+            dt = min(want, MAX_LOOP_DT)
+            if want > dt:
+                behind += want - dt
+                if not warned and behind >= 0.5:
+                    warned = True
+                    log.warning("sim time fell behind the wall clock by %.1f s — use --speed or "
+                                "--fixed-step", behind)
         prev_t = now
         if rend is None or not rend.paused:
             eng.step(dt)
@@ -94,8 +124,30 @@ def run_loop(eng, bus, rend=None, graders=(), seconds=0.0, teleop=False, hz=60.0
             g.tick(elapsed)                 # its clock is simulation time, not the wall clock
         if graders and all(getattr(g, "done", False) for g in graders):
             break                                       # grader is done -> end the run
-        bus.spin(1.0 / hz if rend is None else 0.002)
+        bus.spin(0.0 if fixed_step else (1.0 / hz if rend is None else 0.002))
     return eng
+
+
+def pacing(args) -> tuple:
+    """(speed, fixed_step) from the command line — `--fixed-step` switches the sleeps off.
+
+    MECANUM_FAST is what the in-process bus and the student node read: without it the node would
+    still pace its own loop on the wall clock and fall hopelessly behind a simulation that waits
+    for nobody (tools/fastgrade.py has used this switch since it was written).
+    """
+    fixed = bool(getattr(args, "fixed_step", False))
+    if fixed:
+        os.environ["MECANUM_FAST"] = "1"
+    return max(float(getattr(args, "speed", 1.0) or 1.0), 0.01), fixed
+
+
+def wants_gui(args, cfg: dict) -> bool:
+    """Window or not: `--headless` wins, otherwise the config decides — `"gui": false` is real.
+
+    Until now nobody read `cfg["gui"]`, so a config file that switched the window off still got
+    a window opened for it.
+    """
+    return not getattr(args, "headless", False) and bool(cfg.get("gui", True))
 
 
 def teleop_keys() -> tuple:
@@ -150,7 +202,7 @@ def _nest(tree: dict, key: str, value) -> None:
 
 def make_engine(args):
     """Config layers: DEFAULT <- config/default.json <- --config <- test profile <- --set."""
-    overrides = {"world": args.world, "gui": not args.headless}
+    overrides = {"world": args.world, "gui": False if args.headless else None}
     if getattr(args, "truth", False):
         overrides["debug_truth"] = True
     if args.task:
@@ -309,8 +361,10 @@ def cmd_run(args):
     graders = [_grader(args.robot, args.task, bus, eng)] if args.grade else []
     wire_task(bus, eng, robot=args.robot if graders else None)
     node_threads = [add_node(c, args.robot, bus) for c in (args.controller or [])]
-    rend = None if args.headless else R.Renderer(eng, eng.cfg)
-    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
+    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
+    speed, fixed = pacing(args)
+    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap,
+             speed=speed, fixed_step=fixed)
     if rend:
         rend.close()
     for k in node_threads:
@@ -363,12 +417,14 @@ def cmd_sim(args):
     bus.service(topic("reset"), lambda req: (eng.reset(), {"success": True,
                                                            "message": "world reset"})[1])
     graders = [_grader(args.robot, args.grade, bus, eng)] if args.grade else []
-    rend = None if args.headless else R.Renderer(eng, eng.cfg)
+    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
+    speed, fixed = pacing(args)
     if not args.stub:
         log.info("Topics: %s/<cmd_vel,wheel_speeds,odom,scan,gps,imu,kf/pose>  "
                  "/sim/<robots,world,task,config>  "
                  "/sim/<spawn_robot,despawn_robot,reset>  /clock  /tf /tf_static", "/<robot>")
-    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap)
+    run_loop(eng, bus, rend, graders, args.seconds, teleop=not args.no_teleop, tap=tap,
+             speed=speed, fixed_step=fixed)
     if rend:
         rend.close()
     bus.shutdown()
@@ -432,8 +488,10 @@ def cmd_grade(args):
     node_threads = [add_node(c, args.robot, bus)
                     for c in (args.controller or []) if not c.endswith(".json")]
     g = _grader(args.robot, args.task or "alle", bus, eng)
-    rend = None if args.headless else R.Renderer(eng, eng.cfg)
-    run_loop(eng, bus, rend, [g], args.seconds, teleop=False, tap=tap)
+    rend = None if not wants_gui(args, eng.cfg) else R.Renderer(eng, eng.cfg)
+    speed, fixed = pacing(args)
+    run_loop(eng, bus, rend, [g], args.seconds, teleop=False, tap=tap,
+             speed=speed, fixed_step=fixed)
     if rend:
         rend.close()
     if tap:
@@ -476,6 +534,12 @@ def parser():
     p.add_argument("--task", default="",
                    help=f"Task or group: {', '.join(T.task_ids(T.load_tasks()))}, kf_alle, v1, v2")
     p.add_argument("--seconds", type=float, default=0.0, help="End after N s of simulation time")
+    p.add_argument("--speed", type=float, default=1.0, metavar="N",
+                   help="simulation seconds per wall second (default 1.0 = real time): the same "
+                        "seed, the same physics steps, N times as fast")
+    p.add_argument("--fixed-step", action="store_true",
+                   help="step exactly 1/rate per round and never sleep: independent of the wall "
+                        "clock, as fast as this CPU allows (combine with --headless)")
     p.add_argument("--headless", action="store_true", help="Without the Pygame window")
     p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
     p.add_argument("--no-teleop", action="store_true",

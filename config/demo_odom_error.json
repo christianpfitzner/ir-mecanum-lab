@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "DEMO, not the default: odometry that is wrong the way real odometry is wrong.",
+    "",
+    "The odometry integrator used to receive the *true* chassis geometry, so the commonest real",
+    "error -- a wheel radius that is not what the drawing says -- could not be expressed at all.",
+    "It now builds its own geometry from odom.geometry (sensors.odom_geometry).",
+    "",
+    "Run it in the window and drive a straight line: the odometry ghost (`o`) pulls ahead of the",
+    "robot by 5 cm per metre -- measured 0.61 m of 'odom off' after 12 m of lane, with the truth",
+    "still on its line:",
+    "    ./lab sim --world track --config config/demo_odom_error.json",
+    "Watch it from the outside (the ghost of the reference solution, no keyboard needed):",
+    "    ./lab run --world production --config config/demo_odom_error.json \\",
+    "            --robot muster --controller student/solution.py --seconds 30",
+    "See what it does to the graded tasks (measured with the reference solution, seed 1):",
+    "    ./lab grade --config config/demo_odom_error.json --task alle --controller student/solution.py",
+    "        T1 ok, T2 ok (closure 0.18 m on a 4 m square -- the controller corrects its own drift),",
+    "        T3 FAILS with 26 wall contacts: the LIDAR task navigates by odometry between the walls,",
+    "        and a robot that believes it drove 8 % further than it did comes out in a wall,",
+    "        T4 ok (0.17 m): the GPS approach does not trust the wheel odometry.",
+    "",
+    "Why a file and not the default: the thresholds in config/tasks.json are calibrated on correct",
+    "wheel constants, and model error is not a noise knob -- it scales with the distance driven,",
+    "so every measurement taken over odometry (T2 closure, T3 target, the odometry feed of every",
+    "Kalman filter in experiment 2) shifts with it. Do not grade with this file unless you also",
+    "recalibrate.",
+    "",
+    "What each term of odom.geometry does (defaults: 1, 1, 1, 1, [0,0]; see mecanum_lab/types.py):",
+    "  wheel_radius_scale 1.05   every wheel speed converts to 5 % more distance, so the path",
+    "                            scales -- and so does the yaw rate, because the same radius sits",
+    "                            in the turn equation. On its own: 12 m driven, 12.6 m reported.",
+    "  lever_scale 0.97          the assumed lever arm a = lx+ly is 3 % short, so the turn rate",
+    "                            comes out 3 % too big: a commanded revolution ends rotated. On",
+    "                            its own 11 deg after 360 deg; together with the 1.05 radius here",
+    "                            the two add up to 8.25 % and measured 28 deg after one round.",
+    "  wheel_base_scale          only the vehicle length mis-measured (lx): vx, vy and omega mix",
+    "                            in the wrong ratio while the speed stays about right.",
+    "  scale_xy                  body velocity too fast/slow while the yaw rate stays right --",
+    "                            wrong radius but honest gyro: a commanded circle becomes a spiral.",
+    "  bias_xy [0,0]             constant offset of the reported pose: the odom origin is not where",
+    "                            you think it is. A shifted world, not drift."
+  ],
+  "odom": {
+    "geometry": {
+      "wheel_radius_scale": 1.05,
+      "lever_scale": 0.97
+    }
+  },
+  "_comment_tail": "1.05 radius + 0.97 lever is what two worn wheels and a reprinted hub add up to."
+}

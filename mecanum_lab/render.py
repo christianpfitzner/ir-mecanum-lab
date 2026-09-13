@@ -373,10 +373,7 @@ class Renderer:
                           (r.mode, GREY),
                           (f"|v|={math.hypot(r.twist.vx, r.twist.vy):.2f} m/s", GREY),
                           (f"w={r.twist.omega:+.2f}", GREY), ("odom " + o, GREY),
-                          ("imu " + (f"ax={r.imu.ax:+.2f} ay={r.imu.ay:+.2f} "
-                                     f"gz={r.imu.gz:+.3f}" if r.imu else "no imu"), GREY),
-                          ("gps " + (f"x={r.gps.x:+.2f} y={r.gps.y:+.2f}" if r.gps
-                                     else "no fix"), GREY),
+                          *overlays.sensor_readout(self, r),
                           ("kf " + (f"x={r.kf.x:+.2f} y={r.kf.y:+.2f} "
                                     f"σ=({r.kf.sx:.2f},{r.kf.sy:.2f}) "
                                     f"Δ={r.kf_err:.2f} m" if r.kf else "-"), KF_COLOR),

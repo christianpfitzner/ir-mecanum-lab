@@ -37,10 +37,43 @@ class SimEngine:
         self.outbox: list = []                       # (kind, robot|None, payload)
         self._noise = sensors.Noise(seed)
         self._lidar = sensors.Lidar(world, self._noise, cfg_get(self.cfg, "lidar"))
-        self._gps = sensors.GpsSensor(self._noise, cfg_get(self.cfg, "gps"))
+        self._gps = self._make_gps()
         self._index = 0
         self._sub = 1.0 / float(cfg_get(self.cfg, "rate", 50))
         self._acc = 0.0
+        self.dropped = 0.0          # s of sim time this stepper threw away (see step())
+        self._warned_drop = False
+
+    # --------------------------------------------------------------------- Sensor builders
+
+    def _make_gps(self):
+        """GPS sensor, with `kf.gps_delay` (seconds, the student-facing name) turned into ticks.
+
+        The `kf` block is a recommendation to the students and nothing in the simulator reads it
+        — except this one value: a filter has to be written for a delayed fix, so the delay has to
+        be simulable. `gps.delay_ticks` (emissions) wins when both are given.
+        """
+        gpscfg = cfg_get(self.cfg, "gps") or {}
+        ticks = int(gpscfg.get("delay_ticks", 0) or 0)
+        seconds = float(cfg_get(self.cfg, "kf.gps_delay", 0.0) or 0.0)
+        as_ticks = int(round(seconds * float(cfg_get(self.cfg, "gps.rate", 5.0))))
+        if as_ticks > ticks:
+            log.info("simulating the recommended GPS delay: kf.gps_delay = %.2f s -> "
+                     "gps.delay_ticks = %d", seconds, as_ticks)
+            gpscfg["delay_ticks"] = as_ticks     # so /sim/config says what the sensor will do
+        return sensors.GpsSensor(self._noise, gpscfg)
+
+    def _make_odometer(self, r):
+        """The robot's odometry: wheel speeds integrated over the *believed* geometry.
+
+        Not the chassis geometry — `odom.geometry` is what makes a wrong wheel radius or a wrong
+        lever arm expressible at all (sensors.odom_geometry). Empty config -> the true geometry.
+        """
+        odometer = sensors.OdometrySensor(
+            sensors.odom_geometry(r.chassis.geometry, cfg_get(self.cfg, "odom.geometry")),
+            self._noise, cfg_get(self.cfg, "odom"))
+        odometer.reset(r.chassis.pose)                 # odom origin = spawn pose, not (0,0)
+        return odometer
 
     # ------------------------------------------------------------------ Robot management
 
@@ -60,8 +93,7 @@ class SimEngine:
         geometry = physics.make_geometry(cfg_get(self.cfg, "robot"), variant)
         r = Robot(spec=spec, chassis=physics.Chassis(geometry, pose or self.world.spawn_pose(idx),
                                                      seed=idx + (self._index or 1)))
-        r.odometer = sensors.OdometrySensor(geometry, self._noise, cfg_get(self.cfg, "odom"))
-        r.odometer.reset(r.chassis.pose)          # odom origin = spawn pose, not (0,0)
+        r.odometer = self._make_odometer(r)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
         self._clock_to_sim(r)
         # The truth pose is only copied into the robot by a physics step; until the first one the
@@ -111,6 +143,7 @@ class SimEngine:
         r.chassis.contacts = 0
         r.odometer.reset(r.chassis.pose)
         r.inertial.reset()
+        self._gps.drops.pop(name, None)     # the losses of the previous drive are not this one's
         self._clock_to_sim(r)
         r.wheel_cmd = r.vel_cmd = None
         r.mode, r.t_cmd, r.t_vel = "pass-through", -1.0, -1.0
@@ -132,6 +165,7 @@ class SimEngine:
             r.imu, r.kf, r.kf_err = None, None, None
             r.contacts, r.distance, r.mission_state = 0, 0.0, "idle"
         self.t = 0.0
+        self._gps.reset()                 # a fix that was on its way is not part of the new run
         self._gps.t0 = 0.0
         for r in self.robots.values():
             self._clock_to_sim(r)
@@ -173,12 +207,10 @@ class SimEngine:
         if self.forced:
             merge(self.cfg, dict(self.forced))     # what was set by hand stays put
         self._lidar = sensors.Lidar(self.world, self._noise, cfg_get(self.cfg, "lidar"))
-        self._gps = sensors.GpsSensor(self._noise, cfg_get(self.cfg, "gps"))
+        self._gps = self._make_gps()
         self._gps.t0 = getattr(self, "t_task", self.t)
         for r in self.robots.values():
-            r.odometer = sensors.OdometrySensor(r.chassis.geometry, self._noise,
-                                               cfg_get(self.cfg, "odom"))
-            r.odometer.reset(r.chassis.pose)
+            r.odometer = self._make_odometer(r)
             r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"),
                                           robot=r.spec.name)
             self._clock_to_sim(r)
@@ -225,12 +257,34 @@ class SimEngine:
 
     # ------------------------------------------------------------------------- Time stepping
 
+    @property
+    def sub_step(self) -> float:
+        """The fixed physics step (1/rate) — what a `--fixed-step` run steps by."""
+        return self._sub
+
     def step(self, dt: float) -> None:
-        """Split elapsed time into fixed physics steps (determinism)."""
-        self._acc = min(self._acc + max(dt, 0.0), 0.5)
+        """Split elapsed time into fixed physics steps (determinism).
+
+        The accumulator is capped at 0.5 s: a caller that stalls for ten seconds must not freeze
+        the machine with catch-up steps afterwards. That throws sim time away, so it is counted
+        (`dropped`) and said out loud once — silently losing whole seconds is how a grading run
+        stops matching the seed it was started with.
+        """
+        want = self._acc + max(dt, 0.0)
+        self._acc = min(want, 0.5)
+        if want > 0.5:
+            self.dropped += want - 0.5
+            self._warn_drop()
         while self._acc >= self._sub:
             self._substep(self._sub)
             self._acc -= self._sub
+
+    def _warn_drop(self) -> None:
+        """Say it once, and with the number: a sim behind the wall clock is not grading."""
+        if not self._warned_drop and self.dropped >= 0.5:
+            self._warned_drop = True
+            log.warning("sim time fell behind the wall clock by %.1f s — use --speed or "
+                        "--fixed-step", self.dropped)
 
     def _substep(self, dt: float) -> None:
         for r in self.robots.values():
@@ -249,15 +303,21 @@ class SimEngine:
                 r.imu = msg
             if self._due(r, "odom", cfg_get(self.cfg, "odom.rate", 50.0), dt):
                 r.odom = odo
-                self._push("odom", r.spec.name, odo)
+                # `odom.jitter` moves the stamp and only the stamp: a report that reaches the bus
+                # late is still the same measurement, and an encoder stream with perfectly even
+                # stamps is the fiction. Late only, never early, so the stamps stay in order and a
+                # filter can keep predicting with `dt = stamp - previous stamp`.
+                lag = self._noise.late(cfg_get(self.cfg, "odom.jitter", 0.0))
+                self._push("odom", r.spec.name, odo,
+                           stamp=self.t - lag / float(cfg_get(self.cfg, "odom.rate", 50.0)))
             if self._due(r, "scan", cfg_get(self.cfg, "lidar.rate", 20.0), dt):
                 r.scan = self._lidar.scan(r.pose)
                 self._push("scan", r.spec.name, r.scan)
             if self._due(r, "gps", cfg_get(self.cfg, "gps.rate", 5.0), dt):
-                fix = self._gps.fix(r.pose, self.t)
+                fix = self._gps.fix(r.pose, self.t, r.spec.name)
                 if fix is not None:                            # GPS outage: no message, no last fix
                     r.gps = fix
-                    self._push("gps", r.spec.name, fix)
+                    self._push("gps", r.spec.name, fix, stamp=fix.t)  # keep the emission stamp
             if cfg_get(self.cfg, "debug_truth") and self._due(
                     r, "truth", cfg_get(self.cfg, "truth.rate", 20.0), dt):
                 self._push("truth", r.spec.name, Pose(r.pose.x, r.pose.y, r.pose.theta))
@@ -288,11 +348,19 @@ class SimEngine:
 
     # ------------------------------------------------------------------------- Messages
 
-    def _push(self, kind: str, robot: str | None, payload) -> None:
+    def _push(self, kind: str, robot: str | None, payload, stamp: float | None = None) -> None:
+        """Queue a measurement, stamped with simulation time.
+
+        `stamp` is for a sensor whose message and measurement instant differ: the GPS delay buffer
+        and its latency queue keep the stamp the fix was **generated** with, and `odom.jitter`
+        stamps a report with when it reached the bus rather than when it was taken. Without that
+        argument the receiver cannot see the delay and the grader cannot tell an outage from a late
+        fix.
+        """
         if len(self.outbox) > MAX_OUTBOX:            # endless loop without a consumer
             del self.outbox[:MAX_OUTBOX // 2]
         if hasattr(payload, "t"):                    # stamp simulation time into the measurement
-            payload.t = self.t
+            payload.t = self.t if stamp is None else stamp
         self.outbox.append((kind, robot, payload))
 
     def drain(self) -> list:
@@ -311,6 +379,20 @@ class SimEngine:
                  "contacts": r.contacts, "distance": round(r.distance, 2),
                  "mission": r.mission_state, "task": self.task}
                 for r in self.robots.values()]
+
+    def gps_health(self, name: str) -> tuple:
+        """(quality, anchors in view, messages lost) for one robot's GPS.
+
+        Asked of the receiver and not of the last message on purpose: while the robot sits in a
+        blackout there *is* no fresh message, and "the sky here is empty" versus "the radio lost
+        five packets" is the difference the readout and the log have to show without a second
+        terminal. `GpsSensor.sky()` draws no random number, so the window can ask every frame.
+        """
+        r = self.robots.get(name)
+        if r is None:
+            return (0, 0, 0)
+        q, sats = self._gps.sky(r.pose)
+        return (q, sats, self._gps.drops.get(name, 0))
 
     def publish_world(self) -> None:
         self._push("robots", None, json.dumps(self.robots_info()))

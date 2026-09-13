@@ -70,10 +70,21 @@ imu:    {rate, gyro_noise, gyro_bias, gyro_bias_walk, gyro_scale,
          accel_noise, accel_bias, accel_bias_walk, accel_scale,
          tilt_sigma, tilt_tau, vibration, vibration_hz, gravity,
          startup, startup_bias}
-gps:    {rate, sigma_xy, sigma_theta, bias_xy, gap: [t0, duration], bias_step: [t0, duration, dx, dy]}
-kf:     {rate, q_acc, q_turn, gps_delay}    # pure recommendation to the students,
-                                            # the simulation never uses this block
+gps:    {rate, sigma_xy, sigma_theta, bias_xy, delay_ticks,
+         gap: [t0, duration], bias_step: [t0, duration, dx, dy]}
+kf:     {rate, q_acc, q_turn, gps_delay}   # recommendation to the students; the one value the
+                                           # simulator reads is gps_delay, see below
+odom:   {rate, sigma_wheel, sigma_xy, sigma_theta, bias_omega,
+         geometry: {wheel_radius_scale, wheel_base_scale, lever_scale, scale_xy, bias_xy}}
 ```
+
+`gps.delay_ticks` delivers every fix N emissions late out of a ring buffer, and `kf.gps_delay`
+— the delay the students are told their filter must survive — is the same delay in **seconds**,
+which the engine converts with `gps.rate` (`gps.delay_ticks` wins if both are given). The fix is
+still *generated* when the GPS measured it (its own noise, its own place in the `gap` window) and
+keeps that stamp on delivery, so the receiver can see `now - fix.t` and predict over the gap
+instead of steering to where the robot was. `odom.geometry` is CONTRACT §6.4's model error of the
+believed wheel constants; `{}` (the default) is the true geometry, so nothing measured here moved.
 
 `--set` (new in `node.py`) takes `path.sub.path=value`, the value parsed as JSON
 (number/bool/string/list). That makes **everything** reachable from the launch file without
@@ -116,8 +127,57 @@ Two constraints that come with experiment 2 (both in `engine.py`/`node.py`):
   Odometry and IMU count from the moment they are created; the engine attaches them to
   simulation time with `_clock_to_sim()`, so their stamp does not start at 0 again after a
   respawn or profile switch while GPS keeps reporting simulation time.
-  `tools/fastgrade.py` runs 25 simulation seconds per second — a wall-clock-timed test
-  would see neither the outage nor a wrong `dt`.
+  `tools/fastgrade.py` runs the same simulation without the real-time pace (`--speed 8` measured
+  2.4 simulation seconds per wall second here, because the reference node competes for the CPU) —
+  a wall-clock-timed test would see neither the outage nor a wrong `dt`.
+
+### 5.1 Measured spread per pace (3 runs each, seed 1, reference solution)
+
+Same runs as CONTRACT §9.1, same host. `rate_hz` is the grader's count of `kf/pose` messages per
+**simulation** second, everything else is what §5 lists as the check:
+
+| Metric | `--speed 1` | `--speed 4` | `--fixed-step` | limit |
+|---|---|---|---|---|
+| K1 `rmse` | 0.068 | 0.108…0.145 | 0.406…0.540 | ≤0.42 |
+| K1 `improvement` | 10.26 | 4.93…6.57 | 1.28…1.71 | ≥1.6 |
+| K1 `max_error` | 0.180 | 0.223…0.349 | 1.065…1.122 | ≤1.25 |
+| K1 `rate_hz` | 38.6 | 12.9…13.2 | 2.6…2.7 | ≥5 |
+| K2 `rmse` | 0.253…0.506 | 0.273…0.372 | 0.748…0.791 | ≤0.80 |
+| K2 `improvement` | 4.05…6.50 | 5.56…6.91 | 2.08…2.20 | ≥2.5 |
+| K2 `nees` (not graded) | 1.45…5.62 | 0.90…1.46 | 1.12…1.21 | — |
+| K2 `outage_max` | 0.256…0.394 | 0.109…0.485 | 0.417…0.527 | ≤1.8 |
+| K3 `rmse` | 0.055…0.114 | 0.085…0.117 | 0.368…0.465 | ≤0.42 |
+| K3 `nees` | 0.23…0.74 | 0.23…0.46 | 0.26…0.43 | 0.05…3.5 |
+| K4 `rmse` | 0.090…0.091 | 0.174…0.225 | 0.517…0.778 | ≤0.35 |
+| K4 `max_error` | 0.161…0.184 | 0.373…0.489 | 1.577…1.785 | ≤0.90 |
+| K4 `rate_hz` | 57.7 | 13.9…14.1 | 3.6…4.0 | ≥10 |
+| **points** | **90/90** | **90/90** | 0/90 | — |
+
+What that says, in order:
+
+* Nothing moved at `--speed 1` and `--speed 4`: **no threshold of experiment 2 was retuned.**
+* `--speed 4` measures *tighter* than real time (K2 rmse 0.253…0.506 → 0.273…0.372, K2 NEES
+  1.45…5.62 → 0.90…1.46). The realtime pace was the noisy one, and a K2 run that lands on NEES 5
+  is a scheduling accident rather than a filter judgement.
+* `--fixed-step` is **not a usable pace for experiment 2**, and that is a property of the check, not
+  of the thresholds. A node reports `kf/pose` at most as often as it loops, so its rate in
+  *simulation* seconds is (loop iterations per wall second) / (sim seconds per wall second):
+  fixed-step runs ~36x realtime here, which leaves 2.6…4.0 Hz against `rate_min` 5 and 10 Hz — and
+  with the report rate gone the estimate itself degrades (K4 rmse 0.517…0.778 against 0.35).
+  Loosening `rate_min` to make the row green would delete the only check that a node publishes
+  continuously instead of once per GPS fix, so it stays; `--fixed-step` is for experiment 1, for
+  the simulator and for fast reruns of a filter that reports by message stamps.
+* The ceiling a supervisor has to respect is `speed · rate_min < the node's loop rate in wall
+  seconds`. Measured on this host with the reference filter (which reports every 0.02 s of sim time):
+  `--speed 6` already leaves it at 9.1…9.6 Hz and `--speed 8` at 7.0 Hz, both under K4's
+  `rate_min = 10` (80/90 — a scheduling accident, not a wrong filter). So experiment 2 is gradeable
+  up to about four times realtime here, and `--fixed-step` is out of the question.
+* `tools/fastgrade.py` switches the sleeps of the bus off for the node too, so it keeps the report
+  rate even at `--speed 8` (38.6 / 32.6 / 57.7 Hz) — and K3 still collapses there: rmse 0.904, NEES
+  37.0, 70/90, where `--speed 4` measures rmse 0.126, NEES 1.04 and 90/90. The reason sits in the
+  node, not in the threshold: its guard "a step over 2 s was a sleep, not a prediction"
+  (`SLEEP` in `student/kf_solution.py`) throws the filter away once a loop iteration is worth that
+  much simulation time. A KF grade is only ever worth what the node's clock was worth.
 
 **Why K2 grades relatively and K3 with a loose lower bound** (calibrated over seeds 1–4,
 reference solution): at 1 Hz GPS with σ = 0.8 m the *absolute* error is noise-limited — the

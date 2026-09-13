@@ -1,6 +1,6 @@
 """Extra overlays for the window: GPS shadow zones, the odometry ghost, rubber from wheel slip.
 
-Three small effects that make the invisible visible, none of which changes physics or a topic:
+Four small effects that make the invisible visible, none of which changes physics or a topic:
 
 * `zones()` draws the rectangles of `gps.zones` (see sensors.GpsSensor) as hatched shadow, so a
   student can see *where* the fix goes bad before the logbook proves it. Blackout zones are drawn
@@ -9,6 +9,8 @@ Three small effects that make the invisible visible, none of which changes physi
   distance between them in metres. Drift is otherwise a number in the readout nobody reads.
 * `skid_marks()` leaves rubber on the floor while the wheels turn against an obstacle — the
   visible twin of the phantom distance that `robot.slip` produces.
+* `sensor_readout()` builds the gps/lidar/imu parts of the per-robot readout line, quality and
+  satellite count and chip temperature included — the sensor's own opinion, not its number.
 
 Stdlib + pygame only, no state in the module (marks live on the renderer), stdlib drawing calls
 only (CONTRACT section 1). Text uses the renderer's own blit so both use the same fonts.
@@ -118,6 +120,45 @@ def skid_marks(rend, robot, dt: float) -> None:
                          (center[0] - stroke[0], center[1] - stroke[1]),
                          (center[0] + stroke[0], center[1] + stroke[1]), 2)
     rend.skid_trail[:] = alive
+
+
+def sensor_readout(rend, robot) -> list:
+    """The gps, lidar and imu segments of one readout line — with what each says about itself.
+
+    Four numbers tell a student *why* a reading is what it is: the GPS quality, how many anchors it
+    came from, the IMU's chip temperature, and how many messages never arrived. Three of them are
+    fields of the messages (`Gps.quality`, `Gps.sats`, `Scan.missing`), the temperature is not —
+    `sensor_msgs/Imu` has no such field — so it comes from the sensor here. Showing them in the line
+    that is already read is what saves the second terminal with `ros2 topic echo` on it.
+
+    Returns `[(text, color), …]` for `render._hud()` to append; drawing stays in render.py.
+    """
+    from .render import GREY, mix                        # lazy: render imports this module
+    fix, rays, inertial = robot.gps, robot.scan, robot.imu
+    quality, sats, lost = _gps_view(rend, robot)
+    gps = "gps " + (f"x={fix.x:+.2f} y={fix.y:+.2f}" if fix else "no fix")
+    gps += f" q{quality} {sats} sats" + (f" lost {lost}" if lost else "")
+    amber = mix(GREY, (250, 205, 90), 0.55 if quality == 1 else 0.9)      # q1 warm, q0 loud
+    out = [(gps, GREY if quality == 2 else amber)]
+    if rays is not None and rays.missing:
+        out.append((f"lidar {rays.missing} beams no echo", amber))
+    out.append(("imu " + (f"ax={inertial.ax:+.2f} ay={inertial.ay:+.2f} gz={inertial.gz:+.3f} "
+                          f"{inertial.temp:.1f} °C" if inertial else "no imu"), GREY))
+    return out
+
+
+def _gps_view(rend, robot) -> tuple:
+    """(quality, anchors, messages lost) — asked of the receiver, not of the last message.
+
+    While the robot sits in a blackout there is no fresh message to read, and the reason has to be
+    visible right then. A renderer without a live engine (a test with a hand-built robot) falls
+    back to what the last message said.
+    """
+    eng = getattr(rend, "engine", None)
+    probe = getattr(eng, "gps_health", None)
+    if probe is not None and robot.spec.name in getattr(eng, "robots", {}):
+        return probe(robot.spec.name)
+    return (robot.gps.quality, robot.gps.sats, 0) if robot.gps else (0, 0, 0)
 
 
 def above_bar(rend, y: float) -> float:

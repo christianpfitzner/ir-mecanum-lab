@@ -302,3 +302,117 @@ That also exposed the last piece of randomness in KF grading: K3's NEES floor (n
 measured spread written into `config/tasks.json` and CONTRACT-KF §5). The remaining fix — a
 fixed-step grading run that does not pace on the wall clock at all — is still open, and would need
 every KF threshold re-measured, because `rate_hz` is measured against sim time.
+
+## 9. The four loose ends from §7 are closed — and one of them turned out to be a wall
+
+**The pace of a run is a switch now.** `run_loop` took `min(wall clock delta, 0.25)` as its dt and
+`SimEngine.step()` swallowed everything above a 0.5 s accumulator; both lost whole seconds without
+a word. They count what they dropped (`SimEngine.dropped`, and the same figure inside the loop) and
+say it once: `sim time fell behind the wall clock by 1.7 s — use --speed or --fixed-step`. The new
+`--speed N` (simulation seconds per wall second) and `--fixed-step` (exactly 1/`rate`, no sleeping)
+are on `run`/`sim`/`grade`; `tools/check.sh` grades experiment 1 a second time at `--speed 4`.
+Measured, three runs per pace, seed 1 (tables in CONTRACT §9.1 and CONTRACT-KF §5.1): T4's target
+error 0.094…0.147 m realtime, 0.158…0.250 m at 4×, 0.087…0.260 m at fixed-step, against a limit
+of 0.45 m — **no threshold had to move**, 100/100 and 90/90 everywhere it can be graded. The loss
+warning itself stayed silent in every one of those runs, even with 20 busy processes pinned to the
+simulation's core: what varied here was timing granularity, not a stall over the per-round make-up
+limit, so the warning is pinned by a test with a scripted clock rather than by a host. Two findings
+worth keeping: `--speed 4` measures *tighter* than real time (K2 rmse 0.253…0.506 → 0.273…0.372),
+and T4's spread does not disappear at fixed-step, because only the simulation left the wall clock —
+the student node still samples it in its own thread.
+
+**Experiment 2 cannot be graded at `--fixed-step`, and that is not a threshold problem.** A node
+reports `kf/pose` at most once per loop iteration, so its rate in *simulation* seconds is
+(iterations per wall second) ÷ (sim seconds per wall second): 2.6…4.0 Hz at fixed-step (~36× here)
+against `rate_min` 5 and 10 Hz, and the estimate degrades with it (K4 rmse 0.517…0.778 vs 0.35).
+Measured further: `--speed 6` already gives 9.1…9.6 Hz, `--speed 8` gives 7.0 Hz — K4 falls over at
+both. Loosening `rate_min` would delete the only check that a node publishes continuously instead of
+once per GPS fix, so the thresholds stay and the *pace* is what gets restricted: experiment 2 up to
+about 4× realtime, `--fixed-step` never. §8's "would need every KF threshold re-measured" is
+therefore answered — re-measured, and the answer is that this pace is not a grading pace.
+
+**`odom.geometry`: the odometry integrator finally believes its own wheel constants.** Before,
+`SimEngine` handed `OdometrySensor` the chassis `Geometry`, so a wrong radius or lever arm — the
+commonest real odometry error, and the one T2 exists to teach — could not be expressed.
+`sensors.odom_geometry()` builds the separate one (`wheel_radius_scale` scales the whole path and,
+because the radius sits in the turn equation too, the yaw rate; `lever_scale` scales a = lx+ly, so a
+commanded circle ends rotated; `wheel_base_scale` mis-measures lx only; `scale_xy` and `bias_xy` are
+applied by the sensor). Empty by default, tested to stay identical, demo in
+`config/demo_odom_error.json`: 0.61 m of ghost drift on 12 m of straight lane, one revolution
+finished 28° rotated, and the graded run down at 70/100 with T3 collecting 26 wall contacts.
+
+**The dead keys are alive.** `gps.delay_ticks` holds each fix in a ring buffer and delivers it N
+emissions later, keeping the stamp it was *generated* with (`SimEngine._push(..., stamp=)` exists for
+that, and `reset()` empties the buffer) — `kf.gps_delay` is the same delay in seconds, because that
+is the name the handout gives the students and a recommendation nothing simulates is a wish.
+`lidar.max_walls` caps the segments one scan may use, in world order; the default 400 is above the
+wall count of every world, which a test now pins.
+
+**`_merge` no longer deletes on `None`.** The CLI hands the config layers one tree built from its
+arguments, and an argument that was not given is `None` — so `{"world": None}` erased the `world` of
+`config/default.json`, and a task profile had to write `"gap": null` to switch an outage off. `None`
+now means "nothing overridden" and the off-spelling is the empty list, which is what
+`config/tasks.json` says for the three tasks after `kf_fusion`. `cfg["gui"]` is read too: a config
+file with `"gui": false` gets no window, `--headless` stays the stronger voice.
+
+## 10. A sensor now says how good the measurement was (this pass)
+
+**`quality`/`sats`, and the difference between "no fix" and "no radio".** Every message says what it
+is worth: `Gps.quality` 2 good, 1 degraded, 0 no fix, plus the anchors it came from. Both come from
+`GpsSensor.sky(pose)`, which needs the position and nothing else — no random number — so the window
+can ask for it every frame and a test can write down the answer without a seed. That indirection is
+the point: while a robot sits in a blackout there is no fresh message to read the quality out of, and
+`engine.gps_health()` therefore reports the receiver's opinion rather than the last fix's. Measured on
+one straight drive through `config/demo_sensor_reality.json`: q2/8 anchors on open floor, q1/3
+between the racks from x = 8.0 m, q0/0 in the dock from x = 16.6 m, with 27 dropped messages in
+between. One consequence worth writing down: quality 0 never rides on a message that this simulator
+sends. A receiver without a solution has no position to send, so `fix()` answers `None` for it — as it
+always did for `block` zones and for the gap window — and the two faults are told apart by the
+readout (`q0 0 sats` for the place, `lost 7` for the radio), not by a third message kind.
+
+**Dropouts are a property of the seed.** `gps.dropout` tosses its coin **before** anything is
+measured, so which emissions are missing does not depend on where the robot happened to be, and the
+pattern is reproducible with `--seed` and in a test (same seed: the same 120 holes; seed 7 → 27 of
+120, seed 8 → 30). `gps.latency` moves the stamp and never the value; the delayed series is literally
+the head of the undelayed one, which is how the test says it. Measured 0.25 s of wire: a fix arrives
+0.45 s after it was taken (the wire plus the wait for the next emission slot), never older than 1.0 s.
+One finding while wiring this: counting "emissions that brought nothing" is *not* the number of lost
+messages, because an asynchronous wire also has slots with nothing due — the counter lives in the
+receiver and counts dropouts per robot, which is the number the readout is allowed to call `lost`.
+
+**A LIDAR sees echoes, not walls.** `_ray_rect()` answers `(distance, face)` now, because whether a
+surface returns anything depends on its orientation and the slab test is the only place that knows
+which pair of faces the ray crossed; `Lidar._reflects()` then compares |cos| of the incidence with
+`lidar.reflectivity_min`. Measured 0.5 m off a 30 m wall: the wall is seen 7.17 m down its length
+with the default and 1.93 m at 0.25, 20 of the 360 beams come back empty, and the beam pointing
+straight at the wall at 0.500 m is bit for bit unchanged. What is *not* modelled is the "shorter
+reading" half of a grazing echo — that needs an intensity per surface, i.e. a second knob that only
+means something together with the first; the absent reading is the one that makes real lidars miss
+painted posts, so that is what the switch does. `Scan.missing` counts the empty beams (`inf` in
+`ranges` is not enough: a clipped reading looks exactly like a wall at `range_max`).
+
+**`odom.jitter` is a stamp, not a rate.** Jittering the publish period was tried first and measured:
+at the default 50 Hz the accumulator self-corrected (4 late messages out of 500 — no jitter to see),
+and at 20 Hz publishing whenever the accumulator reaches a *variable* period biased the rate upward by
+11 % (886 messages instead of 799). Both are worse than what the knob is for. It now stamps each
+message late by up to `jitter` of a period, drawn one-sided with `Noise.late` — never early, so stamps
+cannot overtake and no filter has to cope with a negative `dt`. Measured: 13.3…26.8 ms between stamps
+instead of exactly 20.0 ms, σ 2.8 ms, message count and values identical.
+
+**The IMU warms up and its bias follows.** First-order lag towards `temp_start` + `temp_motor` at
+full drive, and the bias moves with the temperature (`temp_walk`, `temp_walk_gyro`) — the curve every
+datasheet draws as bias against temperature, and an offset that averaging does not remove. Measured
+over 25 s at 0.5 m/s: 24.00 → 29.52 °C, `az` bias +0.024 m/s², `gz` bias +0.00069 rad/s; while
+standing the chip stays at 24.00 °C and `az` stays +9.81. The default is a cold chip, because the
+graded KF thresholds of experiment 2 are calibrated on a bias that stays where it started. The
+temperature itself has no field in `sensor_msgs/Imu`, so over ROS only its effect is visible; the
+readout and the `temp_imu` column carry the number.
+
+**Off has to mean off, and it is measured.** `Noise.chance(0.0)` and `Noise.late(0.0)` return without
+touching the generator, and every other new term multiplies by 1 or adds 0.0 — so the default config
+produces the streams of before, message for message: 2337 measurements of one fixed 12 s drive
+compared at full float precision against a copy of the modules from before this pass, identical for
+the default config and with `demo_gps_shadow.json` and `demo_odom_error.json` loaded. The digest is a
+test now (`tests/test_sensor_reality.py`), so the next person who reads a knob that is switched off
+fails loudly instead of moving a graded threshold by a millimetre. Line counts and the reason for
+each: CONTRACT §7 and the addendum in `tools/loc.py`; `render.py` came out of this 3 lines shorter.

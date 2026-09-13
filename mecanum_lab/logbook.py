@@ -22,17 +22,18 @@ log = logging.getLogger("mecanum.logbook")
 
 COLUMNS = ["t", "robot",
            "x_truth", "y_truth", "th_truth", "vx_truth", "vy_truth", "omega_truth",
-           "x_gps", "y_gps", "th_gps", "t_age_gps",
+           "x_gps", "y_gps", "th_gps", "t_age_gps", "q_gps", "sats_gps", "lost_gps",
            "x_odom", "y_odom", "th_odom",
            "x_kf", "y_kf", "th_kf", "sx_kf", "sy_kf", "n_kf",
-           "ax_imu", "ay_imu", "gz_imu"]
+           "ax_imu", "ay_imu", "gz_imu", "temp_imu", "noecho_scan"]
 
 # Which field of which message goes into which column (dataclass field names, see types.py)
 FIELDS = {"truth": {"x": "x_truth", "y": "y_truth", "theta": "th_truth"},
           "gps": {"x": "x_gps", "y": "y_gps", "theta": "th_gps", "t": "t_gps"},
           "odom": {"x": "x_odom", "y": "y_odom", "theta": "th_odom"},
           "kf": {"x": "x_kf", "y": "y_kf", "theta": "th_kf", "sx": "sx_kf", "sy": "sy_kf"},
-          "imu": {"ax": "ax_imu", "ay": "ay_imu", "gz": "gz_imu"}}
+          "imu": {"ax": "ax_imu", "ay": "ay_imu", "gz": "gz_imu", "temp": "temp_imu"},
+          "scan": {"missing": "noecho_scan"}}
 
 
 class Logbook:
@@ -61,15 +62,23 @@ class Logbook:
             latest["n_kf"] = self.n_kf
 
     def tick(self) -> None:
-        """One line per robot once `interval` seconds of simulation time have passed."""
+        """One line per robot once `interval` seconds of simulation time have passed.
+
+        The GPS quality columns are read from the live receiver, not from the last fix: two seconds
+        after the last fix the message still says "good", and the interesting moment is exactly the
+        one where nothing arrives. `q_gps` says what the sky is worth there and then, `sats_gps`
+        how many anchors sent it, `lost_gps` counts the packets the transport dropped.
+        """
         t = float(self.eng.t)
         if t - self.last_t < self.interval:
             return
         self.last_t = t
         for name, latest in self.values.items():
             tw = getattr(getattr(self.eng.robots.get(name), "twist", None), "__dict__", {})
+            quality, sats, lost = self.eng.gps_health(name)
             latest.update(vx_truth=tw.get("vx"), vy_truth=tw.get("vy"),
                           omega_truth=tw.get("omega"), n_kf=latest.get("n_kf", ""),
+                          q_gps=quality, sats_gps=sats, lost_gps=lost,
                           t_age_gps=(t - latest["t_gps"]) if latest.get("t_gps") is not None else None)
             self.writer.writerow([round(t, 3), name] + [_r(latest.get(c)) for c in COLUMNS[2:]])
             self.lines += 1

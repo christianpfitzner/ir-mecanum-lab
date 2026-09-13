@@ -203,11 +203,14 @@ the body velocity uniquely.
 
 ### 6.4 `mecanum_lab/sensors.py` [A]
 ```python
-class Noise:  __init__(self, seed); gauss(sigma); uniform(a)
+class Noise:  __init__(self, seed); gauss(sigma); uniform(a); chance(p); late(frac)
 class OdometrySensor: __init__(self, g, noise, cfg); reset(pose); update(self, wheels, dt) -> Odom
 class Lidar: __init__(self, world, noise, cfg); scan(self, pose) -> Scan
-class GpsSensor: __init__(self, noise, cfg); fix(self, pose) -> Gps
+class GpsSensor: __init__(self, noise, cfg); reset(); fix(self, pose, t=0.0, robot="") -> Gps
+def odom_geometry(true_geometry, scales) -> physics.Geometry   # what the odometer believes
 ```
+`GpsSensor.sky(pose)` also belongs there: `(quality, satellites in view)` for a position, without a
+random number — see the block below.
 **Naming rule (integrator, after a name collision was found):** the sensor classes are
 `OdometrySensor`, `Lidar`, `GpsSensor`; `types.Odom/Scan/Gps` are the messages. One
 module must not carry both names — `sensors.Gps` would have shadowed the import of
@@ -223,6 +226,77 @@ bias, or returns no fix at all when `block` is set. `_zones()` drops malformed e
 than crashing, and with the default `[]` the noise calls are exactly the ones of the old sensor —
 so graded results are unchanged. `config/demo_gps_shadow.json` is the demo that turns it on.
 
+Two more knobs that were in the config but read by nobody:
+
+* `sensors.odom_geometry(true_geometry, odom.geometry)` builds the geometry the **odometry
+  integrator believes**, which is the point: handing it the chassis geometry made the commonest
+  real odometry error unexpressible. `wheel_radius_scale` scales the whole path (and the yaw rate,
+  the radius sits in both equations), `lever_scale` scales a = lx+ly so every turn comes out too
+  big and a commanded circle ends rotated, `wheel_base_scale` mis-measures lx only; `scale_xy`
+  (velocity too fast/slow, yaw right) and `bias_xy` (wrong odom origin) are not geometry and are
+  applied by `OdometrySensor` itself. Empty config -> the true object, so every graded number is
+  what it was. Demo: `config/demo_odom_error.json`.
+* `lidar.max_walls` is how many segments one scan may use (taken in world order): what is past the
+  cap is not there for the robot. Default 400 > the wall count of every world in `worlds/`.
+* `gps.delay_ticks` delivers each fix N emissions late out of a ring buffer, and `kf.gps_delay`
+  (seconds, the student-facing name) is the same thing through `gps.rate`. The message keeps the
+  stamp it was **generated** with — `SimEngine._push(..., stamp=)` exists for that — so a filter can
+  see `now - fix.t` and predict over the delay instead of feeding itself a stale position.
+
+**What a sensor says about itself** — the numbers a measurement comes with in the real lab. Every
+knob is off by default, and `config/demo_sensor_reality.json` is the drive that turns them on.
+Measured with a 25 s straight drive at 0.5 m/s in `production` (seed 1), one number per knob:
+
+* `Gps.quality` (2 good, 1 degraded, 0 no fix) and `Gps.sats` come from `sky(pose)`, which needs
+  only the position: a zone leaves `sats` anchors in view, or one per unit of `sigma_scale`
+  inflation when it doesn't say, and `block` leaves none. Quality 0 is a receiver without a
+  solution, and `fix()` answers `None` for it — there is no position to send. `None` stays *no
+  message* (gap window, blackout, dropped packet), which is a different fault: the window therefore
+  shows `q0 0 sats` for the place and `lost 7` for the radio, from the receiver and not from the
+  last message. Measured on one straight drive: q2/8 sats on open floor, q1/3 between the racks
+  (x = 8.0…11.5 m), q0/0 in the dock (x = 16.6…19.3 m).
+* `gps.dropout` is the probability per message that the transport loses it, and the coin is tossed
+  **before** anything is measured: the holes of a run belong to the `--seed` and to the number of
+  emissions, never to where the robot happened to stand. Losses are counted per robot
+  (`GpsSensor.drops`, cleared with the sensor). Measured with 0.15: 12 of 122 emissions, 9.8 %.
+* `gps.latency` (seconds, ±50 % jittered, `LATENCY_JITTER`) is the same mechanism as `delay_ticks`
+  in seconds and asynchronous: a fix is due on the wire and one fix leaves per emission. It moves
+  the stamp and never the value. Measured with 0.25: a fix arrives 0.45 s after it was measured
+  (0.25 s of wire plus the wait for the next slot), at most 1.0 s, and the delayed series is the
+  head of the undelayed one.
+* `imu.temp_*` — the chip is a first-order lag (`temp_tau`) towards `temp_start` + `temp_motor` at
+  `TEMP_FULL_SPEED`, and the bias follows its temperature (`temp_walk` for the accelerations,
+  `temp_walk_gyro` for the rates). That is the curve a datasheet draws as bias against temperature:
+  it follows the load, so it grows while the robot drives and walks back while it stands, and
+  averaging does not remove it because it is an offset and not noise. Measured over 25 s of
+  driving: 24.00 → 29.52 °C, `az` bias +0.024 m/s², `gz` bias +0.00069 rad/s; with the defaults the
+  chip stays at 24.00 °C and `az` stays at +9.81 while standing. The temperature itself is not a
+  field of `sensor_msgs/Imu`, so over ROS only its effect is visible — in the window and in the
+  `temp_imu` column of the log it is the number. (The rest of the IMU model: CONTRACT-KF §3.)
+* `lidar.reflectivity_min` is a sensitivity threshold in |cos| of the incidence angle on the face a
+  ray entered, so `_ray_rect()` answers `(distance, face)` and `Lidar._reflects()` decides whether
+  anything comes back at all. Measured 0.5 m off a 30 m wall: that wall is seen 7.17 m down its
+  length with the default 0.0 and 1.93 m at 0.25, 20 of 360 beams report nothing, and the 0.500 m
+  beam pointing straight at it is bit for bit the same. This is why real lidars miss painted posts.
+* `Scan.missing` counts the beams that came back `inf`, so a clipped reading cannot be mistaken for
+  a wall; `range_max` is the field that says where the sensor gives up. Over ROS neither of the two
+  survives the mapping — `ros_bridge.py` turns `inf` into `range_max` because `LaserScan` has
+  nothing else, so there the count is `sum(r >= range_max)` — and `quality`/`sats` have no place in
+  `geometry_msgs/msg/PoseStamped` either. What that means in practice: in a ROS run the position is
+  on the bus and its quality is in the window and in the log. A small `/gps/info` string topic (the
+  `kfinfo` pattern of §6.7) would carry it; that is `ros_bridge.py` work and not part of this pass.
+* `odom.jitter` stamps each odom message late by up to that fraction of its period (`Noise.late`,
+  one-sided, so stamps never overtake each other). The values are integrated every physics step
+  either way, so the message rate and the numbers stay: measured σ of the distance between stamps
+  2.8 ms around the 20 ms period, message count identical.
+
+Off means off, and that is measured rather than asserted: `Noise.chance(0.0)` and `Noise.late(0.0)`
+return without drawing, and every other new term multiplies by 1 or 0 or adds 0.0. With
+`DEFAULT_CONFIG` the sensors produce the pre-W3 streams message for message — the 2337 measurements
+of one fixed 12 s drive, sha256 `5e3ff35e3bdd5c8367da9d460971702e3850fabe8986c485f5d9636c2789e4fc`,
+identical with `config/demo_gps_shadow.json` and `config/demo_odom_error.json` loaded as well
+(`tests/test_sensor_reality.py`).
+
 ### 6.5 `mecanum_lab/engine.py` [MINE, already written — read only]
 ```python
 SimEngine(world, cfg=None, seed=None)
@@ -230,6 +304,9 @@ SimEngine(world, cfg=None, seed=None)
   .despawn(name) -> bool ; .reset() ; .set_task(name) ; .task
   .set_cmd_vel(name, Twist) ; .set_wheel_speeds(name, list4) ; .set_mission_state(name, str)
   .step(dt) -> None      # splits into fixed physics steps, sensor rates internal
+  .sub_step -> float     # 1/rate, what a --fixed-step run steps by
+  .dropped -> float      # s of sim time the 0.5 s accumulator threw away (warns once)
+  .gps_health(name) -> (quality, sats, lost)   # what the receiver knows, also while it is silent
   .drain() -> list[(kind, robot|None, payload)]        # for the bridge to process
   .robots: dict[str, Robot] ; .world ; .t ; .robots_info() ; .world_json()
 ```
@@ -237,10 +314,17 @@ The engine calls physics/sensors **exactly like this** (agent A has to match it)
 `physics.make_geometry(cfg["robot"], variant)`,
 `physics.Chassis(geom, pose, seed=…)` with **public attributes**
 `geom, pose, wheels, twist, contacts` plus `set_wheels(list)`, `step(dt, walls)`;
-`sensors.Noise(seed)`, `sensors.OdometrySensor(geom, noise, cfg["odom"])` with
-`reset(pose)` and `update(wheels, dt) -> Odom` (called *every* physics step),
+`sensors.Noise(seed)`, `sensors.OdometrySensor(sensors.odom_geometry(geom, cfg["odom.geometry"]),
+noise, cfg["odom"])` with `reset(pose)` and `update(wheels, dt) -> Odom` (called *every* physics
+step) — the integrator gets the **believed** geometry, not the chassis one,
 `sensors.Lidar(world, noise, cfg["lidar"]).scan(pose) -> Scan`,
-`sensors.Gps(noise, cfg["gps"]).fix(pose) -> Gps`.
+`sensors.GpsSensor(noise, cfg["gps"]).fix(pose, t, name) -> Gps`.
+
+Two small wiring jobs belong to the engine because only it knows both sides: the odom stamp is
+published with `stamp = t - Noise.late(odom.jitter)/odom.rate` (a report can be late, never early,
+so the stamps stay in order — §6.4), and `gps_health()` answers quality, satellites and lost messages
+for a robot from the receiver and its counters instead of from the last message, which is the only
+way to show "no fix here" and "the radio lost it" apart while neither produces a message.
 
 
 ### 6.6 `mecanum_lab/render.py` [C]
@@ -316,6 +400,19 @@ spawn   --name alice ; despawn --name alice ; robots ; reset ; task --name quadr
 grade   grading run  --robot alice [--task kinematik|quadrat|korridor|alle] [--json path]
 docs    shows the topics of all robots
 ```
+
+Pace (every command that steps the simulation): `--speed N` takes N **simulation seconds per wall
+second** (default 1 = real time, as in the lab course), `--fixed-step` steps exactly 1/`rate` per
+round and never sleeps — as fast as the CPU allows and independent of what else the machine is
+doing. Both keep the fixed physics step, so the seed and the measurement series stay the same;
+`--fixed-step` additionally sets `MECANUM_FAST=1`, because a student node that paces its own loop
+on the wall clock could not keep up otherwise. A run that falls behind the wall clock says so once
+with the number of seconds it lost (`run_loop` and `SimEngine.step()` each count their own).
+
+Window or not is decided by two voices, and the flag is the stronger one: `--headless` always ends
+the window, otherwise the config key `gui` counts — a file with `"gui": false` gets no window, which
+is what it has always promised and never did.
+
 `./lab <command>` (bash) = `python3 -m mecanum_lab.node <command>` with the correct
 `PYTHONPATH` and `source /opt/ros/$ROS_DISTRO/setup.bash`, if present.
 
@@ -324,11 +421,18 @@ docs    shows the topics of all robots
 def zones(rend) -> None                    # gps.zones as hatched shadow, red where blocked
 def odom_ghost(rend, robot) -> None        # where odometry thinks the robot is + Δ in m
 def skid_marks(rend, robot, dt) -> None    # rubber on the floor while the wheels slip
+def sensor_readout(rend, robot) -> list    # [(text, color)]: the gps, lidar and imu segments
 ```
+`sensor_readout()` returns text for `render._hud()` to place — it draws nothing itself. It is the
+place where the sensor's own opinion becomes visible without a second terminal: `gps x=+7.31 y=+6.02
+q2 8 sats lost 3`, `lidar 17 beams no echo`, `imu ax=… gz=… 29.5 °C`. Quality and satellite count
+come from `engine.gps_health()` (a blackout has no fresh message to read), the temperature from the
+last `Imu` message, because `sensor_msgs/Imu` has no temperature field to carry it.
+
 Drawing only: reads `engine.sensor_profile()` and the robot's own messages, never writes to the
 bus and never touches physics. State (the fading skid marks) lives on the renderer, not in module
-globals, so two windows in one process stay apart. `render.py` calls the three functions and owns
-the two layers (`s` shadow, `o` ghost). `import render` happens inside the functions because
+globals, so two windows in one process stay apart. `render.py` calls these functions and owns the
+layers (`s` shadow, `o` ghost). `import render` happens inside the functions because
 `render` imports this module — no import cycle at load time.
 
 ### 6.11 English names, deprecated aliases (`tools/germanids.py`) [MINE]
@@ -399,22 +503,38 @@ Current frame after the view and TF work:
 
 | Module | LOC | | Module | LOC |
 |---|---|---|---|---|
-| types.py | 345 | | ros_bridge.py | 490 |
+| types.py | 395 | | ros_bridge.py | 490 |
 | stub.py | 115 | | tf_bcast.py | 135 |
-| engine.py | 340 | | node.py | 550 |
+| engine.py | 415 | | node.py | 615 |
 | worlds.py | 135 | | robot_io.py | 255 |
 | physics.py | 140 | | tasks.py | 210 |
-| sensors.py | 330 | | grade.py | 620 |
-| render.py | 470 | | logbook.py | 100 |
+| sensors.py | 560 | | grade.py | 620 |
+| render.py | 470 | | logbook.py | 110 |
 | cam.py | 115 | | menu.py | 90 |
-| overlays.py | 150 | | | |
-| **simulator core (mecanum_lab/)** | **≤ 4500** | | | |
+| overlays.py | 190 | | | |
+| **simulator core (mecanum_lab/)** | **≤ 5000** | | | |
 
 The view grew because it now owns a camera (zoom at the cursor, pan, resizable window) and a
 layer menu, and because `tf_bcast.py` is new. `tasks.py` grew with `_LEGACY_KEYS` (§6.11), the
 table that keeps an old `config/tasks.json` readable; physics, bus and grading did not grow — the
 English sweep renamed identifiers and added no lines. The rule behind the numbers still stands:
 nothing that a student must read gets longer without a reason.
+
+The last growth is `sensors.py` (+70), `engine.py` (+55) and `node.py` (+65): the odometry
+integrator now believes its own wheel constants (§6.4), which is only useful if the file says what
+each term does to a drive, and the pace of a run became a switch instead of an accident of the host
+(§9.1). `grade.py` and `physics.py` are untouched — nothing about a graded measurement or about a
+wheel equation changed.
+
+The growth after that is the same story one layer further out: `sensors.py` +151 and
+`overlays.py` +37 for the second half of what a sensor delivers — quality, satellite count, chip
+temperature, which messages never arrived and which beams never came back (§6.4). Most of those
+lines are what each term does to a drive, which is the part a student cannot derive from the code.
+`types.py` +27 is one comment line per new key, `engine.py` +17 and `logbook.py` +4 are the wiring
+and the columns that make the new fields provable, and `render.py` got **3 lines shorter** (469 →
+466) because its two readout segments moved into the overlay kit. `grade.py`, `physics.py`,
+`node.py` and `robot_io.py` did not change at all: no graded number, no wheel equation, no CLI
+option and no student-facing call moved.
 
 ## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
 
@@ -423,7 +543,7 @@ nothing that a student must read gets longer without a reason.
 | `kinematik` | T1 | IK signs/wheel assignment | 3 phases of 3 s each (vx=0.3 / vy=0.3 / ω=0.6): Δx>+0.35, \|Δy\|<0.12, \|Δθ\|<0.18 rad etc. |
 | `quadrat` | T2 | control loop + odometry | 1 m sides, 90° turns, back within 0.20 m / 15° of the start, time < 90 s |
 | `korridor` | T3 | LIDAR look-ahead | reach the goal without a wall contact (`contacts == 0`), lateral distance 0.25–0.8 m |
-| `gps_anfahrt` | T4 (bonus) | GPS instead of odometry | reach the goal from `world.goal` with GPS feedback, |error| < 0.45 m (0.30 m was inside the spread a finished solution measures: 0.07…0.33 m, timing at the end of the plan — see `abgabe` and `tests/test_grenzwerte_integrator.py`) |
+| `gps_anfahrt` | T4 (bonus) | GPS instead of odometry | reach the goal from `world.goal` with GPS feedback, |error| < 0.45 m (0.30 m was inside the spread a finished solution measures — 0.09…0.26 m over the three paces of §9.1, 0.07…0.33 m back when the pace was whatever the host managed; timing at the end of the drive plan, not GPS noise — see `abgabe` and `tests/test_grenzwerte_integrator.py`) |
 
 Grading runs **over the topics**, never by code analysis: students may
 implement however they like, behaviour is what gets measured. T1 checks in the order
@@ -440,3 +560,34 @@ SDL_VIDEODRIVER=dummy ./lab run --robot test --controller student/solution.py --
 ```
 Testability is part of the task: every agent ships its tests in `tests/`,
 file name `test_<module>_<agent>.py`, so nothing gets overwritten.
+
+### 9.1 The same grade at three paces (measured, not assumed)
+
+A grading run used to be paced by `time.monotonic()`, so it measured whatever the machine managed:
+the same seed came out differently on a loaded host, and whole seconds disappeared at the 0.25 s
+clamp of `run_loop` / the 0.5 s accumulator of `SimEngine.step()` without a word. Both now count
+what they lost and say it once, and the pace is a switch: `--speed N` (simulation seconds per wall
+second) and `--fixed-step` (one physics step per round, no sleeping at all).
+
+Three runs per pace with the reference solution, seed 1, `./lab grade --json`, a 120-core host with
+the three runs in parallel — min..max of what the grader printed:
+
+| Metric (experiment 1) | `--speed 1` | `--speed 4` | `--fixed-step` | limit |
+|---|---|---|---|---|
+| T2 `closure` | 0.181…0.186 | 0.189…0.191 | 0.127…0.175 | 0.25 |
+| T2 `yaw_deg` | −3.0…−2.8 | −2.6…−2.4 | −2.7…−2.6 | 20 |
+| T2 `path` | 3.82 | 3.80…3.81 | 3.82…3.87 | 3…12 |
+| T3 `target_error` | 0.178…0.185 | 0.175…0.177 | 0.177…0.181 | 0.30 |
+| T4 `target_error` | 0.094…0.147 | 0.158…0.250 | 0.087…0.260 | 0.45 |
+| **points** | 100/100 | 100/100 | 100/100 | — |
+
+Two things to read out of that: no limit had to move (nothing failed at any pace), and T4's spread
+does **not** vanish at `--fixed-step` — the simulation stopped depending on the wall clock, the
+student node in its thread did not. `tools/check.sh` therefore grades experiment 1 twice: once in
+real time (as before) and once at `--speed 4`. Experiment 2 at these paces, and why it cannot be
+graded at `--fixed-step` at all: `docs/CONTRACT-KF.md` §5.1.
+
+One honest footnote: in none of those 18 runs did the loss warning fire — not even with 20 busy
+processes pinned to the single core the simulation ran on. What varied here was the *timing
+granularity* of the loop, not a stall beyond the 0.25 s per round that may be made up; the warning
+is covered by a test with a scripted clock (`tests/test_grading_speed.py`) rather than by this host.

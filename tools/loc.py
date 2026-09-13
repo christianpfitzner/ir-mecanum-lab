@@ -67,17 +67,65 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   tools/fastgrade.py 140 -> 145    keeps --wanduhr-max as an alias for --wallclock-max.
 #   CORE_TOTAL 4450 -> 4500  only tasks.py grew in the core; every other module is the same size
 #                           it was, because a rename does not add lines (the diff was symmetric).
+# Addendum, grading that does not depend on host load + four dead knobs (numbers measured):
+#   types.py   345 -> 365     the `odom.geometry` block with one line of physical meaning per term
+#                             (what error a wrong wheel radius or lever arm produces),
+#                             `gps.delay_ticks`, and `_merge`'s docstring: `None` means "nothing
+#                             overridden", which is what the CLI sends for every option that was
+#                             not given on the command line.
+#   sensors.py 330 -> 400     `odom_geometry()` plus the model-error terms of `OdometrySensor` — the
+#                             odometry integrator finally believes its own wheel constants, so the
+#                             commonest real odometry error becomes expressible and demonstrable
+#                             (config/demo_odom_error.json) — the GPS delay ring buffer, and the
+#                             `lidar.max_walls` cap. Most of the growth is what each term does to a
+#                             drive; without that the code is a list of multipliers.
+#   engine.py  340 -> 395     `_make_odometer`/`_make_gps` (believed geometry, `kf.gps_delay` turned
+#                             into ticks), `dropped` + `_warn_drop` on the 0.5 s accumulator,
+#                             `sub_step` for a fixed-step loop, `_push(..., stamp=)` so a delayed fix
+#                             keeps the stamp it was measured with.
+#   node.py    550 -> 615     `--speed N` / `--fixed-step` and the `run_loop` pacing that goes with
+#                             them (`MAX_LOOP_DT`, with the remainder counted and warned about once),
+#                             `pacing()` (fixed-step switches the sleeps off for the node too) and
+#                             `wants_gui()` — `cfg["gui"]` was a key nobody read, so a config file
+#                             could not close the window.
+#   CORE_TOTAL 4500 -> 4750  sensors +70, engine +55, node +65, types +20; grade.py, physics.py,
+#                            render.py and robot_io.py did not grow — the grader already ticked on
+#                            simulation time and the physics step size stayed where it was.
+# Addendum, sensors that say how good the measurement is (numbers measured, `git diff --stat`):
+#   sensors.py 400 -> 560    the second half of what a sensor delivers is its own state: GPS quality
+#                            and satellite count (`sky()`, +35 lines incl. what each zone costs),
+#                            dropout and a latency queue (+30), LIDAR reflectivity, which needs the
+#                            face a ray entered and so turns the slab test's answer into a pair
+#                            (+35), and the IMU's temperature with the bias that follows it (+30).
+#                            `Noise.chance/late` (+12) are the two helpers that keep all four off
+#                            by default *without drawing a random number*, which is what keeps the
+#                            graded streams byte-identical (measured, tests/test_sensor_reality.py).
+#   overlays.py 150 -> 190   `sensor_readout()`: the gps/lidar/imu part of the readout line, with
+#                            quality, sats, °C and the count of lost messages. Drawing that belongs
+#                            to the overlay kit, not to the frame builder — and it made render.py
+#                            shorter (469 -> 466), because the two segments it replaces lived there.
+#   types.py   365 -> 395    the four new message fields with their meaning (the difference between
+#                            "no fix" and "no radio" is a docstring, not a code path) and one comment
+#                            line per new config key.
+#   engine.py  395 -> 415    `gps_health()` for the window and the log, the stamp-only odom jitter,
+#                            the robot name passed to the receiver so losses are counted per robot.
+#   logbook.py 100 -> 110    five columns: q_gps, sats_gps, lost_gps, temp_imu, noecho_scan. The
+#                            CSV is where a student proves what a sensor did, so a field that is not
+#                            in it might as well not have happened.
+#   CORE_TOTAL 4750 -> 5000  sensors +151, overlays +37, types +27, engine +17, logbook +4, render
+#                            -3. grade.py, physics.py, node.py and robot_io.py did not grow at all:
+#                            nothing about a graded measurement or about the CLI changed.
 # The names of the fields students read (report, CSV) cost nothing here: they are strings.
 BUDGET = {
-    "mecanum_lab/types.py": 345, "mecanum_lab/stub.py": 115,
-    "mecanum_lab/engine.py": 340, "mecanum_lab/worlds.py": 135,
-    "mecanum_lab/physics.py": 140, "mecanum_lab/sensors.py": 330,
-    "mecanum_lab/overlays.py": 150,
+    "mecanum_lab/types.py": 395, "mecanum_lab/stub.py": 115,
+    "mecanum_lab/engine.py": 415, "mecanum_lab/worlds.py": 135,
+    "mecanum_lab/physics.py": 140, "mecanum_lab/sensors.py": 560,
+    "mecanum_lab/overlays.py": 190,
     "mecanum_lab/render.py": 470, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,
     "mecanum_lab/ros_bridge.py": 490, "mecanum_lab/tf_bcast.py": 135,
-    "mecanum_lab/node.py": 550, "mecanum_lab/robot_io.py": 255,
+    "mecanum_lab/node.py": 615, "mecanum_lab/robot_io.py": 255,
     "mecanum_lab/tasks.py": 210, "mecanum_lab/grade.py": 620,
-    "mecanum_lab/logbook.py": 100,
+    "mecanum_lab/logbook.py": 110,
     "student/controller_template.py": 125, "student/solution.py": 310,
     "student/kf_template.py": 200, "student/kf_solution.py": 310,
     "lab": 65, "launch/sim.launch.py": 60, "launch/student.launch.py": 50,
@@ -85,7 +133,7 @@ BUDGET = {
     "tools/kfplot.py": 250, "tools/fastgrade.py": 145, "tools/worldpic.py": 240,
 }
 SIM_CORE = [k for k in BUDGET if k.startswith("mecanum_lab/")]
-CORE_TOTAL = 4500
+CORE_TOTAL = 5000
 
 
 def loc(path):
