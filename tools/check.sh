@@ -165,13 +165,47 @@ if [[ "${1:-}" == "--ros" ]]; then
   if [[ $rc == 0 || $rc == 124 ]]; then
     if grep -q "ModuleNotFoundError\|Traceback" .runs/demo_launch.log; then
       echo "  FAIL: demo.launch.py raised"; tail -12 .runs/demo_launch.log; fail=1
-    elif ! grep -q "demo gps_shadow" .runs/demo_launch.log; then
+    elif ! grep -q "\[demo\] gps_shadow:" .runs/demo_launch.log; then
+      # The line the launcher prints, not merely the word "demo": a launch file that starts *a* sim but
+      # not the one it was named for is the failure a student notices as "my demo did nothing".
       echo "  FAIL: the run does not say which demo it started"; tail -8 .runs/demo_launch.log; fail=1
     else
       echo "  ok: demo.launch.py starts the demo it names, with the rviz rule applied"
     fi
   else
     echo "  FAIL: demo.launch.py exited with $rc"; tail -12 .runs/demo_launch.log; fail=1
+  fi
+  step "ROS 2: each of the six demo launchers, by its own name"
+  # `demo.launch.py demo:=x` and `demo_x.launch.py` reach the same engine through different files, and the
+  # thin one has to find `mecanum_lab` *and* its config on its own — which is what broke after a
+  # `colcon build`, when the data stopped sitting next to the module. Every name is taken from the same
+  # glob the launcher uses, so a seventh config is launched the day it appears.
+  for demo in $(python3 -c "from mecanum_lab import demo_launch; print(' '.join(demo_launch.demos()))"); do
+    timeout 30 ros2 launch "launch/demo_${demo}.launch.py" headless:=true seconds:=6 \
+        > ".runs/demo_${demo}.log" 2>&1
+    rc=$?
+    if [[ $rc != 0 && $rc != 124 ]] ||
+       grep -q "ModuleNotFoundError\|FileNotFoundError\|Traceback" ".runs/demo_${demo}.log"; then
+      echo "  FAIL: demo_${demo}.launch.py"; tail -8 ".runs/demo_${demo}.log"; fail=1
+    else
+      echo "  ok: demo_${demo}.launch.py"
+    fi
+  done
+  if [[ -f install/setup.bash ]]; then
+    step "ROS 2: the installed package name, which is what install.sh promises"
+    # From the built package, not from this tree: the file then lives in share/, and a launch file that
+    # resolves its config relative to its own source path works here and fails there.
+    ( set +u
+      source install/setup.bash >/dev/null
+      timeout 30 ros2 launch mecanum_lab demo_wifi.launch.py headless:=true seconds:=6 \
+          > .runs/demo_installed.log 2>&1 )
+    if grep -q "ModuleNotFoundError\|FileNotFoundError\|Traceback" .runs/demo_installed.log; then
+      echo "  FAIL: ros2 launch mecanum_lab demo_wifi.launch.py"; tail -10 .runs/demo_installed.log; fail=1
+    else
+      echo "  ok: the same launcher runs from the built package under its package name"
+    fi
+  else
+    echo "  skipped: no install/ here — ./install.sh builds the ROS package this step would check"
   fi
   if [[ -f student/kf_template.py ]]; then
     step "ROS 2: lab 2 through kf.launch.py (KF topics in the real sim)"
