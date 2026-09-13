@@ -16,6 +16,7 @@ The promise of this figure is in its docstring, and every clause of that promise
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
 
@@ -71,8 +72,8 @@ def test_the_same_command_twice_gives_the_same_bytes(tmp_path):
     first, second = tmp_path / "a.png", tmp_path / "b.png"
     out_a, out_b = render(str(first)), render(str(second))
     assert digest(str(first)) == digest(str(second))
-    # the line it prints names the file it wrote, so compare everything after that
-    assert out_a.split(": ", 1)[1] == out_b.split(": ", 1)[1], "even its report has to be stable"
+    # the line it prints names the file it wrote, so compare the report after the file name
+    assert out_a.split(" — ", 1)[1] == out_b.split(" — ", 1)[1], "even its report has to be stable"
 
 
 def test_the_roller_axes_are_verified_against_the_kinematics_before_any_pixel():
@@ -106,22 +107,47 @@ def test_the_guard_refuses_overlapping_labels_a_collision_is_a_failed_run():
         sheet.arrow((10, 10), (1400, 900), labmap.INK)              # a wire off the page
 
 
-def test_the_figure_names_the_topics_the_code_publishes():
-    """Panel B is a wiring diagram of this repository, so it may not invent wires.
-
-    Every topic drawn on it is one `types.topic()` produces, and every message type on it is the one
-    in `types.MSG_SPECS` — which is how the figure can be read as documentation of the interface the
-    student's node actually has to subscribe to.
-    """
+def drawn_loop_text():
+    """Panel B on its own, as the flat list of strings it puts on the canvas."""
     sheet = labmap.Sheet(labmap.WIDTH, labmap.HEIGHT)
     labmap.panel_loop(sheet, pygame.Rect(labmap.MARGIN + labmap.PANEL_A_WIDTH + labmap.GAP,
                                          labmap.PANEL_TOP,
                                          labmap.WIDTH - 2 * labmap.MARGIN - labmap.PANEL_A_WIDTH
                                          - labmap.GAP, labmap.PANEL_BOTTOM - labmap.PANEL_TOP))
-    drawn = set(sheet.texts)
-    for kind in ("twist", "wheels", "truth", "gps", "imu", "odom", "scan", "kf", "poi", "link"):
-        assert topic(kind, labmap.ROBOT) in drawn, f"panel B no longer draws /{kind}"
-        assert MSG_SPECS[kind][0].split("/")[-1] in drawn, f"panel B names no type for /{kind}"
+    return " | ".join(sheet.texts)
+
+
+# The topics a node's own file subscribes to or publishes. The figure used to draw all ten in the table,
+# which made it a second interface table nobody read; the rest belongs in docs/CONTRACT.md.
+DRAWN = ("twist", "odom", "gps", "imu", "scan", "kf", "truth")
+
+
+def test_the_figure_names_the_topics_the_code_publishes():
+    """Panel B is a wiring diagram of this repository, so it may not invent wires.
+
+    Every topic drawn on it is one `types.topic()` produces and every message type on it is the one in
+    `types.MSG_SPECS` — which is how the figure can be read as documentation of the interface a
+    student's node actually has. Checked with a pattern over the drawn strings rather than a second
+    list of names, so a hand-edited topic in the tool is caught and not merely re-asserted.
+    """
+    blob = drawn_loop_text()
+    for kind in DRAWN:
+        assert topic(kind, labmap.ROBOT) in blob, f"panel B no longer draws {topic(kind, labmap.ROBOT)}"
+        assert MSG_SPECS[kind][0].split("/")[-1] in blob, f"panel B names no type for /{kind}"
+    real = {topic(kind, labmap.ROBOT) for kind in MSG_SPECS}
+    invented = [name for name in re.findall(r"/[a-z_]+(?:/[a-z_]+)+", blob) if name not in real]
+    assert not invented, f"panel B draws wires that do not exist: {invented}"
+
+
+def test_the_loop_panel_stays_a_diagram_and_not_an_interface_table():
+    """The whole point of the rewrite: seven wires, because ten wires is a list and a list is not a picture.
+
+    A reader who is shown every topic in `MSG_SPECS` learns the figure is reference material and stops
+    looking at it; the figure earns its place by showing the one round trip a node performs. Growing
+    this panel is a decision, and this test makes it a decision somebody has to argue with.
+    """
+    wires = re.findall(r"/[a-z_]+(?:/[a-z_]+)+", drawn_loop_text())
+    assert len(wires) <= len(DRAWN), f"panel B has grown to {sorted(set(wires))}"
 
 
 def test_readme_shows_the_figure():
