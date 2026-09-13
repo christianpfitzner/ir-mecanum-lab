@@ -755,3 +755,56 @@ def test_the_example_stops_when_the_link_dies_and_is_not_started_by_a_command(mo
     assert math.dist(place, (robot.pose.x, robot.pose.y)) < 0.05, "it moved after the link died"
     assert (robot.vel_cmd.vx, robot.vel_cmd.omega) == refused, "the rescue command got through"
     assert robot.mode == "autonomy"
+
+
+# ------------------------------------------------------------------ the coverage map of layer `c`
+
+
+def test_the_coverage_map_is_the_budget_of_every_cell_of_the_hall():
+    """One spot per cell of the world, each the number `budget()` gives at that spot — nothing added.
+
+    The layer is allowed to exist only if it is the model and not a picture of a distance: a student
+    who reads a square and echoes `/link` must get the same quality, and the two are the same function.
+    """
+    hall = radio()
+    step, (wide, high) = hall.world.cell, hall.world.size
+    grid = hall.coverage()
+    assert len(grid) == int(wide / step) * int(high / step) == 960, \
+        f"{wide}×{high} m at {step} m is one spot per cell"
+    assert all(0.0 < x < wide and 0.0 < y < high for x, y, _q, _w in grid), "none on the border line"
+    for x, y, q, walls in grid[::37]:
+        _rssi, drawn, _d, drawn_walls = hall.budget(x, y)
+        assert (q, walls) == (drawn, drawn_walls), f"({x}, {y}): the map and the budget disagree"
+
+
+def test_the_coverage_map_is_the_room_and_not_the_weather():
+    """Sampled without the slow shadow fade, because the window caches it for the whole run.
+
+    The fade is a few dB walking in and out of a corridor (§6.14). A map that carried it would be a
+    minute out of date the moment it was drawn, and a cache keyed on the room would be wrong; so the
+    map answers "what does this room do to a signal" and the bar of each robot carries the moment.
+    """
+    grid = radio().coverage()
+    assert max(q for _x, _y, q, _w in grid) == 1.0, "at the access point the room has no say"
+    assert min(q for _x, _y, q, _w in grid) == 0.0, "and behind a rack nothing usable arrives"
+    hall = radio()
+    open_at_eight, faded = hall.budget(9.0, 2.0), hall.budget(9.0, 2.0, shadow_db=-6.0)
+    assert faded[1] < open_at_eight[1] < 1.0, \
+        f"the fade is real ({open_at_eight[1]:.2f} → {faded[1]:.2f}) — the map just does not carry it"
+
+
+def test_the_map_shows_the_rack_and_not_only_the_distance():
+    """Same distance, one rack in the way: 0.67 becomes 0.32. Measured on the shipped hall.
+
+    Measured, `config/demo_wifi.json` over `production` (AP at 1, 2): every cell 8 ± 0.3 m from the
+    access point, split by whether the straight line to it crosses a rack. Without this difference the
+    layer would be a distance colormap and would teach the inverse-square law nobody taught.
+    """
+    hall = radio()
+    near = [(x, y, q, w) for x, y, q, w in hall.coverage()
+            if abs(math.hypot(x - hall.ap[0], y - hall.ap[1]) - 8.0) < 0.3]
+    free = [q for _x, _y, q, w in near if w == 0]
+    behind = [q for _x, _y, q, w in near if w == 1]
+    assert free and behind, f"8 m ring: {len(free)} open, {len(behind)} behind a rack"
+    assert max(free) == pytest.approx(0.68, abs=0.03), f"open floor at 8 m: {max(free):.2f}"
+    assert min(behind) == pytest.approx(0.32, abs=0.03), f"one rack at 8 m: {min(behind):.2f}"

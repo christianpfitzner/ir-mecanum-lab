@@ -81,7 +81,6 @@ class World:
     walls: list = field(default_factory=list)        # list[Rect]
     spawns: list = field(default_factory=list)       # list[Pose]
     goal: Pose | None = None
-    markings: list = field(default_factory=list)     # list[(x0,y0,x1,y1)] view only
     size: tuple = (10.0, 10.0)                       # (width, height) in m
 
     def spawn_pose(self, index: int) -> Pose:

@@ -72,7 +72,6 @@ def test_the_open_hall_is_floor_and_border_and_nothing_else():
     world = load_world("open", cfg=CFG)
     assert world.size == (30.0, 20.0) and world.cell == 0.5
     assert world.goal is None, "a goal would make it a task arena instead of a drift hall"
-    assert world.markings == []
     assert len(world.walls) == 4, f"border walls merged into {world.walls}"
     for wall in world.walls:                        # every wall is on the outer edge
         assert wall.x0 <= 0.5 or wall.x1 >= 29.5 or wall.y0 <= 0.5 or wall.y1 >= 19.5, wall

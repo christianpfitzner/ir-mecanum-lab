@@ -19,7 +19,7 @@ What it knows is dBm, and only the three things that decide a link in a hall:
   between 16 m and 32 m.
 * `k` is the number of **wall crossings** on the straight line AP → robot: the tables and racks of
   the arena, counted with the ray/rectangle entry test of the LIDAR (`sensors._ray_rect`), so the
-  radio and the laser agree about which rectangles exist. Floor markings (`-` and `|` in the grid)
+  radio and the laser agree about which rectangles exist. Painted floor (`-` and `|` in the grid)
   are paint and cross for free; so does open floor.
 * `shadow` is a slow seeded fade of ±`wifi.shadow_db` dB. A link that stands still does sit at
   -71.000 dBm forever in a model without it, and a robot parked exactly on the threshold would
@@ -250,6 +250,31 @@ class Wifi:
         rssi = (self.tx_dbm - 10.0 * self.n * math.log10(max(dist, self.d0) / self.d0)
                 - walls * self.wall_db + shadow_db)
         return rssi, quality_of(rssi, self.floor_dbm, self.good_dbm), dist, walls
+
+    def coverage(self, step: float = None) -> list:
+        """The hall sampled on a grid — `[(x, y, quality, walls)]`, the data of the coverage layer.
+
+        `step` defaults to the cell of the world, so `production` (40 × 24 m at 0.5 m) is 3840 spots
+        and one ray test each. Measured on this machine: 0.06 s for the whole hall, once, which is
+        why the window samples on the first frame that shows the layer and keeps the answer (§6.14).
+
+        Sampled with `shadow_db = 0` on purpose. The slow fade is a few dB walking in and out of a
+        corridor; a map that was redrawn with it would be a minute out of date and would make the
+        cached picture a lie. The live number, fade included, is the bar of each robot in the network
+        panel and in `/link` — the map is the shape of the room, not the weather.
+        """
+        step = float(step or (self.world.cell or 0.5))
+        wide, high = self.world.size
+        out = []
+        y = step / 2.0
+        while y < high:
+            x = step / 2.0
+            while x < wide:
+                _rssi, q, _d, walls = self.budget(x, y)
+                out.append((x, y, q, walls))
+                x += step
+            y += step
+        return out
 
     def latency(self, quality: float) -> float:
         """Seconds on the wire at this quality: `latency_ms * (1 + 2 (1 - q))`.

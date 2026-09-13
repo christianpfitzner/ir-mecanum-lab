@@ -130,6 +130,22 @@ def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
     return corners
 
 
+COVERAGE_COLD = (.62, .24, .22)        # layer `c`: nothing usable arrives at this spot
+COVERAGE_MID = (.88, .70, .28)
+COVERAGE_WARM = (.34, .78, .48)        # ... and here the access point has the whole room
+
+
+def coverage_tone(quality: float) -> tuple:
+    """Red through amber to green over a quality of 0..1 — one ramp, no legend needed to read it.
+
+    Answers in 0..255 because `mix()` scales its 0..1 arguments there: a caller that runs the result
+    through `rgb()` again gets white, which is the mistake this line of comment is about.
+    """
+    q = min(max(quality, 0.0), 1.0)
+    return (mix(COVERAGE_COLD, COVERAGE_MID, q * 2) if q < .5
+            else mix(COVERAGE_MID, COVERAGE_WARM, (q - .5) * 2))
+
+
 # ------------------------------------------------------------------ the layers a run starts with
 # The short name of a layer in the config (`view.layers`) is the name of its attribute without the
 # `show_` prefix, so there is one list of layers in this package — `keys.LAYERS` — and this module
@@ -141,7 +157,14 @@ LAYER_NAMES = tuple(attribute[len("show_"):] for attribute in keys.LAYER_ATTRIBU
 # has not yet interpreted a lidar scan learns nothing from dots they cannot read — what the window
 # is for in the first minutes is the robot, its wheels and where it thinks it is.
 RAW_LAYERS = ("scan", "trails", "gps", "ghost")
-VIEW_PROFILES = {"clean": tuple(name for name in LAYER_NAMES if name not in RAW_LAYERS),
+
+# Off in every profile but `sensors`, and not because they are measurements: the coverage map is a
+# picture of a *model* — a log-distance law drawn over a floor plan — and a default view that paints
+# a model over the floor teaches the model instead of the robot. `c` in the window and
+# `--layers coverage` on the command line bring it into a run when somebody wants to see it.
+HIDDEN_BY_DEFAULT = RAW_LAYERS + ("coverage",)
+
+VIEW_PROFILES = {"clean": tuple(n for n in LAYER_NAMES if n not in HIDDEN_BY_DEFAULT),
                  "sensors": LAYER_NAMES}
 VIEW_PROFILE = "clean"                       # the view of a run nobody configured
 
@@ -173,6 +196,8 @@ class Renderer:
     def __init__(self, engine, cfg: dict):
         style = cfg_get(cfg, "gui_style") or {}
         self.engine, self.cfg = engine, cfg
+        self.pointer = None                      # last mouse position in the window, or None
+        self._coverage_cache = None              # ((world, ap), samples) — see `_coverage()`
         self.col_wall = rgb(style.get("wall", (.34, .36, .42)))
         self.col_floor = rgb(style.get("floor", (.13, .14, .17)))
         self.col_void = rgb(style.get("void", (.06, .065, .08)))     # outside the world
@@ -283,6 +308,7 @@ class Renderer:
         self.menu.draw(self.screen, (self.size[0], 52), self)
         if self.paused:
             self._text("PAUSE", self.size[0] / 2, 24, (250, 220, 120), True, True)
+        self._pointer_coords()
         pygame.display.flip()
         if cap:
             self.clock.tick(int(cfg_get(self.cfg, "gui_rate", 30) or 30))
@@ -290,11 +316,10 @@ class Renderer:
     def _world(self) -> None:
         """Floor inside the world box, void outside, walls as filled blocks, goal."""
         w, sc = self.engine.world, self.screen
-        feld = pygame.Rect(self.cam.rect)
-        pygame.draw.rect(sc, self.col_floor, feld)
-        for x0, y0, x1, y1 in (w.markings or []) if self.show_markers else []:
-            pygame.draw.line(sc, mix(self.col_floor, (1, 1, 1), .4), self.px(x0, y0),
-                             self.px(x1, y1), max(1, int(0.06 * self.s)))
+        box = pygame.Rect(self.cam.rect)
+        pygame.draw.rect(sc, self.col_floor, box)
+        if self.show_coverage:
+            self._coverage(sc, box)              # what the room does to a wave, under everything
         for wall in w.walls or []:
             # floor/ceil instead of int: neighbouring blocks then touch each other instead of
             # leaving a 1 px floor seam between them — that seam would read as a thin wall again.
@@ -303,13 +328,79 @@ class Renderer:
             pygame.draw.rect(sc, self.col_wall, pygame.Rect(
                 corner, (max(1, math.ceil(bottom[0]) - corner[0]),
                        max(1, math.ceil(bottom[1]) - corner[1]))))
-        pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), feld, 2)   # the world ends here
+        pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), box, 2)   # the world ends here
         if w.goal and self.show_goal:
             centre = self.px(w.goal.x, w.goal.y)
             for ring, radius in enumerate((16, 10, 4)):                       # bullseye
                 pygame.draw.circle(sc, mix((1, .85, .3), (1, 1, 1), ring / 3), centre, radius,
                                    2 if ring else 0)
             self._text("goal", centre[0] - 12, centre[1] - 32, (1, .85, .3))
+
+    def _coverage(self, sc, box: pygame.Rect) -> None:
+        """Layer `c`: the hall painted by signal quality, one square per sample — off by default.
+
+        Sampled once per room and access point (`wifi.coverage()` says what that costs and why the
+        slow shadow fade is not in it), then drawn *under* the walls, so a rack that shadows a corner
+        is painted over the corner it shadows: the map explains the room and never competes with it.
+
+        The ramp is the quality of §6.14 itself, not a second scale — 1.0 where the access point has
+        the room, 0.0 where nothing usable arrives. Where commands stop arriving is `wifi.link_up_q`,
+        which the bar of each robot in the network panel is measured against: the map answers "would a
+        robot over *there* still hear me", the bar answers "does *this* one".
+        """
+        radio = self.engine.wifi
+        if radio is None:
+            return                                  # no radio in this run, so no map of one
+        key = (id(self.engine.world), tuple(radio.ap))
+        if not self._coverage_cache or self._coverage_cache[0] != key:
+            self._coverage_cache = (key, radio.coverage())
+        step = self.engine.world.cell or 0.5
+        for x, y, quality, _walls in self._coverage_cache[1]:
+            # floor/ceil of both corners, as in `_world()`: two cells drawn with int() leave a 1 px
+            # seam of untouched floor between them, and a map of a field should not be a grid.
+            top, bottom = self.px(x - step / 2, y + step / 2), self.px(x + step / 2, y - step / 2)
+            cell = pygame.Rect((math.floor(top[0]), math.floor(top[1])),
+                               (max(1, math.ceil(bottom[0]) - math.floor(top[0])),
+                                max(1, math.ceil(bottom[1]) - math.floor(top[1]))))
+            if cell.colliderect(box):
+                # The wash grows with the signal: a dead corner stays the colour of the floor it is,
+                # a spot the access point reaches is painted in the colour of the ramp. A constant
+                # 50 % mix of a saturated tone and a dark blue floor is a light grey everywhere, which
+                # is a picture of nothing — the first version of this layer did exactly that.
+                # `coverage_tone()` answers in 0..255 like every `mix()` result here, so it goes in
+                # as it is: putting it through `rgb()` a second time is the near-white floor that the
+                # docstring of `mix()` warns about, and that is what this layer drew first.
+                pygame.draw.rect(sc, mix(self.col_floor, coverage_tone(quality),
+                                         0.18 + 0.5 * quality), cell)
+
+    def _pointer_coords(self) -> None:
+        """The world coordinate under the pointer, written beside the pointer.
+
+        `Camera.wx()` is the inverse of the mapping the frame is drawn with — the same one
+        `zoom_to_at()` uses — so the number cannot drift away from the picture, and a student who
+        clicks a spot and reads the number can check both. Shown only inside the world box: outside it
+        the number would count metres of void, and outside the window there is nobody to show it to.
+
+        Under SDL's dummy driver the pointer never moves, so the documentation pictures never grow a
+        coordinate — which is the reason this is drawn from the last motion event rather than from
+        `pygame.mouse.get_pos()`, which would ask the window manager what the mouse is doing.
+        """
+        if not self.show_hud:
+            return
+        if label := self.pointer_label():
+            self._text(label, self.pointer[0] + 12, self.pointer[1] + 16, (1, .92, .70))
+
+    def pointer_label(self) -> str:
+        """The coordinate of the pointer as text, or `''` where there is nothing to read.
+
+        Separate from the drawing for the same reason the readout line is: the string is a claim about
+        the mapping (`Camera.wx()` is the inverse of the mapping the frame is drawn with) and can be
+        checked with a ruler, while where it is painted is a matter of taste.
+        """
+        if not self.pointer or not pygame.Rect(self.cam.rect).collidepoint(self.pointer):
+            return ""
+        x, y = self.cam.wx(*self.pointer)
+        return f"{x:.2f}, {y:.2f} m"
 
     def _scan_dots(self, robot) -> None:
         """Hit points in the robot's own color — the screen then says which dots are whose."""
@@ -530,6 +621,7 @@ class Renderer:
             self.cam.center()
 
     def _ev_mouse_motion(self, ev, flags) -> None:
+        self.pointer = ev.pos                     # where the pointer is, for the coordinate readout
         self.menu.handle(ev)
         if self._drag and not self.menu.inside(ev.pos):
             self.cam.pan(ev.pos[0] - self._drag[0], ev.pos[1] - self._drag[1])

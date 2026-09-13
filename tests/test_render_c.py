@@ -28,7 +28,7 @@ def make_world(w=6.0, h=4.0):
                  walls=[Rect(0, 0, w, 0.2), Rect(0, h - 0.2, w, h), Rect(0, 0, 0.2, h),
                         Rect(w - 0.2, 0, w, h), Rect(2, 1.5, 3, 2.5)],
                  spawns=[Pose(1.0, 1.0, 0.0), Pose(1.0, 2.0, math.pi / 2)],
-                 goal=Pose(4.5, 3.0, 0.0), markings=[(1, 3.5, 5, 3.5)], size=(w, h))
+                 goal=Pose(4.5, 3.0, 0.0), size=(w, h))
 
 
 def make_scan(beams=360, value=1.2):
@@ -151,7 +151,6 @@ def test_degenerate_world_size_does_not_crash():
     world = make_world()
     world.size = (0.0, 0.0)
     world.goal = None
-    world.markings, world.spawns = [], []
     with gui(make_engine(world=world)) as rend:
         rend.draw(cap=False)
 

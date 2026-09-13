@@ -192,7 +192,7 @@ def wants_gui(args, cfg: dict) -> bool:
 def teleop_keys() -> tuple:
     """The keys that are held -> body speed: `keys.py` owns the table, this only asks it.
 
-    w/s drive, a/d or q/e turn, the arrows drive and strafe — see `mecanum_lab/keys.py` for the
+    w/s drive, a/d strafe, q/e turn, SHIFT for twice the speed — see `mecanum_lab/keys.py` for the
     bindings and for the reason the letters that drive are never layer switches. The result goes on
     /<robot>/cmd_vel as one Twist, exactly like the frames of a node (CONTRACT section 6.9), so the
     radio, the physics and the readout line treat the keyboard and a program the same.
@@ -723,7 +723,7 @@ def parser():
     p.add_argument("--layers", default="", metavar="NAMES",
                    help="switch single layers over the profile, comma-separated, a leading - switchs"
                         " off: --layers scan,ghost,-hud. Names: scan, trails, gps, kf, wheels,"
-                        " velocity, markings, goal, hud, zones, ghost, pois, network")
+                        " velocity, goal, hud, zones, ghost, pois, network, coverage")
     p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
     p.add_argument("--no-teleop", action="store_true",
                    help="turn the keyboard driving off (w/s drive, a/d and q/e turn, the arrows "

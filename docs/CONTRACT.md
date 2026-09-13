@@ -189,7 +189,7 @@ with the old labels (§3).
 ## 6. Interfaces between modules (implement exactly like this)
 
 ### 6.1 `mecanum_lab/types.py` [MINE, already written — read only]
-`Pose(x,y,theta)`, `Twist(vx,vy,omega)`, `Rect(x0,y0,x1,y1)`, `World(name,cell,walls,spawns,goal,markings,size)`,
+`Pose(x,y,theta)`, `Twist(vx,vy,omega)`, `Rect(x0,y0,x1,y1)`, `World(name,cell,walls,spawns,goal,size)`,
 `RobotSpec(name,index,color,variant,pose)`, `Robot(...)`, `Odom`, `Scan`, `Gps`,
 `PALETTE`, `MARKERS`, `CONFIG` (dict), `load_config()`, `topic(kind, robot=None)`,
 `sanitize_name()`, `log`.
@@ -202,7 +202,7 @@ def list_worlds() -> list[str]
 ```
 ASCII grid: each character block is `cell` meters across.
 `#` wall, `.`/` ` free, `S` spawn pose 1, `2`..`6` further spawn poses, `G` goal,
-`-`/`|` marking line (visible decoration only, no collision).
+`-`/`|` painted floor — free to drive over, and drawn nowhere (see below).
 Robot centre sits in the cell centre; theta from the order: 1=`0°`, 2=`90°`, 3=`180°`, 4=`270°`, then 0° again.
 Neighbouring wall cells merge into large rectangles (2-pass, reduces ray tests).
 
@@ -419,7 +419,8 @@ The renderer only reads `engine.robots[*].{pose,scan,odom,wheels,...}` and `engi
 Two helpers belong to the view, not to the simulation: `cam.py` keeps scale and centre (wheel
 zoom **at the cursor**, drag pan, resizable window, `f` shows the whole world) and `menu.py`
 draws the layer panel. The panel switches drawing only — `show_scan`, `show_trails`, `show_gps`,
-`show_kf`, `show_wheels`, `show_velocity`, `show_markers`, `show_goal`, `show_hud`. Hiding a
+`show_kf`, `show_wheels`, `show_velocity`, `show_goal`, `show_hud`, and `show_coverage` (the radio
+map of §6.14). Hiding a
 layer must never change what `node.run_loop()` publishes; the lidar dots and the scan on
 `/<robot>/scan` are deliberately independent, and the scan dots use the robot's own colour so a
 crowded hall is still readable.
@@ -725,6 +726,7 @@ def access_point(cfg, world) -> tuple | None                    # `ap` wins, els
 class Wifi:
     def __init__(self, world, ap, noise, cfg=None)              # cfg = the `wifi` block
     def budget(self, x, y, shadow_db = 0.0) -> tuple            # (rssi, q, metres, wall crossings)
+    def coverage(self, step = None) -> list          # [(x, y, q, walls)] per world cell, no fade
     def latency(self, quality) -> float                         # s on the wire, quality-dependent
     def admit(self, name, pose, kind, payload, t) -> bool       # may this frame be sent at all?
     def due(self, name, t) -> list                              # frames whose flight time is over
@@ -742,7 +744,7 @@ two other experiments. What it knows is dBm and the three things that decide a l
 term. `n = 2.4` costs 7.2 dB per doubling of distance, at 2 m as much as at 16 m; `k` counts the
 wall crossings on the straight line AP → robot **with the LIDAR's own ray/rectangle test**
 (`sensors._ray_rect`), so a beam and a radio wave cannot disagree about which rectangles exist, and
-floor markings are paint and cross for free.
+the painted lanes of `production` (the `-` and `|` of the grid) are paint and cross for free.
 
 **The seam is one `if` in one file.** `engine._deliver()` asks `wifi.admit()` where the plain
 assignment used to be, and `engine._step_link()` calls `wifi.due()` where the outbox used to go out

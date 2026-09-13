@@ -33,7 +33,7 @@ instead of points.
 state-estimation tasks), maze (13 × 11 m built on 1 m grid cells), open (30 × 20 m, border walls
 only — the hall for drift work), production (20 × 12 m hall with six tables, the four kinematics
 and odometry tasks) and track (18 × 11 m ring around a central island). Solid blocks are walls that
-collide, dashed lines are painted floor markings without collision, dots are the start poses of
+collide, `-` and `|` are painted floor — free to drive over, drawn nowhere — dots are the start poses of
 robots 1–4 with their heading, the bullseye is the goal.](docs/img/worlds.png)
 
 *The five arenas, drawn by `python3 tools/worldpic.py` — one metre has the same thickness in

@@ -610,6 +610,17 @@ class SimEngine:
         """
         return list(self._poi.sources) if self._poi is not None else []
 
+    @property
+    def wifi(self):
+        """The radio of this run, or None when `wifi.enabled` is false (which is the default).
+
+        A property rather than the attribute, because the network panel and the coverage layer of the
+        window need to *look* at the link budget — an overlay that read `engine._wifi` would be
+        reaching past the name the engine keeps private. Everything that *changes* the radio (`step`,
+        `admit`, `due`) stays where it belongs: in the run loop of §6.14.
+        """
+        return self._wifi
+
     def publish_world(self) -> None:
         self._push("robots", None, json.dumps(self.robots_info()))
 

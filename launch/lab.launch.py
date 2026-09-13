@@ -77,7 +77,7 @@ def start(context, *args, **kwargs):
         # The alternative is a window that ignores the keyboard: with no node there is exactly one
         # driver, and it is the person in front of it.
         actions.append(LogInfo(msg=f"[lab] no node started — the keyboard drives '{robot}' "
-                                   f"(w/s, a/d, arrows); controller:=<file> hands the wheel to a node"))
+                                   f"(w/s drive, a/d strafe, q/e turn, shift x2); controller:=<file> hands the wheel to a node"))
     start_rviz, note = rviz_view.plan(read_arg("rviz"))
     if start_rviz:
         viewer = rviz_view.command(rviz_view.render_config(REPO, robot),

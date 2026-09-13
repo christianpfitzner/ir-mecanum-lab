@@ -64,4 +64,21 @@ check with a tape measure and what this model deliberately does **not** do — n
 no roaming, no shared airtime, no multipath and no retransmission — is spelled out line by line in
 `config/demo_wifi.json`. Model and delivery rules: `docs/CONTRACT.md` §6.14.
 
-The exercise, the four numbers to check with a tape measure and what the model deliberately does not do are spelled out in `config/demo_wifi.json`. Model and delivery rules: `docs/CONTRACT.md` §6.14.
+## The whole hall at once: layer `c`
+
+One robot's bar answers "does *this* one hear me". Layer `c` (`m` in the window, or
+`--layers coverage`) answers "would a robot over *there* still hear me": every cell of the world is
+sampled with the same `budget()` and painted green through amber to dark red.
+
+```bash
+./lab sim --world production --config config/demo_wifi.json --layers coverage
+```
+
+Measured with the shipped config (AP at 1, 2 in a 20 × 12 m hall): at the antenna `1.00`, at 8 m on the
+open floor `0.67`, at 8 m with one rack in the line `0.32`, and `0.00` in the corners behind two racks —
+so the map shows the term that a distance picture would hide, `k · wall_db`.
+
+It is off in every default view because it is a picture of a *model* lying over the floor, it is drawn
+under the racks that cast the shadows, and it is sampled with `shadow_db = 0`: the slow fade moves a few
+dB as a corridor fills, and a map that is cached for the run must not pretend to be current. The live
+number, fade included, is the bar and the `/link` line.

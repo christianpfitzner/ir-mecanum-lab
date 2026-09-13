@@ -4,8 +4,9 @@
 One metre has the same thickness everywhere in this figure: the panels are the worlds at a
 common scale, so `maze` (13 × 11 m, 1 m cells) and `arena` (24 × 16 m, 0.5 m cells) are
 comparable and a wall is as thick as it really is. Walls are solid blocks with a lit edge;
-floor markings (`-` and `|` in the grid) are drawn as dashed paint — they are decoration
-without collision and must not read as walls.
+painted floor (`-` and `|` in the grid) is not drawn at all — it is neither an obstacle nor a
+measurement, so the window does not draw it either, and a figure that shows what the robot sees
+shows the same hall.
 
 Under each panel: which tasks name this world (`config/tasks.json`) and how wide the tightest
 passage on the widest start->goal path is (`tools/worldcheck.py`) — the number that says
@@ -56,8 +57,7 @@ def colors(cfg: dict) -> tuple:
     boden = tuple(int(255 * v) for v in stil.get("floor", FLOOR))
     wand = tuple(int(255 * v) for v in stil.get("wall", WALL))
     edge = tuple((2 * c + 255) // 3 for c in wand)             # lit edge of a solid body
-    malung = tuple((3 * c + 255) // 4 for c in boden)          # painted line, clearly not wall
-    return boden, edge, wand, malung
+    return boden, edge, wand
 
 
 def tasks_per_world() -> dict:
@@ -127,7 +127,7 @@ def _dashed(sc, a, b, color, stich=5, outage=4):
 
 def cell_size(sc, world, corner, s, pairs):
     """Draw one world with its bottom left corner at `corner` (pixels)."""
-    boden, edge, wand, malung = pairs
+    boden, edge, wand = pairs
     width, height = int(world.size[0] * s), int(world.size[1] * s)
     frame = pygame.Rect(corner[0], int(corner[1] - height), width, height)
     sc.fill(boden, frame)
@@ -137,8 +137,6 @@ def cell_size(sc, world, corner, s, pairs):
                                    max(2, int((wall.y1 - wall.y0) * s))))
         pygame.draw.rect(sc, wand, fill)
         pygame.draw.rect(sc, edge, fill, 1)              # reads as a body, not as a stroke
-    for x0, y0, x1, y1 in world.markings or []:
-        _dashed(sc, _px(corner, s, x0, y0), _px(corner, s, x1, y1), malung)
     pygame.draw.rect(sc, edge, frame, 2)                # where the world ends
     if world.goal:
         mitte = _px(corner, s, world.goal.x, world.goal.y)
@@ -159,12 +157,10 @@ def _palette(index: int) -> tuple:
 
 def draw_legend(sc, y, font, pairs, s):
     """Drawn, not typeset: the default pygame font has no reliable symbol glyphs."""
-    boden, edge, wand, malung = pairs
+    boden, edge, wand = pairs
     x, row_rect = MARGIN, y
     for text, male in (("wall (collision)",
                         lambda cx, cy: pygame.draw.rect(sc, wand, (cx - 9, cy - 6, 18, 12))),
-                       ("floor marking (paint, no collision)",
-                        lambda cx, cy: _dashed(sc, (cx - 16, cy), (cx + 16, cy), malung)),
                        ("start pose — colour = robot n",
                         lambda cx, cy: pygame.draw.circle(sc, _palette(0), (cx, cy), 6)),
                        ("goal",

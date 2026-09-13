@@ -28,7 +28,7 @@ def make_engine(roboten=None, w=8.0, h=6.0, t=1.0):
                  walls=[Rect(0, 0, w, .2), Rect(0, h - .2, w, h), Rect(0, 0, .2, h),
                         Rect(w - .2, 0, w, h), Rect(3.0, 2.0, 5.0, 3.0)],
                  spawns=[Pose(1.0, 1.0, 0.0), Pose(2.0, 1.0, 0.0)], goal=Pose(4.0, 3.0, 0.0),
-                 markings=[(1, 3.5, 5, 3.5)], size=(w, h))
+                 size=(w, h))
     color, rgb_value = PALETTE[0]
     robots = roboten or {"alice": Robot(
         spec=RobotSpec(name="alice", index=0, color=color, rgb=rgb_value, marker=MARKERS[0],
@@ -39,7 +39,10 @@ def make_engine(roboten=None, w=8.0, h=6.0, t=1.0):
         scan=Scan(t=1.0, angle_min=0.0, angle_increment=math.tau / 8, range_min=.05,
                   range_max=8.0, ranges=[1.5] * 8),
         contacts=0, distance=1.0, mission_state="running")}
-    return SimpleNamespace(world=world, robots=robots, t=t, task="quadrat", drain=lambda: [])
+    # `wifi` on the fake because the coverage layer asks for it; None is the default of a run
+    # without a radio, exactly as `SimEngine` leaves it when `wifi.enabled` is false.
+    return SimpleNamespace(world=world, robots=robots, t=t, task="quadrat", wifi=None,
+                           drain=lambda: [])
 
 
 @pytest.fixture
@@ -182,7 +185,7 @@ def test_the_window_starts_without_the_raw_sensor_values(rend):
     """
     for name in R.RAW_LAYERS:
         assert getattr(rend, "show_" + name) is False, f"{name} should start hidden"
-    for name in ("wheels", "velocity", "goal", "markers", "hud", "kf"):
+    for name in ("wheels", "velocity", "goal", "hud", "kf"):
         assert getattr(rend, "show_" + name) is True, f"{name} belongs to the clean view"
 
 
@@ -202,7 +205,7 @@ def test_view_state_reads_the_config_and_names_unknown_layers_loudly():
 
 
 def test_a_renderer_builds_the_view_the_config_asked_for():
-    rend = R.Renderer(SimpleNamespace(world=SimpleNamespace(size=(6, 4), walls=[], markings=[],
+    rend = R.Renderer(SimpleNamespace(world=SimpleNamespace(size=(6, 4), walls=[],
                                                             goal=None, name="fake"),
                                      robots={}, t=0.0, task=""),
                       {**CFG, "view": {"profile": "sensors"}})
@@ -309,3 +312,69 @@ def test_q_turns_instead_of_quitting_while_keyboard_driving(rend):
         flagen["quit"] = False
         rend._event_key(SimpleNamespace(key=pygame.K_ESCAPE), flagen)
         assert flagen["quit"] is True
+
+
+# ------------------------------------------------------------------ layer `c`: the radio map
+
+
+class Radio:
+    """A radio that counts how often its map is asked for, and says what the room tells it."""
+
+    def __init__(self, ap=(1.0, 2.0), spots=((0.25, 0.25, 1.0, 0), (7.75, 5.75, 0.0, 2))):
+        self.ap, self.spots, self.calls = ap, spots, 0
+
+    def coverage(self, step=None):
+        self.calls += 1
+        return list(self.spots)
+
+
+def test_the_coverage_map_is_sampled_once_per_room_and_access_point(rend):
+    """A frame is 30 of these per second: the map is a property of the room, not of the moment."""
+    radio = Radio()
+    rend.engine.wifi, rend.show_coverage = radio, True
+    rend._world()
+    assert radio.calls == 1, "the first frame that shows the layer samples the hall"
+    rend._world()
+    rend._world()
+    assert radio.calls == 1, f"redrawn frames resampled ({radio.calls} times) — 30 s of that per minute"
+    radio.ap = (7.0, 5.0)                      # the access point moved, so the map is another map
+    rend._world()
+    assert radio.calls == 2
+
+
+def test_a_run_without_a_radio_draws_no_map(rend):
+    """`wifi.enabled` false is the default; a coverage layer of a run with no radio would be a lie."""
+    rend.engine.wifi, rend.show_coverage = None, True
+    rend._world()                              # must not raise, must not paint a claim
+
+
+def test_the_coverage_layer_is_off_until_somebody_asks_for_it():
+    """A picture of a model is not a default: the map is `sensors`, `--layers coverage` or a config."""
+    assert R.view_state({})["show_coverage"] is False, "the clean view shows the robot, not the law"
+    assert R.view_state({"view": {"profile": "sensors"}})["show_coverage"] is True
+    assert R.view_state({"view": {"layers": {"coverage": True}}})["show_coverage"] is True
+    assert "coverage" in R.HIDDEN_BY_DEFAULT and "coverage" not in R.RAW_LAYERS, \
+        "hidden by default for its own reason, not because it is a measurement"
+
+
+# ------------------------------------------------------------------ the coordinate of the pointer
+
+
+def test_the_pointer_says_where_in_the_world_it_is(rend):
+    """The number beside the cursor is the same mapping the frame is drawn with — to the metre."""
+    box = pygame.Rect(rend.cam.rect)
+    assert rend.pointer_label() == "", "no event yet, so no coordinate claimed"
+
+    rend.pointer = (box.centerx, box.centery)
+    x, y = rend.cam.wx(*rend.pointer)
+    assert rend.pointer_label() == f"{x:.2f}, {y:.2f} m"
+    assert 0.0 <= x <= rend.engine.world.size[0] and 0.0 <= y <= rend.engine.world.size[1], \
+        f"{rend.pointer_label()} inside a window that shows the hall"
+
+    rend.pointer = (1, 1)                      # the void above the world, where a number means nothing
+    assert rend.pointer_label() == ""
+
+    pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION, pos=(box.centerx + 7, box.centery),
+                                         rel=(7, 0), buttons=(0, 0, 0)))
+    rend.poll()
+    assert rend.pointer == (box.centerx + 7, box.centery), "the window stopped watching the pointer"

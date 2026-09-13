@@ -16,9 +16,11 @@ One rule now, and it is a runnable one: **a key means one thing, and the letters
 never layer switches.** `check_bindings()` below proves it for the table as it stands and is a step
 of `tools/check.sh`, because a rule that only lives in a comment is a wish.
 
-    while a key can drive (teleop on)   w / up     forward           s / down   backward
-                                       a / d      turn left/right    , / .      the same, for the right hand
-                                       q / e      turn left/right    left/right strafe (a mecanum base)
+    while a key can drive (teleop on)   w / up     forward            s / down   backward
+                                       a / left   strafe left        d / right  strafe right
+                                       q          turn left          e          turn right
+                                       , / .      turn left / right  (the same pair, for the right hand)
+                                       SHIFT      both speeds doubled, for as long as it is held
     in every mode                      SPACE pause · ESC quit · m the layer panel · f the whole world
                                        0 all robots · 1…9 follow one · = / - zoom · wheel zooms to the cursor
     the layers (both modes)            l t g k r v c z h x o p n     — see LAYERS
@@ -27,9 +29,17 @@ of `tools/check.sh`, because a rule that only lives in a comment is a wish.
 turns, when teleop is off it ends the run — with no teleop nothing is driven, so it is stolen from
 nobody. `ESC` and the close button of the window end a run in every mode.
 
-Three layers had to give up a driving letter and kept their meaning instead of their key: the
-wheels are switched by `r` (the rollers), the painted floor by `c` (its colour), the GPS shadow by
-`x` (the place where a fix is lost).
+Two layers had to give up a driving letter and kept their meaning instead of their key: the wheels
+are switched by `r` (the rollers) and the GPS shadow by `x` (the place where a fix is lost). The
+third of them, the painted floor on `c`, is not coming back: a line of paint is neither an obstacle
+nor a measurement, so the layer was deleted and `c` now switches the radio coverage map.
+
+The letters then moved once more, and the reason is the chassis: `a`/`d` strafe and `q`/`e` turn,
+because the one degree of freedom a car does not have and a mecanum base does is sideways. Turning
+was on `a`/`d` while sideways sat on the arrow keys, which taught the layout of a car and left the
+interesting axis on the keys nobody reaches for. `SHIFT` is a modifier rather than a binding: it is
+never alone in `DRIVING`, it cannot switch a layer, and it scales the axes `driving_twist()` returns
+instead of adding a fourth kind of command — the same `Twist` on the same topic, only larger.
 
 Names are the pygame names — what `pygame.key.name()` reports for a press and what
 `pygame.key.key_code()` accepts for the polling side. Lowercase, ASCII, like everywhere else here.
@@ -41,23 +51,30 @@ Names are the pygame names — what `pygame.key.name()` reports for a press and 
 # CONTRACT section 5 (y to the left, theta counter-clockwise), so "turn left" is positive omega
 # here and everywhere else in this package.
 #
-# W/S and A/D are the layout everybody knows from a game; the arrow keys keep the mecanum
-# convention — up/down drive, left/right **strafe** — because sideways is what a mecanum base is
-# for and because the arrows lie where the two axes of the body frame are. Both sets publish one
+# W/S/A/D are the layout everybody knows from a game, and here the letters sit on the two axes a
+# mecanum chassis actually has: w/s along the body, a/d across it. Turning is the third axis and got
+# the two keys beside them, q/e. The arrow keys repeat the same physics — up/down drive, left/right
+# **strafe** — because the arrows lie where the two axes of the body frame are. Both sets publish one
 # Twist on /<robot>/cmd_vel and nothing else (CONTRACT section 6.9), so they cannot disagree about
 # physics, only about which finger is nearer.
 DRIVING = {
     "w": (1.0, 0.0, 0.0), "up": (1.0, 0.0, 0.0),
     "s": (-1.0, 0.0, 0.0), "down": (-1.0, 0.0, 0.0),
-    "a": (0.0, 0.0, 1.0), "q": (0.0, 0.0, 1.0), ",": (0.0, 0.0, 1.0),
-    "d": (0.0, 0.0, -1.0), "e": (0.0, 0.0, -1.0), ".": (0.0, 0.0, -1.0),
-    "left": (0.0, 1.0, 0.0), "right": (0.0, -1.0, 0.0),
+    "a": (0.0, 1.0, 0.0), "left": (0.0, 1.0, 0.0),
+    "d": (0.0, -1.0, 0.0), "right": (0.0, -1.0, 0.0),
+    "q": (0.0, 0.0, 1.0), ",": (0.0, 0.0, 1.0),
+    "e": (0.0, 0.0, -1.0), ".": (0.0, 0.0, -1.0),
 }
 TELEOP_SPEED = 0.35          # m/s of body speed while a drive key is held — walking pace, on purpose
 TELEOP_YAW = 0.9             # rad/s while a turn key is held
+BOOST_FACTOR = 2.0           # while SHIFT is held: both at once, so a curve keeps its shape
+# pygame's own names for the two shift keys; polled like every other key, so a held shift is read
+# from the scancode and survives a keyboard that writes something else on those keys.
+BOOST_KEYS = ("lshift", "rshift")
+BOOST_LABEL = "shift"          # what the window and the handout call them, one word for both keys
 FORWARD_KEYS = ("w", "s", "up", "down")
-STRAFE_KEYS = ("left", "right")
-TURN_KEYS = ("a", "q", ",", "d", "e", ".")
+STRAFE_KEYS = ("a", "d", "left", "right")
+TURN_KEYS = ("q", "e", ",", ".")
 
 # ---------------------------------------------------------------------------- the view layers
 # key name -> (attribute on the renderer, label in the panel, edge the run loop reports). The four
@@ -69,13 +86,13 @@ LAYERS = (
     ("k", "show_kf", "estimate + sigma ellipse", ""),
     ("r", "show_wheels", "wheels", ""),
     ("v", "show_velocity", "velocity vector", ""),
-    ("c", "show_markers", "floor markings", ""),
     ("z", "show_goal", "goal", ""),
     ("h", "show_hud", "readout lines", ""),
     ("x", "show_zones", "gps shadow zones", ""),
     ("o", "show_ghost", "odometry ghost + drift", ""),
     ("p", "show_pois", "radiation source + field", ""),
     ("n", "show_network", "radio link + access point", ""),
+    ("c", "show_coverage", "radio coverage map", ""),
 )
 LAYER_ATTRIBUTES = tuple(row[1] for row in LAYERS)
 
@@ -108,7 +125,7 @@ def help_line(teleop: bool) -> str:
     Worth the string building: it is the only documentation a student reads with the window open,
     and for a long time it was a literal that nothing compared with the code behind it.
     """
-    control = ("w/s drive · a/d or q/e turn · arrows drive/strafe · SPACE pause · ESC quit · "
+    control = (f"w/s drive · a/d strafe · q/e turn · {BOOST_LABEL} ×2 · SPACE pause · ESC quit · "
                if teleop else "SPACE pause · q quit · ")
     return (control + "m layers · f whole world · 0 all · 1..9 follow · =/- zoom · "
                       f"wheel zooms to cursor · drag pans · {layer_hint()}")
@@ -127,13 +144,14 @@ def code(name: str) -> int:
 
 
 def pressed_names(state) -> set:
-    """A `pygame.key.get_pressed()` sequence -> the names of the keys that are down.
+    """A `pygame.key.get_pressed()` sequence -> the names of the keys that matter, that are down.
 
     Asks for the code of every name in the table instead of walking all 512 slots of the state:
     the names above are then the whole contract, and a key a keyboard does not have reads as not
-    pressed instead of raising in the middle of a run.
+    pressed instead of raising in the middle of a run. The shift keys come along for the same
+    price — `driving_twist()` reads the boost out of the same set, so a caller cannot forget it.
     """
-    return {name for name in DRIVING if _down(state, name)}
+    return {name for name in tuple(DRIVING) + BOOST_KEYS if _down(state, name)}
 
 
 def _down(state, name: str) -> bool:
@@ -147,15 +165,21 @@ def driving_twist(names: set) -> tuple:
     """The keys that are down -> (vx, vy, omega): the one place a key becomes a body velocity.
 
     One axis is the sum of its keys, clamped: `w` and `s` cancel, `a` and `d` cancel, and `q` held
-    together with `a` is still one turn at `TELEOP_YAW` and not two. The axes still combine, so
+    together with `,` is still one turn at `TELEOP_YAW` and not two. The axes still combine, so
     `w` + `d` is a curve — which is the only thing a differential base cannot do anyway.
+
+    SHIFT multiplies the result, after the clamping and not before it: a held shift may double the
+    walking pace to a jogging one, but it cannot make a two-key combination exceed what one key per
+    axis means. 0.7 m/s and 1.8 rad/s are still inside what the model drives without slipping, which
+    is the reason the factor is a flat two and not a slider.
     """
     axes = [0.0, 0.0, 0.0]
     for key, vector in DRIVING.items():
         if key in names:
             axes = [total + part for total, part in zip(axes, vector)]
     speed, strafe, yaw = (max(-1.0, min(1.0, axis)) for axis in axes)
-    return (speed * TELEOP_SPEED, strafe * TELEOP_SPEED, yaw * TELEOP_YAW)
+    boost = BOOST_FACTOR if any(name in names for name in BOOST_KEYS) else 1.0
+    return (boost * speed * TELEOP_SPEED, boost * strafe * TELEOP_SPEED, boost * yaw * TELEOP_YAW)
 
 
 # --------------------------------------------------------------------------------- the guarantee
@@ -190,6 +214,9 @@ def check_bindings(layers: dict | None = None) -> list:
         for key in keys:
             if key not in DRIVING:
                 problems.append(f"'{key}' is counted on the {axis} axis but binds nothing")
+    for key in BOOST_KEYS:
+        if key in DRIVING or key in layers or key in (MENU, FIT, PAUSE, QUIT, ALL_ROBOTS):
+            problems.append(f"'{key}' is a modifier and something else as well")
     if set(ZOOM_IN) & set(ZOOM_OUT):
         problems.append("zooming in and zooming out share a key")
     return problems

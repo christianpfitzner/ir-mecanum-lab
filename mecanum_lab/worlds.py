@@ -1,9 +1,14 @@
 """Environments from ASCII grids — a map is a text file, not a binary format.
 
 Characters (CONTRACT §6.2):  `#` wall · `.` or space free · `S` first spawn ·
-`2`..`9` further spawns · `G` goal · `-` and `|` floor marking only (view only,
-no collision). The parser has no comments: a line that starts with `#` is a wall
-line.
+`2`..`9` further spawns · `G` goal · `-` and `|` painted floor: free to drive over,
+and nothing is drawn for it. The parser has no comments: a line that starts with `#`
+is a wall line.
+
+The paint stays in the files because `production` is a hall with lanes, and the grid is the readable
+form of that hall — a person looking at the file should see the lanes the robot is supposed to follow.
+The window stopped drawing them: a painted line is neither an obstacle nor a measurement, and every
+layer that costs a student the view of something real has to answer for it.
 
 Line 0 of the text is the top edge. The world origin sits at the bottom left, every pose
 in the center of its cell, the heading follows the spawn number (0, 90, 180, 270 degrees).
@@ -21,7 +26,7 @@ log = logging.getLogger("mecanum.worlds")
 
 
 def parse_grid(text: str, cell: float = CELL, name: str = "?") -> World:
-    """Grid text -> World with merged walls, spawn poses, goal and floor markings."""
+    """Grid text -> World with merged walls, spawn poses and goal."""
     rows = text.split("\n")
     while rows and not rows[-1].strip():
         rows.pop()
@@ -30,7 +35,7 @@ def parse_grid(text: str, cell: float = CELL, name: str = "?") -> World:
     rows = [r.ljust(max(len(x) for x in rows)) for r in rows]
     top, wide = len(rows), max(len(r) for r in rows)
     center = lambda r, c: ((c + 0.5) * cell, (top - 1 - r + 0.5) * cell)
-    wall_cells, marks, spawns, goal = set(), {"-": set(), "|": set()}, {}, None
+    wall_cells, spawns, goal = set(), {}, None
     for r, row in enumerate(rows):
         for c, ch in enumerate(row):
             if ch == "#":
@@ -45,22 +50,13 @@ def parse_grid(text: str, cell: float = CELL, name: str = "?") -> World:
                 n = int(ch) - 1
                 spawns.setdefault(n, Pose(*center(r, c), THETA[n % 4]))
             elif ch in "-|":
-                marks[ch].add((r, c))
+                pass                                    # paint: free floor, nothing drawn
             else:
                 raise ValueError(f"World '{name}': unknown character '{ch}' in "
                                  f"line {r + 1}, column {c + 1} (only #. SG2-9 -| allowed)")
     world = World(name=name, cell=cell, walls=_rects(wall_cells, top, wide, cell),
                   spawns=[spawns[k] for k in sorted(spawns)], goal=goal,
                   size=(wide * cell, top * cell))
-    for glyph, (dr, dc) in (("-", (0, 1)), ("|", (1, 0))):   # runs, not single strokes
-        cells = marks[glyph]
-        for r, c in sorted(cells):
-            if (r - dr, c - dc) in cells:          # only the start of a run counts
-                continue
-            n = 1
-            while (r + n * dr, c + n * dc) in cells:
-                n += 1
-            world.markings.append((*center(r, c), *center(r + (n - 1) * dr, c + (n - 1) * dc)))
     if not world.spawns:
         log.warning("World '%s' has no spawn pose (S missing).", name)
     return world

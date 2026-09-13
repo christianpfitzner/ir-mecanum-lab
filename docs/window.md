@@ -21,4 +21,18 @@ part of the same line says what the fix is worth (`q2 8 sats`, or `q0 0 sats` in
 many messages were lost (`lost 3`), and the LIDAR part how many beams came back with no echo — all
 of it without a second terminal running `ros2 topic echo` beside the window.
 
+Two things the window shows that no key switches. The **pointer** carries the world coordinate under
+it — `12.40, 6.20 m` — read through the same mapping the frame is drawn with (`Camera.wx()` is its
+inverse), so a coordinate in a lab report is read off the screen instead of interpolated between grid
+lines. It appears only inside the world box: outside the hall the number counts metres of void.
+
+Layer **`c`** paints the **radio coverage** of the hall, one square per world cell, coloured by the
+quality `wifi.budget()` answers at that spot — green where the access point has the room, dark red
+where a rack is in the way. Measured on `production` with `config/demo_wifi.json`, at 8 m from the
+antenna: `0.67` on the open floor, `0.32` with one rack in the line. It is a picture of the *model*,
+not of a measurement, which is why it is off in every default view, why it is drawn under the racks
+that cast the shadows, and why it is sampled once per run instead of once per frame (§6.14). The live
+number of one robot — including the slow fade the map leaves out — stays the bar in the network panel
+and the `wifi q 0.42 -63.1 dBm 1 wall` on the `/link` line.
+
 The layer keys come from `mecanum_lab/keys.py`; `./lab docs` prints the table the window answers with, and a test fails when the front page and the code stop agreeing.

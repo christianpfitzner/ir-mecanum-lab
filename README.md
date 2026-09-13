@@ -97,12 +97,14 @@ every tick silences the keys — which looks exactly like a broken keyboard.
 | mouse wheel | zoom **to the cursor** · `+`/`-` zoom to the middle · `f` shows the whole world |
 | drag with the left button | pan (the map follows the mouse) · right button centres again |
 | `1`…`9` / `0` | follow one robot / show everything · window resizable, the camera keeps up |
-| `w`/`s` drive · `a`/`d` turn | car-style keyboard driving, on unless `--no-teleop`; the keys set body speeds, this is not a game |
-| `Up`/`Down` drive · `Left`/`Right` **strafe** | the same keys as the four degrees of freedom of a mecanum chassis instead of a car's two |
+| `w`/`s` drive · `a`/`d` **strafe** | the two axes a mecanum chassis has, on the four letters everybody reaches for; the keys set body speeds, this is not a game |
+| `Up`/`Down` drive · `Left`/`Right` **strafe** | the same two axes as arrows, for the hand that prefers them — a car has one of these two, this base has both |
 | `q`/`e` (or `,`/`.`) turn left/right | ±0.9 rad/s yaw. With teleop on, `q` **turns** instead of quitting — `ESC` or the window's close button ends the run |
+| `SHIFT` held while driving | both speeds doubled — 0.7 m/s and 1.8 rad/s instead of 0.35 and 0.9, the same curve, for the long lanes |
 | `SPACE` pause | `q` quits only when teleop is off |
-| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ ellipse, wheels, velocity vector, floor markings, goal, readout lines, gps shadow zones, odometry ghost + drift, radiation source + field, radio link + access point |
-| `l t g k r v c z h x o p n` | switch a single layer — the same as clicking its row (`r` wheels, `c` floor markings, `x` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings, `n` the radio link) |
+| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ ellipse, wheels, velocity vector, goal, readout lines, gps shadow zones, odometry ghost + drift, radiation source + field, radio link + access point, radio coverage map |
+| `l t g k r v z h x o p n c` | switch a single layer — the same as clicking its row (`r` wheels, `c` radio coverage map, `x` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings, `n` the radio link) |
+| the pointer | shows the world coordinate under it (`12.40, 6.20 m`), inside the hall |
 
 The window starts **clean**: the four raw measurement layers (lidar scan, odometry trail, gps fix,
 odometry ghost) are off, so the map stays visible — on the screen only, never on the bus, a

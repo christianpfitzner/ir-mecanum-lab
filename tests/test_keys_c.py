@@ -47,19 +47,35 @@ def test_the_driving_letters_are_never_layer_switches():
     for letter in "wasd":
         assert letter in DRIVING, f"{letter} should drive"
         assert letter not in keys.layer_table(), f"{letter} still switches a layer"
-    moved = {"show_wheels": "r", "show_markers": "c", "show_zones": "x"}
+    moved = {"show_wheels": "r", "show_zones": "x"}
     for attribute, key in moved.items():
         assert keys.key_of(attribute) == key, f"{attribute} lost its way to the keyboard"
     assert set(keys.LAYER_ATTRIBUTES) == {attr for _k, attr, _l, _e in LAYERS}, "a layer disappeared"
 
 
 def test_turning_turns_the_way_the_keys_lie():
-    """Left of the driving hand turns left, right of it turns right — all three pairs agree."""
-    for key in ("a", "q", ","):
-        assert keys.driving_twist({key})[2] > 0, f"{key} must turn left, omega > 0 (CONTRACT §5)"
-    for key in ("d", "e", "."):
-        assert keys.driving_twist({key})[2] < 0, f"{key} must turn right"
-    assert keys.driving_twist({"q"}) == keys.driving_twist({"a"}), "the two turn pairs must agree"
+    """`q` lies left of the driving hand and turns left, `e` lies right of it and turns right.
+
+    The pair used to be the *alias* of `a`/`d`, which were the turn keys; when `a`/`d` went to
+    strafing, the turning stayed where the wrists are and the direction stayed the sign of the key's
+    place. A previous version of this file had `q` turning right and `e` turning left.
+    """
+    assert keys.driving_twist({"q"})[2] > 0, "q must turn left, omega > 0 (CONTRACT §5)"
+    assert keys.driving_twist({"e"})[2] < 0, "e must turn right"
+    assert keys.driving_twist({","})[2] == keys.driving_twist({"q"})[2], "the right hand's left turn"
+    assert keys.driving_twist({"."})[2] == keys.driving_twist({"e"})[2]
+    for key in keys.STRAFE_KEYS:
+        assert keys.driving_twist({key})[2] == 0.0, f"{key} strafes, it does not turn"
+
+
+def test_strafing_is_the_axis_a_car_does_not_have():
+    """`a`/`d` slide the body sideways — the degree of freedom the exercise is about, on the letters
+    everybody reaches for, and the arrow keys say the same thing."""
+    assert keys.driving_twist({"a"})[1] > 0, "a strafes left, +y (CONTRACT §5)"
+    assert keys.driving_twist({"d"})[1] < 0, "d strafes right"
+    assert keys.driving_twist({"left"}) == keys.driving_twist({"a"}), "arrows and letters agree"
+    assert keys.driving_twist({"right"}) == keys.driving_twist({"d"})
+    assert keys.driving_twist({"a"})[0] == 0.0, "sideways is not forward turned 90 degrees"
 
 
 def test_driving_the_obvious_way():
@@ -70,17 +86,36 @@ def test_driving_the_obvious_way():
 
 
 def test_two_hands_do_not_make_twice_the_speed():
-    """w+s cancel, a+d cancel, and q together with a is still one turn and not two."""
+    """w+s cancel, a+d cancel, and two keys for one axis are still one turn, not two."""
     assert keys.driving_twist({"w", "s"})[0] == pytest.approx(0.0)
-    assert keys.driving_twist({"a", "d"})[2] == pytest.approx(0.0)
-    assert keys.driving_twist({"a", "q"}) == keys.driving_twist({"a"})
+    assert keys.driving_twist({"a", "d"})[1] == pytest.approx(0.0)
+    assert keys.driving_twist({"q", ","}) == keys.driving_twist({"q"})
     assert keys.driving_twist({"w"}) == keys.driving_twist({"w", "up"})
-    assert keys.driving_twist({"w", "d"}) == (keys.TELEOP_SPEED, 0.0, -keys.TELEOP_YAW)
+    assert keys.driving_twist({"w", "e"}) == (keys.TELEOP_SPEED, 0.0, -keys.TELEOP_YAW)
+
+
+def test_shift_doubles_both_axes_and_changes_nothing_else():
+    """The modifier multiplies what the keys already asked for.
+
+    Multiplying after the clamping is the point: shift cannot push an axis past what one key per axis
+    means, so a curve driven with shift is the same curve, only larger — which is what a student needs
+    in the hall when 0.35 m/s means forty seconds per lane.
+    """
+    for held in keys.BOOST_KEYS:
+        assert keys.driving_twist({"w", held})[0] == pytest.approx(
+            keys.TELEOP_SPEED * keys.BOOST_FACTOR), f"{held} must double the drive"
+        assert keys.driving_twist({"q", held})[2] == pytest.approx(
+            keys.TELEOP_YAW * keys.BOOST_FACTOR), f"{held} must double the turn"
+        assert keys.driving_twist({"w", "e", held}) == pytest.approx(
+            (2 * keys.TELEOP_SPEED, 0.0, 2 * -keys.TELEOP_YAW)), "the curve keeps its shape"
+    assert keys.driving_twist({"w", "space"}) == keys.driving_twist({"w"}), "not a modifier here"
+    assert keys.driving_twist(set(keys.BOOST_KEYS)) == (0.0, 0.0, 0.0), "shift alone drives nothing"
 
 
 def test_the_speed_is_the_one_the_contract_names():
-    """0.35 m/s and 0.9 rad/s, written down once instead of in three formulas."""
+    """0.35 m/s, 0.9 rad/s, factor two — written down once instead of in three formulas."""
     assert keys.TELEOP_SPEED == pytest.approx(0.35) and keys.TELEOP_YAW == pytest.approx(0.9)
+    assert keys.BOOST_FACTOR == pytest.approx(2.0), "the window promises twice, so the number is here"
 
 
 def test_a_key_this_keyboard_lacks_reads_as_not_pressed(monkeypatch):
@@ -151,7 +186,7 @@ def test_the_help_line_names_no_key_that_does_nothing():
                | set(keys.ZOOM_OUT) | {keys.PAUSE, keys.MENU, keys.FIT, keys.QUIT, keys.ALL_ROBOTS})
     text = {"drive", "drives", "turn", "strafe", "pause", "quit", "layers", "all", "follow", "zoom",
             "zooms", "pans", "drag", "wheel", "cursor", "world", "whole", "the", "or", "to", "of",
-            "and", "9", "1.", "1..9", "ESC", "", "1..", "."}
+            "and", "9", "1.", "1..9", "ESC", "", "1..", ".", "×2"}     # "×2" is a size, not a key
     assert named - allowed - text == set(), "the help line advertises keys nothing handles"
 
 
@@ -190,7 +225,8 @@ def test_the_readme_table_is_the_table_and_not_a_memory_of_it():
         f"README promises q turns the other way again: {turning[0]}")
 
     driving = " ".join(rows)
-    for pair in ("`w`/`s` drive", "`a`/`d` turn", "`Up`/`Down` drive", "`Left`/`Right` **strafe**"):
+    for pair in ("`w`/`s` drive", "`a`/`d` **strafe**", "`Up`/`Down` drive",
+                 "`Left`/`Right` **strafe**", "`SHIFT` held"):
         assert pair in driving, f"README has stopped documenting {pair}"
 
 
