@@ -144,5 +144,8 @@ def test_the_front_page_keeps_an_overview_of_the_halls():
     assert halls, "the simulator lists no halls at all — the scan has nothing to check"
     for hall in halls:
         assert f"`{hall}`" in readme, f"the front page lost the hall `{hall}`"
+        assert f"docs/img/world_{hall}.png" in readme, \
+            f"the front page lost the picture of `{hall}` — a hall named in a table and not shown is a " \
+            "reader guessing what narrow means"
     assert "docs/worlds.md" in readme, "the overview no longer leads to the page with the measurements"
     assert "docs/img/worlds.png" in readme, "the overview lost the panel that shows the five at one scale"

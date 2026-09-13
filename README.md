@@ -1,82 +1,129 @@
-# Mecanum lab — two experiments in one 2D simulator
+# Mecanum lab
 
-A Python simulator for the lab course: **Experiment 1** teaches mecanum kinematics (the
-student drives the tasks), **Experiment 2** teaches state estimation (the simulator drives,
-the student estimates with a Kalman filter). Everything here is started with ROS 2 — and every
-run also works headless with pygame alone, without ROS 2 and without numpy, on a machine that
-has none.
+A 2D simulator of one mecanum robot, for a lab course in two parts.
 
-## Install in one command
+* **Experiment 1 — kinematics.** The student writes the inverse kinematics and drives the tasks.
+* **Experiment 2 — state estimation.** The simulator drives; the student writes a Kalman filter that
+  estimates the position from GPS, odometry and IMU.
+
+Everything is started with ROS 2. Every run also works without ROS: pygame and the standard library,
+no build, no numpy, no daemon.
+
+## Install
 
 ```bash
 ./install.sh
 ```
 
-Checks python/pygame/pytest/ROS, offers to install what is missing and builds the ROS package as a
-second step — after that, every command below starts by package name. Nothing is written into your home
-directory, no sudo is needed. To only look and change nothing, run `./install.sh --check`; to follow that
-with a short self test (simulation + unit tests, headless), run `./install.sh --mit-tests`. Without an
-internet connection: `sudo apt install python3-pygame` (or `./install.sh --user`).
+Checks python, pygame, pytest and ROS, installs what is missing, builds the ROS package. Nothing goes
+into your home directory, no sudo. `./install.sh --check` only looks, `./install.sh --mit-tests` adds a
+short headless self test.
 
-## One run, two doors — and one command per block
-
-Everything that drives is started with ROS 2. That is the standard form, the one the lab room types, and
-the form every example in this repository is written in:
+## Start
 
 ```bash
 ros2 launch mecanum_lab lab.launch.py
 ```
 
-`./lab` is the same simulator in one process — pygame and the standard library, no ROS, no build, no
-daemon. It is the door for a machine without ROS 2 and the one the CI walks through; both doors read the
-same config layers, so it is the same run. Where a block below is not a `ros2 …` command, that is why.
+Simulator, window, and rviz2 when rviz2 is installed. The keyboard drives the robot.
+
+Until the package is built there is no package name to launch by, so the same file is started by path:
+`ros2 launch launch/lab.launch.py`. Without ROS 2 the whole thing is one process:
 
 ```bash
 ./lab sim
 ```
 
-Two habits hold this documentation together. **One command per block**: what you see is what you type,
-once per block, no `cd` in front of it and no second line waiting behind it. And **a launch file is named
-by its package**, which works from any directory — before the build there is no package name, and until
-then the same file is started by path (`ros2 launch launch/lab.launch.py`).
+Both doors read the same config files, so it is the same run. A launch file lists its own arguments:
 
-`ros2 run mecanum_lab mecanum-lab sim --world open` is `./lab sim --world open` under the package's own
-name: the same CLI, the same options, no wrapper. It needs the `ros2 run` extension
-(`sudo apt install ros-$ROS_DISTRO-ros2run`), which is not part of a ROS base install — `./install.sh --check`
-says whether this machine has it, and nothing here depends on it.
+```bash
+ros2 launch mecanum_lab lab.launch.py --show-args
+```
 
-## First steps — Experiment 1 (kinematics)
+A node drives only when you ask for one, with `controller:=`. A node that publishes every tick
+silences the keyboard, which is indistinguishable from a broken keyboard.
 
-Your node, the simulator and the window — RViz comes with it when rviz2 is installed:
+## The two experiments
+
+Experiment 1, your node next to the simulator:
 
 ```bash
 ros2 launch mecanum_lab lab.launch.py controller:=student/controller_template.py
 ```
 
-Graded is a one-process run, because that is what the limits are calibrated on — grader, simulator and
-your node on one clock and one bus:
+Without ROS 2: `./lab run --robot alice --controller student/controller_template.py`.
+
+Experiment 2, the simulation drives and your node reports an estimate on `/<robot>/kf/pose` — position
+and its own σ, because the grade hangs on the uncertainty:
+
+```bash
+ros2 launch mecanum_lab kf.launch.py task:=kf_gps controller:=student/kf_template.py
+```
+
+Grading is one process for both experiments: grader, simulator and your node on one clock and one bus.
+Every limit in `config/tasks.json` is calibrated on that form.
 
 ```bash
 ./lab grade --task alle --controller student/solution.py
 ```
 
-Without ROS 2 the first command is `./lab run --robot alice --controller student/controller_template.py`.
-A launch file can grade too (`grade:=alle`), and it is not the same measurement: your node is a second
-process then, and measured on one seed the reference solution comes out at **70/100** through that door
-and **100/100** through this one — see ["When something does not work"](#when-something-does-not-work)
-and `docs/CONTRACT.md` §9.2.
+```bash
+./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv
+```
 
-`./lab run` is the one-process form: the simulator, your node as a thread and the keyboard, all three on
-the same `/cmd_vel` — your node drives, the keys interrupt it, and the readout line says who last did. Over
-ROS 2 they are two processes on the same topic, which is the same argument with a network in the middle.
+```bash
+python3 tools/kfplot.py messung.csv
+```
 
-**What the four tasks ask of you is not written here**, and that is a decision rather than an omission:
-the rules are data in `config/tasks.json`, `./lab docs` prints them next to a running simulator, and the
-sheet a student reads is `docs/praktikum/anleitung.tex`. This repository is the simulator; the exercises
-are the half that will move into a repository of their own, and a threshold copied out of the JSON starts
-drifting the moment it is written twice. Why the robot stands still while the first task is graded, and
-what each line of the readout means: **[docs/kinematics.md](docs/kinematics.md)**.
+`grade:=alle` in a launch file measures something else: your node is a second process there, on a real
+network. Measured on one seed, the reference solution is 100/100 through `./lab grade` and 70/100
+through `grade:=alle` — see [When something does not work](#when-something-does-not-work) and
+`docs/CONTRACT.md` §9.2.
 
+What the tasks ask is not written on this page. The rules are data in `config/tasks.json`, `./lab docs`
+prints them beside a running simulator, and the sheets a student reads are
+`docs/praktikum/anleitung.tex` and `docs/praktikum/kalman.tex` (`make anleitung`, `make kalman`). Why
+the robot stands still while the first task is graded, and what each line of the readout means:
+**[docs/kinematics.md](docs/kinematics.md)**.
+
+## The window
+
+| input | what it does |
+|---|---|
+| `w`/`s` drive · `a`/`d` **strafe** | the two axes a mecanum base has; the keys set body speeds, this is not a game |
+| `Up`/`Down` drive · `Left`/`Right` **strafe** | the same two axes as arrows |
+| `q`/`e` (or `,`/`.`) turn left/right | ±0.9 rad/s. With teleop on, `q` turns instead of quitting; `esc` or the close button ends the run |
+| `SHIFT` held while driving | both speeds doubled: 0.7 m/s and 1.8 rad/s instead of 0.35 and 0.9 |
+| mouse wheel | zoom to the cursor · `+`/`-` zoom to the middle · `f` shows the whole world |
+| drag with the left button | pan · the middle button centres again |
+| right button | place a robot at the pointer, heading kept; one row per robot, `esc` closes the menu |
+| `1`…`9` / `0` | follow one robot / show all of them |
+| `SPACE` | pause |
+| `m` | the layer menu, which starts closed so it covers nothing |
+| `l t g k r v z h x o p i n c` | one layer per key: scan, trail, gps, estimate, wheels, velocity, goal, readout, shadow zones, odom ghost, source, dose map, radio, coverage map |
+| the pointer | the world coordinate under it, inside the hall |
+
+The window starts clean: the four raw measurement layers are off, so the map stays visible. The GPS
+shadow zones are a model drawn over the floor — what the sky is worth where the robot stands — so they
+are off until asked (`x`). On the bus nothing is hidden, `ros2 topic echo` still sees all of it.
+`--view sensors` starts with everything on, `--layers scan,ghost,-hud` picks layers by hand. Layers, view
+profiles and every segment of the readout line: **[docs/window.md](docs/window.md)**.
+
+## The five halls
+
+![The five arenas at one scale, drawn by `tools/worldpic.py`: size and cell width above each panel, the tasks graded in it and the tightest passage below it.](docs/img/worlds.png)
+
+| Hall | Picture | What it is for | Started with |
+|---|---|---|---|
+| `production` | ![production: a hall with six tables in it](docs/img/world_production.png) | the drive tasks of Experiment 1 — tables stand in it, so a wrong wheel constant meets an obstacle instead of staying a number | `ros2 launch mecanum_lab lab.launch.py` |
+| `arena` | ![arena: open floor with four marks](docs/img/world_arena.png) | the filter tasks of Experiment 2 — open floor, and a GPS that is switched off for part of the drive | `ros2 launch mecanum_lab kf.launch.py` |
+| `open` | ![open: floor and a border wall](docs/img/world_open.png) | drift work: nothing between the robot and the wall, so a wrong wheel radius cannot hide behind a collision | `ros2 launch mecanum_lab lab.launch.py world:=open` |
+| `track` | ![track: a lane around a central island](docs/img/world_track.png) | the lane the odometry demos drive their drift into | `ros2 launch mecanum_lab lab.launch.py world:=track` |
+| `maze` | ![maze: narrow passages on a coarse grid](docs/img/world_maze.png) | narrow passages, and the hall `config/default.json` falls back to when nothing names one | `ros2 launch mecanum_lab lab.launch.py world:=maze` |
+
+Every task names the hall it is graded in inside `config/tasks.json`; `world:=` or `--world` overrides
+it. Sizes, passage widths, the task-to-hall table and how to add `worlds/name.txt` of your own:
+**[docs/worlds.md](docs/worlds.md)** and `python3 tools/worldcheck.py --world name`.
 
 ## How it works
 
@@ -84,235 +131,114 @@ what each line of the readout means: **[docs/kinematics.md](docs/kinematics.md)*
 each with its roller axis at 45°, and the three body velocities. Right: one `cmd_vel` becoming four wheel
 speeds becoming a pose becoming the sensor messages becoming an estimate.](docs/img/howitworks.png)
 
-Both halves are drawn by `tools/labmap.py` out of the modules the exercise is graded with — the wheel
-mounts from `render.wheel_mounts()`, the roller axes from `physics.inverse_kinematics()`, the topic names
-from `types.topic()` — and the tool refuses to draw if a roller axis is not perpendicular to the velocity
-its own wheel produces. The one rule the left half is about: a mecanum wheel pushes only across its
-roller axis, so with all four rollers of one sign the sideways parts cancel and the robot goes forward,
-and with the front pair against the rear pair the forward parts cancel and it strafes. What the loop does
-with a number that is wrong on purpose — wheel slip at a wall, wheel constants in `odom.geometry` — is
-`docs/demos.md`; signs and topic contracts: `docs/CONTRACT.md` §5 and §6.
+A mecanum wheel pushes only across its roller axis. With all four rollers of one sign the sideways parts
+cancel and the robot goes forward; with the front pair against the rear pair the forward parts cancel and
+it strafes. Both halves of the figure are drawn by `tools/labmap.py` out of the modules the exercise is
+graded with — the wheel mounts from `render.wheel_mounts()`, the roller axes from
+`physics.inverse_kinematics()`, the topic names from `types.topic()` — and the tool refuses to draw when
+a roller axis is not perpendicular to the velocity its own wheel produces.
 
-## First steps — Experiment 2 (state estimation)
+Signs, units and topic contracts: `docs/CONTRACT.md` §5 and §6.
 
-The simulation drives; your node only measures and reports its estimate on
-`/<robot>/kf/pose` — position **and** its own 1σ, because the grade hangs on the uncertainty.
+## The six demos
 
-The workbench for one task, with the window and the truth on `/<robot>/truth`:
-
-```bash
-ros2 launch mecanum_lab kf.launch.py task:=kf_gps controller:=student/kf_template.py
-```
-
-All four tasks graded, with the measurement series the report is written from — grading is the
-one-process command for both experiments, because the truth, the sensors and your filter have to be
-measured on one clock:
-
-```bash
-./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv
-```
-
-Numbers and an ASCII plot out of that file — a tool of this tree, so this one is a `python3` line:
-
-```bash
-python3 tools/kfplot.py messung.csv
-```
-
-Without ROS 2: `./lab run --task kf_gps --robot alice --controller student/kf_template.py --truth`, and
-`./lab grade --task kf_alle --controller student/kf_template.py --log messung.csv`.
-
-The four filter tasks are written down where the limits live — `config/tasks.json`, printed by
-`./lab docs`, set as a sheet in `docs/praktikum/kalman.tex` (`make kalman`) — for the same reason as the
-four drive tasks above. What is on this page is how to start one and how to grade all of them.
-
-## Working with ROS 2 (Kilted or newer)
-
-`./install.sh` builds the ROS package as a second step — colcon is needed for that
-(`sudo apt install ros-$ROS_DISTRO-dev-tools`, and `install.sh` says the same when it is missing). In
-every new terminal, the workspace overlay is the one line to type:
-
-```bash
-source install/setup.bash
-```
-
-Everything else is a `ros2 launch` of that package, and what a launch file takes, it lists itself:
-
-```bash
-ros2 launch mecanum_lab lab.launch.py --show-args
-```
-
-Two things worth knowing from a second terminal. The accelerometer at rest reads ≈ +9.81, and that is
-correct:
-
-```bash
-ros2 topic echo /muster/imu --once
-```
-
-A further robot, with the name the simulator chose for it:
-
-```bash
-ros2 service call /sim/spawn_next std_srvs/srv/Trigger
-```
-
-Nothing needs that build: every file also launches by path from this tree
-(`ros2 launch launch/demo_wifi.launch.py`). Without ROS 2 the same three things are
-`./lab sim --robots alice,bob`, `./lab spawn --name carlo` and `./lab rviz --robot alice`; to keep the
-in-process bus even with ROS sourced: `MECANUM_ROS=stub ./lab sim --headless`.
-
-By default a launch file starts the simulator and the window and **lets the keyboard drive**; a node
-only drives when you ask for one (`controller:=student/solution.py`), because a node that publishes
-every tick silences the keys — which looks exactly like a broken keyboard.
-
-## The simulator window
-
-| input | what it does |
-|---|---|
-| mouse wheel | zoom **to the cursor** · `+`/`-` zoom to the middle · `f` shows the whole world |
-| drag with the left button | pan (the map follows the mouse) · middle button centres again |
-| right button | *place a robot here* — one row per robot that drives, at the pointer; the heading stays, `esc` or a second right-click closes it (nothing is asked for over a rack: there is no free floor to place one) |
-| `1`…`9` / `0` | follow one robot / show everything · window resizable, the camera keeps up |
-| `w`/`s` drive · `a`/`d` **strafe** | the two axes a mecanum chassis has, on the four letters everybody reaches for; the keys set body speeds, this is not a game |
-| `Up`/`Down` drive · `Left`/`Right` **strafe** | the same two axes as arrows, for the hand that prefers them — a car has one of these two, this base has both |
-| `q`/`e` (or `,`/`.`) turn left/right | ±0.9 rad/s yaw. With teleop on, `q` **turns** instead of quitting — `ESC` or the window's close button ends the run |
-| `SHIFT` held while driving | both speeds doubled — 0.7 m/s and 1.8 rad/s instead of 0.35 and 0.9, the same curve, for the long lanes |
-| `SPACE` pause | `q` quits only when teleop is off |
-| `m` | opens the layer menu (starts closed so it covers nothing): lidar scan, odometry trail, gps fix, estimate + σ ellipse, wheels, velocity vector, goal, readout lines, gps shadow zones, odometry ghost + drift, radiation source + field, radiation dose map, radio link + access point, radio coverage map |
-| `l t g k r v z h x o p i n c` | switch a single layer — the same as clicking its row (`r` wheels, `c` radio coverage map, `x` GPS shadow, `o` odometry ghost, `p` radiation source and its field rings, `i` the dose map of that field, `n` the radio link) |
-| the pointer | shows the world coordinate under it (`12.40, 6.20 m`), inside the hall |
-
-The window starts **clean**: the four raw measurement layers (lidar scan, odometry trail, gps fix,
-odometry ghost) are off, so the map stays visible — on the screen only, never on the bus, a
-`ros2 topic echo` still sees all of it. `--view sensors` starts with everything on, and
-`--layers scan,ghost,-hud` picks layers by hand. Layers, view profiles, everything the readout line
-carries (IMU, GPS quality, lost messages, LiDAR echoes), and why every label is drawn on a dark edge:
-**[docs/window.md](docs/window.md)**.
-
-## Five halls, and which one a task is graded in
-
-![The five arenas at one common scale, in three columns: one panel per hall as `tools/worldpic.py` draws
-it, with the tasks that are graded in it named under the panel and the tightest passage measured by
-`tools/worldcheck.py` written under that.](docs/img/worlds.png)
-
-| Hall | What it is there for | Started with |
-|---|---|---|
-| `production` | the four drive tasks of Experiment 1 — a hall with tables standing in it, so a wrong wheel constant meets an obstacle instead of staying a number | `ros2 launch mecanum_lab lab.launch.py` |
-| `arena` | the four filter tasks of Experiment 2 — open space, and a GPS that is switched off for a stretch of the drive | `ros2 launch mecanum_lab kf.launch.py` |
-| `open` | floor and a border wall, nothing else: the hall for odometry drift, where a wrong wheel radius cannot hide behind a collision | `ros2 launch mecanum_lab lab.launch.py world:=open` |
-| `track` | the lane: a ring around a central island, which is what the odometry demos drive their drift into | `ros2 launch mecanum_lab lab.launch.py world:=track` |
-| `maze` | narrow passages on a coarse grid, and the hall `config/default.json` falls back to when nothing names one | `ros2 launch mecanum_lab lab.launch.py world:=maze` |
-
-Every task names the hall it is graded in inside `config/tasks.json`, and a run follows that name unless
-`world:=` (or `--world`) overrides it — which is the same rule as every other argument: what nobody typed
-does not outbid the config. Sizes, passage widths, the task↔hall table and how to add `worlds/name.txt`
-of your own: **[docs/worlds.md](docs/worlds.md)** and `python3 tools/worldcheck.py --world name`.
-
-## The demos
-
-Six demos, each changing one block of the config and leaving the graded defaults alone, so starting one
-is a `--config` and not an edit. Each has a launcher of its own, and
-`ros2 launch mecanum_lab demo.launch.py demo:=wifi` is the same thing with the name as an argument.
+Each demo changes one block of the config and leaves the graded defaults alone, so starting one is a
+command and not an edit.
 
 | demo | what it turns on | page |
 |---|---|---|
-| `gps_shadow` | GPS that gets bad by place: shadow, bias, then no fix at all | [demos/gps_shadow.md](docs/demos/gps_shadow.md) |
-| `odom_error` | odometry built on wheels a half-centimetre too large | [demos/odom_error.md](docs/demos/odom_error.md) |
+| `gps_shadow` | GPS that gets worse by place: shadow, bias, then no fix at all | [demos/gps_shadow.md](docs/demos/gps_shadow.md) |
+| `odom_error` | odometry built on wheels that are half a centimetre too large | [demos/odom_error.md](docs/demos/odom_error.md) |
 | `open_odrift` | the same wrong radius in an empty hall, GPS off | [demos/open_odrift.md](docs/demos/open_odrift.md) |
 | `sensor_reality` | latency, dropout, staleness, a chip that warms up | [demos/sensor_reality.md](docs/demos/sensor_reality.md) |
 | `wifi` | commands that travel by radio, and a radio with a range | [demos/wifi.md](docs/demos/wifi.md) |
 | `poi_exploration` | a radiation source somewhere in the hall, one number to find it | [demos/poi_exploration.md](docs/demos/poi_exploration.md) |
 
-Every page has the commands, the keys, what the window shows and the numbers that were measured for it.
-Wheel slip has no file of its own: it is `robot.slip`, and driving east into the wall in `arena` shows the
-odometry counting metres that were never driven — `ros2 launch mecanum_lab lab.launch.py world:=arena`,
-or `./lab sim --world arena` without ROS 2. What makes a run go fast:
+`ros2 launch mecanum_lab demo.launch.py demo:=wifi` starts any of them through one launcher. Wheel slip
+needs no config file: press the robot into a wall and the odometry keeps counting metres that were never
+driven. `ros2 launch mecanum_lab lab.launch.py world:=arena`, then `Up` into the east wall. Measured in
+`arena` over 4 s of full throttle: 0.69 m driven, 1.55 m counted. Speed knobs:
 **[docs/demos.md](docs/demos.md)**.
 
 ## Where configuration lives
 
-| Layer | File / option | Note |
+| Layer | File or option | Note |
 |---|---|---|
 | Defaults | `mecanum_lab/types.py` → `DEFAULT_CONFIG` | every sensor number of both experiments |
 | Site | `config/default.json` | overrides the defaults |
-| Task profile | `config/tasks.json` → `sim` | measured sensing per task (GPS rate, σ, outage, IMU) |
-| Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400 --set gps.gap='[14,8]'` | always wins |
+| Task profile | `config/tasks.json` → `sim` | sensing per task: GPS rate, σ, outage, IMU |
+| Command line | `--set gps.sigma_xy=1.2 --set imu.rate=400` | always wins |
 | Launch file | `… launch.py --show-args` | every `--set` key is also a launch argument |
 
-A launch argument counts only when it was typed. `world:=`, `view:=` and the sensor knobs are empty by
-default and are then not passed on at all, because a launch file that hands over its own default for a
-knob nobody named outbids the `config:=` file — which is how a demo with `"world": "open"` in it came to
-open `production`. Name it and it wins, leave it out and the config decides.
+A launch argument counts only when it was typed. A launch file that passes its own default for a knob
+nobody named outbids the `config:=` file, which is how a demo with `"world": "open"` in it once opened
+`production`. Name it and it wins; leave it out and the config decides.
 
 ## The rest, by topic
 
 | page | what is on it |
 |---|---|
-| [docs/demos.md](docs/demos.md) | the six demos — one page each — and what makes a run go fast (`--speed`, `--fixed-step`) |
-| [docs/kinematics.md](docs/kinematics.md) | Experiment 1: `serve()` and `mission()`, and why the robot stands still on T1 |
-| [docs/window.md](docs/window.md) | layers, view profiles, and what the readout line is showing |
-| [docs/worlds.md](docs/worlds.md) | the five arenas at one scale, task↔arena, the empty hall for drift work |
+| [docs/demos.md](docs/demos.md) | the six demos and what makes a run go fast (`--speed`, `--fixed-step`) |
+| [docs/kinematics.md](docs/kinematics.md) | Experiment 1: `serve()` and `mission()`, and the standing still |
+| [docs/window.md](docs/window.md) | layers, view profiles, the readout line |
+| [docs/worlds.md](docs/worlds.md) | the five arenas at one scale, task↔arena, the empty hall |
 | [docs/steering.md](docs/steering.md) | the second drive train (Ackermann) and its two measured lessons |
-| [docs/poi.md](docs/poi.md) | the radiation source `/poi`, its field, and why it goes through tables |
+| [docs/poi.md](docs/poi.md) | the radiation source `/poi`, its field, why it goes through tables |
 | [docs/wifi.md](docs/wifi.md) | the radio link `/link`, and what `autonomy` means when it drops |
 | [docs/CONTRACT.md](docs/CONTRACT.md) | the interface of Experiment 1: topics, units, signs, geometry |
 | [docs/CONTRACT-KF.md](docs/CONTRACT-KF.md) | the interface of Experiment 2 |
 | `docs/praktikum/` | the handouts: `make anleitung`, `make kalman` |
 
-## Useful commands
+## More commands
 
-What is on the bus, what the tasks are, what the examples are:
+What the tasks are, what is on the bus, what the examples do:
 
 ```bash
 ./lab docs
 ```
 
-Who is driving right now:
-
-```bash
-ros2 topic echo /sim/robots --once
-```
-
-The teaching team's gate (tests, grading, budgets, hygiene):
-
-```bash
-tools/check.sh
-```
-
-Grading in one line — and at four times real time, which is the supervisor's pace, not the student's:
+Grading with a report file written next to the grade:
 
 ```bash
 ./lab grade --task alle --controller student/solution.py --json bericht.json
 ```
 
+The teaching team's gate — tests, grading, budgets, hygiene:
+
 ```bash
-python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --speed 25
+tools/check.sh
 ```
+
+Alongside a running simulator: `ros2 topic echo /sim/robots --once` says who is driving, and
+`ros2 service call /sim/spawn_next std_srvs/srv/Trigger` adds a further robot with the name the simulator
+chose. Without ROS 2 those are `./lab spawn --name carlo` and `./lab rviz --robot alice`; to keep the
+in-process bus even with ROS sourced, `MECANUM_ROS=stub ./lab sim`.
 
 ## When something does not work
 
 * **`pygame is missing`** → `./install.sh`, or run everything with `--headless`.
-* **No display / SSH** → `--headless` (or `SDL_VIDEODRIVER=dummy`).
-* **`ros2: command not found`** → source `/opt/ros/<distro>/setup.bash`; everything except
-  `ros2 …` works without it too.
-* **The robot ignores the keyboard** → a node is publishing `cmd_vel` every tick: start without
-  `controller:=`, or `--no-teleop` to watch the node on purpose.
-* **RViz prints `Message Filter dropping message: frame 'muster/odom' …`** → two different things, one
-  line. Once, in the first 0.05 s: a spawned robot reaches `/tf` at the next `tf.rate` tick (20 Hz), while
-  its `/odom` was already stamped 0.02 and 0.04, so the filter has one frame with nothing to transform it
-  against. In a long stream instead: the simulator is gone — it ended, or it crashed — and RViz is the last
-  process still waiting for transforms. Then the reason is in the simulator's window, not in RViz.
+* **No display, or SSH** → `--headless`, or `SDL_VIDEODRIVER=dummy`.
+* **`ros2: command not found`** → source `/opt/ros/<distro>/setup.bash`. Everything except the `ros2 …`
+  commands works without it.
+* **The robot ignores the keyboard** → a node is publishing `cmd_vel` every tick. Start without
+  `controller:=`, or with `--no-teleop` to watch the node on purpose.
+* **RViz prints `Message Filter dropping message: frame 'muster/odom' …`** → one line, two meanings. Once,
+  in the first 0.05 s, a spawned robot reaches `/tf` at the next `tf.rate` tick (20 Hz) while its `/odom`
+  was already stamped 0.02 and 0.04. As a long stream it means the simulator is gone — ended or crashed —
+  and RViz is the last process still waiting for transforms. The reason is then in the simulator, not in
+  RViz.
 * **A grade that does not repeat** → grade with `./lab grade`, not with `grade:=` in a launch file. The
-  launch form runs your node as a second process on a real network, and the tasks that drive by odometry
-  measure that: the reference solution is 100/100 through `./lab grade --task alle` and 70/100 through
-  `grade:=alle` on the same seed, because T3 gives up on its own estimate after 4.6 m of the 12.9 m it
-  needs. Every limit in `config/tasks.json` is calibrated on the one-process run (CONTRACT §9).
-* **Grading reports `no measurement pairs`** → your node must publish `/<robot>/kf/pose`,
-  and the sim must publish truth (`--truth`, `truth:=true`, on by default in `kf.launch.py`).
-* **Estimate lags behind the measurements** → you used the wall clock. What counts are the
-  message stamps (`fix.t`, `odom.t`), never `time.time()`.
-* **Second task starts far away** → discard the previous task's measurements
-  (`fix.t >= mission start`), see the handout, section "Three rules".
-* **Lists** → `./lab docs`.
+  launch form puts your node in a second process on a real network, and the tasks that drive by odometry
+  measure that: 100/100 against 70/100 on the same seed, because T3 gives up on its own estimate after
+  4.6 m of the 12.9 m it needs. Every limit is calibrated on the one-process run (CONTRACT §9).
+* **A grade in the wrong hall** → a run follows the hall named in the task, so `--task alle` in `maze`
+  grades 40/100 with 31 wall contacts. `./lab grade --task alle --world maze` reproduces it.
+* **`no measurement pairs`** → your node must publish `/<robot>/kf/pose`, and the simulator must publish
+  truth (`--truth`, `truth:=true`; on by default in `kf.launch.py`).
+* **The estimate lags behind the measurements** → you used the wall clock. What counts are the message
+  stamps (`fix.t`, `odom.t`), never `time.time()`.
+* **The second task starts far away** → discard the previous task's measurements (`fix.t >= mission
+  start`). The handout section "Three rules" is about nothing else.
 
-Two rules hold the tree together — stdlib + pygame only, and everything named and written in English —
-both checked by `tools/check.sh`, both explained where they are enforced (`docs/CONTRACT.md` §1 and
-§6.11, `tools/langcheck.py`, `tools/germanids.py`). Everything is deterministic from `--seed`.
+Two rules hold the tree together: stdlib and pygame only, and everything named and written in English.
+Both are checked by `tools/check.sh`. Every run is deterministic from `--seed`.
