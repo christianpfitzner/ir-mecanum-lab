@@ -274,7 +274,10 @@ def poi_readout(rend, robot) -> list:
     if msg is None:
         return []
     from .render import GREY, mix                       # lazy: render imports this module
-    source = (getattr(rend.engine, "loudest_poi", lambda _n: None)(robot.name)
+    # `spec.name`, not `name`: a `Robot` has no `name` of its own, and the double in the test that
+    # checked this line had one — so the readout crashed the whole simulator on the first robot that
+    # heard a source, which is the moment the window is worth having.
+    source = (getattr(rend.engine, "loudest_poi", lambda _n: None)(robot.spec.name)
               if msg.intensity > 0.0 else None)
     return [(f"poi {getattr(source, 'name', '') or '-'} {msg.intensity:.3f}",
              mix(GREY, (250, 205, 90), 0.7) if source else GREY)]

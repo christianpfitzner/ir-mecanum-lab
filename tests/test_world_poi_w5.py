@@ -394,7 +394,8 @@ def test_the_readout_line_carries_the_current_intensity():
     the distance ends the exercise. That is a change of behaviour on purpose, the old line showed
     `@2.25 m` whenever `poi.publish_distance` was on.
     """
-    robot = SimpleNamespace(name="alice", poi=None)
+    robot = Robot(spec=RobotSpec(name="alice", index=0, color="red", rgb=(255, 0, 0),
+                                 marker="t"), pose=Pose(1, 1, 0), twist=Twist(0, 0, 0))
     assert overlays.poi_readout(StubRenderer(), robot) == []
     robot.poi = Poi(t=1.0, intensity=0.803)
     assert overlays.poi_readout(StubRenderer("src1"), robot)[0][0] == "poi src1 0.803"

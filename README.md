@@ -273,6 +273,11 @@ python3 tools/fastgrade.py --task kf_alle --controller student/kf_solution.py --
   `ros2 …` works without it too.
 * **The robot ignores the keyboard** → a node is publishing `cmd_vel` every tick: start without
   `controller:=`, or `--no-teleop` to watch the node on purpose.
+* **RViz prints `Message Filter dropping message: frame 'muster/odom' …`** → two different things, one
+  line. Once, in the first 0.05 s: a spawned robot reaches `/tf` at the next `tf.rate` tick (20 Hz), while
+  its `/odom` was already stamped 0.02 and 0.04, so the filter has one frame with nothing to transform it
+  against. In a long stream instead: the simulator is gone — it ended, or it crashed — and RViz is the last
+  process still waiting for transforms. Then the reason is in the simulator's window, not in RViz.
 * **A grade that does not repeat** → grade with `./lab grade`, not with `grade:=` in a launch file. The
   launch form runs your node as a second process on a real network, and the tasks that drive by odometry
   measure that: the reference solution is 100/100 through `./lab grade --task alle` and 70/100 through

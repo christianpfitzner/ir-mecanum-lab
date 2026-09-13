@@ -27,8 +27,8 @@ from mecanum_lab.render import KF_SIGMA, Renderer
 from mecanum_lab.render import rgb as rgb_value
 from support_docs import text as pages_text
 from support_logging import logged, messages
-from mecanum_lab.types import (Gps, Imu, Kf, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Twist,
-                               World)
+from mecanum_lab.types import (Gps, Imu, Kf, Odom, PALETTE, Poi, Pose, Rect, Robot, RobotSpec,
+                               Twist, World)
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")     # the pictures are drawn without a screen
 
@@ -323,3 +323,25 @@ def test_the_picture_command_is_reproducible(tmp_path, capsys):
     # Not a byte comparison: the fps counter in the header line is the one number in the frame that
     # cannot be reproduced. Same content, so the file sizes stay within a whisker of each other.
     assert abs(first.stat().st_size - second.stat().st_size) < 4096
+
+
+def test_the_poi_reading_survives_the_real_robot():
+    """The readout line is drawn *inside* `draw()`, so a wrong attribute there kills the simulator.
+
+    `overlays.poi_readout()` asked the robot for `name`. A `Robot` has no `name` — its name is in its
+    `spec` — and the test double that covered that line had a `name`, so the line read
+    `poi src1 0.803` in the test and raised `AttributeError` in the window the moment a robot heard a
+    source: which is the one moment a student looks at it. Checked here on the drawing path with a real
+    `Robot`, because a double answering more than the original is what hid it.
+    """
+    robot = make_robot("muster", kf=False)
+    robot.poi = Poi(t=1.0, intensity=0.803)
+    engine = SimpleNamespace(world=WORLD, robots={robot.spec.name: robot}, t=3.25, task="",
+                             drain=lambda: [], cfg=CFG,
+                             loudest_poi=lambda name: SimpleNamespace(name="src1"))
+    rend = Renderer(engine, CFG)
+    try:
+        line = hud_labels(rend, robot)
+    finally:
+        rend.close()
+    assert "poi src1 0.803" in line, line
