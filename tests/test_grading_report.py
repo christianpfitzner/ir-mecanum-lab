@@ -91,7 +91,6 @@ def test_a_task_that_passed_prints_what_it_had_to_meet():
 
 def test_a_phase_without_odometry_says_so_in_one_piece():
     """The reason was a bare string in a `"; ".join(...)`: it came out letter by letter."""
-    kinematik = [a for a in TASKS["tasks"] if a["id"] == "kinematik"][0]
     bus = StubBus("no odometry")
     grader = grade.Grader("alice", "kinematik", bus, TASKS).start()
     for _ in range(6000):

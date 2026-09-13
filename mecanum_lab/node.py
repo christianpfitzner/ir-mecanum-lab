@@ -22,7 +22,6 @@ import argparse
 import importlib.util
 import json
 import logging
-import math
 import os
 import sys
 import threading
@@ -33,7 +32,6 @@ from . import render as R
 from . import ros_bridge, robot_io, stub, tasks as T
 from .engine import SpawnError, SimEngine
 from .logbook import Logbook
-from .robot_io import RobotIO
 from .types import MSG_SPECS, Twist, load_config, topic
 from .worlds import list_worlds, load_world
 

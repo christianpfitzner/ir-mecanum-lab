@@ -152,7 +152,7 @@ def test_the_help_line_names_no_key_that_does_nothing():
     text = {"drive", "drives", "turn", "strafe", "pause", "quit", "layers", "all", "follow", "zoom",
             "zooms", "pans", "drag", "wheel", "cursor", "world", "whole", "the", "or", "to", "of",
             "and", "9", "1.", "1..9", "ESC", "", "1..", "."}
-    assert named - allowed - text == set(), f"the help line advertises keys nothing handles"
+    assert named - allowed - text == set(), "the help line advertises keys nothing handles"
 
 
 def test_the_help_line_names_every_layer():

@@ -182,7 +182,6 @@ def hits_for(path: str, compat: set) -> list:
     allowed = ALLOW_TOKENS | compat_values(path)
     if LEGACY_MARKER in src:
         allowed |= compat                    # this file documents a legacy interface
-    lines = src.splitlines()
     out = []
 
     def report(name, node):

@@ -9,7 +9,6 @@
    estimate layer is on: the "gps fix" layer silently did nothing whenever `k` was off.
 """
 import json
-import logging
 
 from support_logging import logged, messages
 import os
@@ -22,7 +21,7 @@ import pytest
 from mecanum_lab import tasks
 from mecanum_lab.engine import SimEngine
 from mecanum_lab.render import GPS_COLOR, Renderer
-from mecanum_lab.types import Gps, Pose, cfg_get, load_config
+from mecanum_lab.types import Gps, Pose, load_config
 from mecanum_lab.worlds import load_world
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -226,10 +226,6 @@ class Renderer:
     def ox(self) -> float:
         return self.size[0] / 2 - self.cam.cx * self.s
 
-    @property
-    def oy(self) -> float:
-        return self.size[1] / 2 + self.cam.cy * self.s
-
     def px(self, x: float, y: float) -> tuple:
         """World meters -> pixels (the camera knows centre and scale)."""
         return self.cam.px(x, y)

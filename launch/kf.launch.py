@@ -23,7 +23,6 @@ import sys
 
 from launch import LaunchDescription
 import launch.actions as L
-from launch.substitutions import LaunchConfiguration
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:

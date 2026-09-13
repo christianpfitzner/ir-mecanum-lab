@@ -7,7 +7,6 @@ only in the window and in the log — which is the one place a second terminal c
 tests pin that the message says the same numbers the readout line says, at the rate of the slowest
 instrument, and that over ROS it rides a `std_msgs/msg/String` like `/poi` and `/link` do.
 """
-import math
 from types import SimpleNamespace
 
 import pytest

@@ -26,7 +26,7 @@ import threading
 import time
 
 from . import stub, tf_bcast
-from .types import Gps, Imu, Kf, Link, Odom, Poi, Pose, Scan, SensorInfo, Twist, topic
+from .types import Gps, Imu, Kf, Link, Odom, Poi, Scan, SensorInfo, Twist, topic
 
 log = logging.getLogger("mecanum.ros")
 

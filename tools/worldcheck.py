@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from mecanum_lab.types import Rect, cfg_get, load_config     # noqa: E402
+from mecanum_lab.types import cfg_get, load_config          # noqa: E402
 from mecanum_lab.worlds import list_worlds, parse_grid               # noqa: E402
 from mecanum_lab.worlds import cell_size as cell_size_for                     # noqa: E402
 

@@ -8,7 +8,6 @@ These tests drive the clock themselves instead of waiting for it: a scripted `ti
 a bus that does nothing but record. Then "four simulation seconds per wall second", "exactly 1/rate
 per round" and "warn once, with the number" are checkable to the digit in milliseconds.
 """
-import logging
 import os
 import re
 

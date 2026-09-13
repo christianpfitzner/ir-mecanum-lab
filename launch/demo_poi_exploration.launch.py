@@ -21,6 +21,6 @@ from launch import LaunchDescription                                   # noqa: E
 from mecanum_lab.demo_launch import demo_of, description                # noqa: E402
 
 
-def generate_launch_description():
+def generate_launch_description() -> LaunchDescription:
     """`demo_of(__file__)` reads this file's name: launcher, config and docstring are one fact."""
     return description(demo_of(os.path.abspath(__file__)))

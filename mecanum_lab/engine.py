@@ -11,7 +11,7 @@ import logging
 import math
 
 from . import physics, pois, sensors, steering, wifi
-from .types import (Gps, Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config, merge,
+from .types import (Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config, merge,
                     sanitize_name, PALETTE, MARKERS, VARIANTS)
 
 log = logging.getLogger("mecanum.engine")

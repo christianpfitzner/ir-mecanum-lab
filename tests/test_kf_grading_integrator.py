@@ -5,7 +5,6 @@ kf/pose as functions of time and check its verdict. That is exactly why grading 
 stub run is identical to running under ROS.
 """
 import json
-import math
 
 import pytest
 

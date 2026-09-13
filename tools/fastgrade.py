@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mecanum_lab import grade, robot_io, setup_logging, tasks as T   # noqa: E402
 from mecanum_lab.engine import SimEngine                  # noqa: E402
 from mecanum_lab.stub import get_bus                      # noqa: E402
-from mecanum_lab.types import Twist, load_config, topic   # noqa: E402
+from mecanum_lab.types import load_config, topic            # noqa: E402
 from mecanum_lab.worlds import load_world                 # noqa: E402
 
 

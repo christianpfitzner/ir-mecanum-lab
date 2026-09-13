@@ -97,10 +97,6 @@ class Camera:
         return (int(top[0]), int(top[1]), max(1, int(bottom[0] - top[0])),
                 max(1, int(bottom[1] - top[1])))
 
-    @property
-    def meters_wide(self) -> float:
-        return self.size[0] / self.s
-
 
 def _solid(size) -> tuple:
     return (max(MIN_PX, int(size[0])), max(MIN_PX // 2 + 1, int(size[1])))

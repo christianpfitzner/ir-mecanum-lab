@@ -12,7 +12,6 @@ pictures this writes are the GPS-shadow and the radio-link figures of the handou
 """
 import collections
 import contextlib
-import math
 import os
 import pathlib
 import re

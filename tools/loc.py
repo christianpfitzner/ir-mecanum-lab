@@ -6,7 +6,6 @@ For the supervisor only (not part of the student lab):
     python3 tools/loc.py --strict   # exit 1 when a budget is exceeded
 """
 import os
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
