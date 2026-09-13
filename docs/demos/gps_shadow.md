@@ -1,88 +1,76 @@
-# gps_shadow — the fix is worth nothing where you are standing
+# gps_shadow — the fix is worth less where you are standing
 
-`gps.zones` degrades the GPS **by place**, not by time: the first rectangle that contains the robot
-multiplies its σ, adds an offset, or takes the sky away entirely. The default is an empty list, so this
-only happens in a run that asks for it.
+`gps.zones` degrades the GPS by place, not by time. The first rectangle that contains the robot
+multiplies its σ, adds an offset, or takes the sky away. The default list is empty, so a graded run never
+sees any of this.
 
-Drive into the shadow yourself. The hall comes with the file, because the three zones below are
-rectangles in production's metres; the window opens at the spawn pose, RViz beside it when installed:
+## Start
 
 ```bash
 ros2 launch mecanum_lab demo_gps_shadow.launch.py
 ```
 
-Watch it from outside while the reference solution drives — the ghost and the fix in one frame:
+The zones are rectangles in `production`'s metres, so this file brings that hall with it. From outside,
+while the reference solution drives through them:
 
 ```bash
 ros2 launch mecanum_lab lab.launch.py config:=config/demo_gps_shadow.json \
     controller:=student/solution.py seconds:=30
 ```
 
-To make it a measured exercise rather than a drive: the graded task T1 driven through the shadow, with
-the series written out for the report. Grading is the one-process command — the same `--config` file, the
-same clock for grader, sim and node (CONTRACT §9):
+As a measured exercise, with the series for the report:
 
 ```bash
 ./lab grade --config config/demo_gps_shadow.json --task kinematik \
             --controller student/solution.py --log messung.csv
 ```
 
-Another hall is one argument — `world:=arena` moves the zones into a hall with no tables to hide behind,
-which is a lesson of its own. Without ROS 2 the two drives above are
-`./lab sim --config config/demo_gps_shadow.json` and the same arguments given to `./lab run`.
+Without ROS 2: `./lab sim --config config/demo_gps_shadow.json`. With `world:=arena` the zones sit in a
+hall that has no tables to hide behind.
 
 ## What it changes
 
-Everything is `gps.zones`, three rectangles in world metres (`sensors._zones`):
-
 | zone | rectangle | what it does to a fix |
 |---|---|---|
-| under the high shelf | `8.0, 0.6, 19.4, 4.6` | `sigma_scale: 6`, `bias_xy: [0.8, -0.5]` — multi-path pushes the fix away from the reflector |
+| under the high shelf | `8.0, 0.6, 19.4, 4.6` | `sigma_scale: 6`, `bias_xy: [0.8, -0.5]` — multipath pushes the fix away from the reflector |
 | multipath in the corner | `0.6, 7.0, 6.0, 11.4` | `sigma_scale: 3`, `bias_xy: [-0.4, 0.3]` |
-| loading dock, no sky | `16.6, 8.6, 19.4, 11.4` | `block: true` — no fix at all, and a receiver with no fix sends nothing |
+| loading dock, no sky | `16.6, 8.6, 19.4, 11.4` | `block: true` — no fix, and a receiver with no fix sends nothing |
 
-Beside them: `debug_truth: true`, which publishes `/<robot>/truth` so ghost, truth and fix can be
-compared in one frame, and `view.layers` asking for `gps` and `ghost` — without the fix and the ghost the
-shadow is a hatched rectangle and nothing else.
+The first zone that contains the robot wins; a broken entry is dropped rather than crashing the run.
+`debug_truth: true` publishes `/<robot>/truth`, and `view.layers` asks for `gps` and `ghost`: without the
+fix and the ghost a shadow is a hatched rectangle and nothing else.
 
-First zone that contains the robot wins. A broken entry is dropped rather than crashing the run.
+## In the window
 
-## What you see
+* `x` — the zones as hatched shadow, each labelled with what it does to a fix, blackout in the error colour.
+* `g` — the fix, drawn where the receiver says the robot is. Outside the zones it sits under the dot; in
+  the shelf zone it scatters.
+* `o` — the odometry ghost, which ignores all of this and is what the shadow is measured against.
+* the readout line: `q2 8 sats` on open floor, `q0 0 sats` in the dock.
 
-- `x` — the zones as hatched shadow, each labelled with what it does to a fix, the blackout in the
-  error colour.
-- `g` — the fix itself, drawn where the receiver says the robot is. Outside the zones it sits under the
-  dot; in the shelf zone it scatters.
-- `o` — the odometry ghost, which does not care about any of this and is the reference the shadow is
-  measured against.
-- the readout line: `q2 8 sats` on open floor, `q0 0 sats` in the dock.
+Frame 30 of this config is `docs/img/readout-gps-shadow.png`; the command that rebuilds it is in
+[docs/demos.md](../demos.md).
 
-Frame 30 of this config, rebuilt from the command in [docs/demos.md](../demos.md), is
-`docs/img/readout-gps-shadow.png`.
-
-## What it measured
+## Measured
 
 400 fixes per spot, σ = 0.06 m being the lab default:
 
 | spot | σ of a fix | median error | mean offset | fixes |
 |---|---|---|---|---|
 | open floor | 0.06 / 0.06 m | 0.07 m | (−0.01, 0.00) m | 400/400 |
-| under the high shelf (σ×6, bias +0.8/−0.5) | 0.37 / 0.36 m | 1.03 m | (+0.83, −0.51) m | 400/400 |
-| multipath in the corner (σ×3) | 0.18 / 0.18 m | 0.52 m | (−0.39, +0.30) m | 400/400 |
-| loading dock (`"block": true`) | — | — | — | **no fix at all** |
+| under the high shelf | 0.37 / 0.36 m | 1.03 m | (+0.83, −0.51) m | 400/400 |
+| multipath in the corner | 0.18 / 0.18 m | 0.52 m | (−0.39, +0.30) m | 400/400 |
+| loading dock | — | — | — | **no fix at all** |
 
 ## The exercise
 
-One frame with `x`, `g` and `o` shows the three ways a position can be wrong: noisy, biased, or missing
-— and how much of the distance between fix and ghost the odometry invented. The conclusion that matters
-for a filter is the last row: **no fix and no message are different faults**, and quality 0 belongs to a
-place, not to a packet. A filter that treats every message as equally good is tuned for a sensor that
-does not exist.
+One frame with `x`, `g` and `o` shows three ways a position can be wrong: noisy, biased, missing. It also
+shows how much of the distance between fix and ghost the odometry invented. The last row is the part a
+filter has to know: no fix and no message are different faults. Quality belongs to a place; a lost packet
+is counted in `lost`. A filter that treats every message as equally good is tuned for a sensor that does
+not exist.
 
-Model and semantics: `docs/CONTRACT.md` §6.4. Graded tasks are calibrated on the plain GPS of each
-experiment (`config/tasks.json`), which is why the file is a demo and why grading with it means
-recalibrating the thresholds. The `T4` task `gps_anfahrt` is the graded one that drives by GPS at all.
+Model: `docs/CONTRACT.md` §6.4. Graded tasks are calibrated on the plain GPS of each experiment, so
+grading with this file means recalibrating the thresholds. The graded task that drives by GPS at all is T4.
 
-See also: [docs/demos.md](../demos.md) (all six demos, the wheel-slip section, the screenshot recipe),
-[demos/odom_error.md](odom_error.md) (the other way the position and the truth part company),
-[docs/window.md](../window.md) (what hiding a layer does not change).
+Also: [docs/demos.md](../demos.md), [demos/odom_error.md](odom_error.md), [docs/window.md](../window.md).
