@@ -172,6 +172,46 @@ def test_walls_are_filled_without_an_outline_of_another_colour(rend):
 # ---------------------------------------------------------------------------------- menu
 
 
+def test_the_window_starts_without_the_raw_sensor_values(rend):
+    """What a student sees on the first start: the robot and its estimate, not four kinds of noise.
+
+    The measured layers are off because their dots explain nothing before the sensor behind them has
+    been interpreted — and because they are the same numbers the readout line prints, the log writes
+    and `ros2 topic echo` answers, none of which is switched off by any of this. What stays on is the
+    chassis with its wheels, the estimate of experiment 2 and the things a hall contains.
+    """
+    for name in R.RAW_LAYERS:
+        assert getattr(rend, "show_" + name) is False, f"{name} should start hidden"
+    for name in ("wheels", "velocity", "goal", "markers", "hud", "kf"):
+        assert getattr(rend, "show_" + name) is True, f"{name} belongs to the clean view"
+
+
+def test_view_state_reads_the_config_and_names_unknown_layers_loudly():
+    """`view` in the config: a whole profile at once, or single layers written over it."""
+    clean = R.view_state({})
+    assert clean["show_scan"] is False and clean["show_kf"] is True
+    sensors = R.view_state({"view": {"profile": "sensors"}})
+    assert all(sensors["show_" + name] for name in R.LAYER_NAMES), "'sensors' is all of them"
+    from support_logging import logged                     # caplog dies once ROS touched logging
+    with logged("mecanum.render") as records:
+        one = R.view_state({"view": {"profile": "clean",
+                                     "layers": {"scan": True, "goal": False, "nonsense": True}}})
+    assert one["show_scan"] is True and one["show_goal"] is False, "layers win over the profile"
+    assert "nonsense" not in str(one), "an unknown name must not become an attribute"
+    assert any("nonsense" in r.getMessage() for r in records), "not swallowed silently"
+
+
+def test_a_renderer_builds_the_view_the_config_asked_for():
+    rend = R.Renderer(SimpleNamespace(world=SimpleNamespace(size=(6, 4), walls=[], markings=[],
+                                                            goal=None, name="fake"),
+                                     robots={}, t=0.0, task=""),
+                      {**CFG, "view": {"profile": "sensors"}})
+    try:
+        assert all(getattr(rend, "show_" + name) for name in R.LAYER_NAMES)
+    finally:
+        rend.close()
+
+
 def test_every_row_of_the_panel_switches_a_real_attribute(rend):
     for attribut, _text, _taste in R.menue.LAYERS:
         assert isinstance(getattr(rend, attribut), bool), attribut
@@ -180,20 +220,24 @@ def test_every_row_of_the_panel_switches_a_real_attribute(rend):
 def test_click_on_a_row_switches_only_that_layer(rend):
     rend.menu.open = True                                 # as after pressing m
     rend.draw(cap=False)                                  # lays out the panel rectangle
+    before = {attribut: getattr(rend, attribut) for attribut, _t, _k in R.menue.LAYERS}
     row_rect = rend.menu.row_rect(0)                            # first row is the lidar scan
+    assert before["show_scan"] is False, "the raw layers start hidden — see view_state()"
     click((row_rect.x + 20, row_rect.y + 8))
     flags = rend.poll()
     assert flags["menu"] == "show_scan"
-    assert rend.show_scan is False
-    assert rend.show_trails and rend.show_kf and rend.show_wheels
+    assert rend.show_scan is True
+    assert {a: getattr(rend, a) for a, _t, _k in R.menue.LAYERS} == {**before,
+                                                                     "show_scan": True}
 
 
 def test_click_next_to_the_panel_does_not_switch_anything(rend):
     rend.menu.open = True
     rend.draw(cap=False)
+    before = {attribut: getattr(rend, attribut) for attribut, _t, _k in R.menue.LAYERS}
     click((10, rend.size[1] - 10))
     assert rend.poll()["menu"] == ""
-    assert rend.show_scan
+    assert {attribut: getattr(rend, attribut) for attribut in before} == before
 
 
 def test_the_panel_starts_closed_and_covers_nothing_of_the_map(rend):

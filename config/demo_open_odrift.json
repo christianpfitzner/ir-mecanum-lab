@@ -42,5 +42,12 @@
       "wheel_radius_scale": 1.05
     }
   },
+  "_comment_view": "The whole point is the ghost walking away from the robot while both stand in an empty hall.",
+  "view": {
+    "layers": {
+      "ghost": true,
+      "trails": true
+    }
+  },
   "_comment_tail": "No fix, no obstacles: the odometry is the only position left, and it may lie."
 }

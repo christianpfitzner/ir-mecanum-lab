@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 
+from . import keys
 from . import render as R
 from . import ros_bridge, robot_io, stub, tasks as T
 from .engine import SpawnError, SimEngine
@@ -186,12 +187,15 @@ def wants_gui(args, cfg: dict) -> bool:
 
 
 def teleop_keys() -> tuple:
-    """Keys to body speed: up/down drive, left/right strafe (mecanum), q/, right, e/. left."""
+    """The keys that are held -> body speed: `keys.py` owns the table, this only asks it.
+
+    w/s drive, a/d or q/e turn, the arrows drive and strafe — see `mecanum_lab/keys.py` for the
+    bindings and for the reason the letters that drive are never layer switches. The result goes on
+    /<robot>/cmd_vel as one Twist, exactly like the frames of a node (CONTRACT section 6.9), so the
+    radio, the physics and the readout line treat the keyboard and a program the same.
+    """
     import pygame
-    k = pygame.key.get_pressed()
-    return (0.35 * (k[pygame.K_UP] - k[pygame.K_DOWN]), 0.35 * (k[pygame.K_LEFT] - k[pygame.K_RIGHT]),
-            0.9 * (k[pygame.K_e] + k[pygame.K_PERIOD]
-                   - k[pygame.K_q] - k[pygame.K_COMMA]))
+    return keys.driving_twist(keys.pressed_names(pygame.key.get_pressed()))
 
 
 def parse_set(text: str) -> tuple:
@@ -235,9 +239,34 @@ def _nest(tree: dict, key: str, value) -> None:
         _nest(ziel, teil, unter)
 
 
+def view_overrides(args) -> dict:
+    """`--view sensors --layers scan,-hud` -> the `view` block of the config.
+
+    The layers of the window are the only thing here a student wants to change without touching a
+    physics number, so they get two command line switches and no JSON file: a profile for the whole
+    view, a list for single layers (a name with `-` in front switches that one off). Both land in the
+    same tree a config file writes, so `render.view_state()` has exactly one thing to read and a
+    launch file needs no third path.
+    """
+    layers = {}
+    for name in str(getattr(args, "layers", "") or "").replace("+", ",").split(","):
+        name = name.strip()
+        if name.startswith("-"):
+            layers[name[1:]] = False
+        elif name:
+            layers[name] = True
+    block = {"layers": layers} if layers else {}
+    if getattr(args, "view", None):
+        block["profile"] = args.view
+    return block
+
+
 def make_engine(args):
     """Config layers: DEFAULT <- config/default.json <- --config <- test profile <- --set."""
     overrides = {"world": args.world, "gui": False if args.headless else None}
+    view = view_overrides(args)
+    if view:
+        overrides["view"] = view
     if getattr(args, "truth", False):
         overrides["debug_truth"] = True
     if args.task:
@@ -653,12 +682,21 @@ def parser():
     p.add_argument("--screenshot", default=None, metavar="FILE.png",
                    help="write the last window frame to this PNG (pygame's own writer, no "
                         "matplotlib; works headless with SDL_VIDEODRIVER=dummy)")
+    p.add_argument("--view", default=None, metavar="PROFILE",
+                   help="which layers the window starts with: \"clean\" (the default — robot, wheels,"
+                        " estimate, no raw sensor dots) or \"sensors\" (everything the sensors"
+                        " measure, as this window used to draw it)")
+    p.add_argument("--layers", default="", metavar="NAMES",
+                   help="switch single layers over the profile, comma-separated, a leading - switchs"
+                        " off: --layers scan,ghost,-hud. Names: scan, trails, gps, kf, wheels,"
+                        " velocity, markings, goal, hud, zones, ghost, pois, network")
     p.add_argument("--stub", action="store_true", help="In-process bus instead of ROS")
     p.add_argument("--no-teleop", action="store_true",
-                   help="turn keyboard control off (Up/Down drive, Left/Right strafe, "
-                        "q/, right, e/. left). Keys are one publisher among others: they publish "
-                        "on /cmd_vel only while held, so a --controller node drives and the keys "
-                        "interrupt it; the readout line says who commanded last")
+                   help="turn the keyboard driving off (w/s drive, a/d and q/e turn, the arrows "
+                        "drive and strafe — the table is in mecanum_lab/keys.py). The keys are one "
+                        "publisher among others: they publish on /cmd_vel only while a key is held, "
+                        "so a --controller node drives and the keys interrupt it; the readout line "
+                        "says which of the two was last. With teleop off, q quits again")
     p.add_argument("--seed", type=int, default=1, help="Noise seed (reproducibility)")
     p.add_argument("--config", default=None, help="JSON config on top of config/default.json")
     p.add_argument("--set", action="append", metavar="PATH=VALUE",
@@ -681,9 +719,10 @@ def parser():
 def cmd_teleop(args):
     """`./lab teleop --robot alice` — one robot, the keyboard is the remote (CONTRACT §6.9).
 
-    Up/Down drive, Left/Right strafe, q or , turn right, e or . turn left. The handout's first
-    exercise names this command, so it has to be one — and it is `sim` with one robot and the
-    keyboard left on, nothing else.
+    w/s drive, a/d and q/e turn, the arrows drive and strafe; `mecanum_lab/keys.py` is the table
+    and the window's header line is what a student sees of it. The handout's first exercise names
+    this command, so it has to be one — and it is `sim` with one robot and the keyboard left on,
+    nothing else.
     """
     if args.robot and not (args.robots or "").strip():
         args.robots = args.robot

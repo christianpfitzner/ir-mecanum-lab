@@ -47,5 +47,12 @@
       "lever_scale": 0.97
     }
   },
+  "_comment_view": "Wrong wheel constants are only visible as the distance between the robot and what its odometry believes, so this demo draws the ghost (o) and the trail (t).",
+  "view": {
+    "layers": {
+      "ghost": true,
+      "trails": true
+    }
+  },
   "_comment_tail": "1.05 radius + 0.97 lever is what two worn wheels and a reprinted hub add up to."
 }

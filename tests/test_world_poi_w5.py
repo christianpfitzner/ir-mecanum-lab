@@ -383,7 +383,7 @@ def test_the_key_p_and_the_menu_row_belong_to_the_same_layer():
     """`p` in render.KEYS, a row in menu.LAYERS, one boolean on the renderer."""
     assert render.KEYS["p"] == ("show_pois", "")
     assert {attribut: key for attribut, _t, key in render.menue.LAYERS}["show_pois"] == "p"
-    assert "p" in render.menue.FUSS.split()
+    assert "p" in render.keys.layer_hint().split(), "the key is promised nowhere but the panel"
 
 
 def fake_engine(sources, size=(12.0, 9.0)):

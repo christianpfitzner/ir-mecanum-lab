@@ -509,6 +509,13 @@ DEFAULT_CONFIG = {
     "gui_style": {"wall": [0.34, 0.36, 0.42], "floor": [0.13, 0.14, 0.17],
                   "void": [0.06, 0.065, 0.08], "trail_len": 400, "px_per_meter_min": 40,
                   "wheel_scale": 2.4, "chassis_scale": 1.25},
+    # What the window draws when nobody said otherwise. "clean" leaves the four layers of raw
+    # measurements empty (scan dots, GPS cross, odometry trail, odometry ghost) — see
+    # `render.RAW_LAYERS` — because those numbers are in the readout line, on the topics and in the
+    # measurement log either way, and dots a student cannot yet interpret are not a lesson. A demo
+    # config that is about one of them names it in `layers`; `--view sensors` or the `m` panel brings
+    # all of them back. Nothing here changes what is published: hiding a layer hides a drawing.
+    "view": {"profile": "clean", "layers": {}},
 }
 
 

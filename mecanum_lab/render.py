@@ -11,25 +11,35 @@ border wall is visible as a gap instead of looking like more floor. Walls are fi
 without an outline — with a 1 m grid the outline read as a second, thinner wall. 1..9 jumps
 to a robot, 0 shows everything again. Physics and ROS are never touched.
 """
+import logging
 import math
 
 import pygame
 
 from . import cam as kamera
+from . import keys
 from . import menu as menue
 from . import overlays                                  # shadow, ghost, rubber
 from .types import cfg_get
 
-HELP = "q quit | SPACE pause | m menu | f fit | 0 all | 1..9 robot | wheel zoom | drag pan"
-HELP_TELEOP = "arrows drive/strafe | q or , turn right, e or . left | SPACE pause | ESC quit"
+log = logging.getLogger("mecanum.render")
+
 GREY = (210, 212, 218)
 GPS_COLOR = (250, 210, 90)                         # measurement: flat and angular
 KF_COLOR = (120, 240, 170)                         # estimate: bright and round
 KF_SICHERHEIT = 2.0                                # how many σ the GUI ellipse shows
 CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))     # FL, FR, RL, RR in the body frame
-ROLLERS = ((1, -1), (1, 1), (1, 1), (1, -1))       # roller axes of the X arrangement
+# Roller axis of each wheel, body frame, same order as `CORNERS` (= `physics.WHEELS`). These four
+# axes are the **X arrangement** that `physics.inverse_kinematics()` implements: a wheel driven
+# along (1,-1) carries its rollers along (1,1), so FL and RR sit on one diagonal and FR and RL on
+# the other. The other diagonal is the O arrangement — the same robot with the rollers mirrored,
+# whose wheels would strafe the wrong way for every command in the readout.
+ROLLERS = ((1, 1), (1, -1), (1, -1), (1, 1))
 WHEEL_STROKES = 3                                     # strokes drawn per wheel
 WHEEL_SPIN_GAIN = 0.25                              # wheel radius -> on-screen rotation, illustrative
+WHEEL_WIDTH_RATIO = 0.6          # drawn width of a wheel, as a fraction of its drawn length
+WHEEL_MAX_PART_OF_PLATE = 0.42   # the exaggerated radius never eats the chassis plate
+WHEEL_MIN_PX = 3.0               # below this a wheel is one pixel, not a wheel
 # Marker per robot as a list of (radius, angle in degrees); radius 1 = footprint.
 SHAPES = {
     "triangle": [(1, -90), (1, 30), (1, 150)],
@@ -41,13 +51,10 @@ SHAPES = {
     "star": [v for a in range(0, 360, 36) for v in ((1.35, a), (.55, a + 18))],
     "cross": [v for a in range(0, 360, 45) for v in ((1.3, a), (.5, a + 22.5))],
 }
-# key -> (attribute toggled, edge name in the poll() dict, '' for a view-only switch)
-KEYS = {"space": ("paused", "pause"), "l": ("show_scan", "toggle_lidar"),
-        "t": ("show_trails", "toggle_trail"), "k": ("show_kf", "toggle_kf"),
-        "g": ("show_gps", ""), "w": ("show_wheels", ""), "v": ("show_velocity", ""),
-        "d": ("show_markers", ""), "z": ("show_goal", ""), "h": ("show_hud", ""),
-        "s": ("show_zones", ""), "o": ("show_ghost", ""), "p": ("show_pois", ""),
-        "n": ("show_network", "")}
+# name -> (attribute toggled, edge name in the poll() dict). `keys.LAYERS` is the table of the
+# window, this is the same rows plus the pause key — one dict for the event handler, no second list
+# that could drift away from the panel and from the help line.
+KEYS = {keys.PAUSE: ("paused", keys.PAUSE_EDGE), **keys.layer_table()}
 
 
 def body(theta: float, dx: float, dy: float) -> tuple:
@@ -77,6 +84,19 @@ def _add(p: tuple, d: tuple) -> tuple:
     return (p[0] + d[0], p[1] + d[1])
 
 
+def wheel_mounts(lx: float, ly: float) -> list:
+    """Wheel centres in the body frame, in **metres**, in the order of `physics.WHEELS`.
+
+    A wheel is drawn where it sits on the axle line — `lx` fore and aft, `ly` to the sides — and
+    only its radius is exaggerated afterwards (`gui_style.wheel_scale`). Never its position: the
+    lever arm between the wheels is the `arm` of `inverse_kinematics()`, so a wheel painted into
+    the corner of the plate instead of on the axle line shows a student a robot that turns about a
+    point its physics does not have. Both drive trains land on the same four points — for the
+    steering car `lx` is half the wheel base and `ly` half the track (`steering.SteeringGeometry`).
+    """
+    return [(sx * lx, sy * ly) for sx, sy in CORNERS]
+
+
 def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
     """Corner points of a marker shape in pixels, unknown names drawn as a circle.
 
@@ -86,6 +106,43 @@ def shape(name: str, centre: tuple, radius: float, theta: float) -> list:
     return [(centre[0] + radius * rt * math.cos(math.radians(ang) - theta),
              centre[1] + radius * rt * math.sin(math.radians(ang) - theta))
             for rt, ang in SHAPES.get(name) or SHAPES["circle"]]
+
+
+# ------------------------------------------------------------------ the layers a run starts with
+# The short name of a layer in the config (`view.layers`) is the name of its attribute without the
+# `show_` prefix, so there is one list of layers in this package — `keys.LAYERS` — and this module
+# derives its names from it. `tests/test_view_menu_c.py` fails when the two stop agreeing.
+LAYER_NAMES = tuple(attribute[len("show_"):] for attribute in keys.LAYER_ATTRIBUTES)
+
+# The raw measurements are drawn only when somebody asks for them. Their numbers are on the topics,
+# in the readout line and in the measurement log whether they are painted or not, and a student who
+# has not yet interpreted a lidar scan learns nothing from dots they cannot read — what the window
+# is for in the first minutes is the robot, its wheels and where it thinks it is.
+RAW_LAYERS = ("scan", "trails", "gps", "ghost")
+VIEW_PROFILES = {"clean": tuple(name for name in LAYER_NAMES if name not in RAW_LAYERS),
+                 "sensors": LAYER_NAMES}
+VIEW_PROFILE = "clean"                       # the view of a run nobody configured
+
+
+def view_state(cfg: dict) -> dict:
+    """attribute -> drawn: the profile named in `view.profile`, with `view.layers` written over it.
+
+    Unknown layer names are ignored loudly rather than silently: a config that says
+    `"layer": "lidar"` when the name is `scan` would otherwise look as if the layer existed and did
+    nothing.
+    """
+    profile = str(cfg_get(cfg, "view.profile", VIEW_PROFILE) or VIEW_PROFILE)
+    if profile not in VIEW_PROFILES:
+        log.warning("unknown view profile '%s' — there is %s, taking '%s'", profile,
+                    " and ".join(sorted(VIEW_PROFILES)), VIEW_PROFILE)
+        profile = VIEW_PROFILE
+    on = set(VIEW_PROFILES[profile])
+    for name, wanted in (cfg_get(cfg, "view.layers", {}) or {}).items():
+        if name not in LAYER_NAMES:
+            log.warning("view layer '%s' does not exist — there is %s", name, ", ".join(LAYER_NAMES))
+            continue
+        on = (on | {name}) if wanted else (on - {name})
+    return {f"show_{name}": name in on for name in LAYER_NAMES}
 
 
 class Renderer:
@@ -100,11 +157,11 @@ class Renderer:
         self.trail_len = int(style.get("trail_len", 400))
         self.wheel_scale = float(style.get("wheel_scale", 2.4))        # wheels: drawn bigger than 5 cm
         self.chassis_scale = float(style.get("chassis_scale", 1.0))  # body box, in addition to lx/ly
-        self.show_scan = self.show_trails = self.show_gps = self.show_kf = True
-        self.show_wheels = self.show_velocity = True
-        self.show_markers = self.show_goal = self.show_hud = True
-        self.show_zones = self.show_ghost = self.show_pois = True   # shadow, ghost, radiation source
-        self.show_network = True              # the radio link: AP, line, quality bar
+        # Every layer starts as the configuration says (`view_state` above), not as a hard-coded
+        # True: what a student sees on first start is then a setting with a name, and a demo config
+        # can ask for the layer it is about. Keys and clicks still switch anything, at any time.
+        for attribute, drawn in view_state(cfg).items():
+            setattr(self, attribute, drawn)
         self.teleop = False                          # node.run_loop sets this, changes the help
         self.paused = False
         self.kf_trail, self.trails, self.phase = {}, {}, {}           # per robot name
@@ -295,68 +352,81 @@ class Renderer:
                               [self.px(x, y) for x, y in pts], 2)
 
     def _robot(self, robot, dt: float) -> None:
-        """Chassis, marker, heading, four wheels with rolling strokes, name label."""
+        """Chassis, marker, heading, four wheels with rolling strokes, name label.
+
+        Two unit systems meet here and the line between them is drawn on purpose: everything that
+        says **where** something is on the floor is in metres and goes through `self.px()`,
+        everything that says **how big** a thing is drawn is in pixels. Both are named `half_l`
+        and `be` in the version before this one, and the reassignment in the middle of these
+        lines put a pixel number into a metre slot: the four wheels came out 10 m in front of and
+        behind the robot — off every screen, which is how the wheel picture came to be "broken".
+        """
         pose, col = robot.pose, rgb(robot.spec.rgb)
         sc = self.screen
         lx, ly, wr, fp_m = self._geom(robot)
         centre, fp = self.px(pose.x, pose.y), max(6, fp_m * self.s)
-        half_l, be = (lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale   # metres
-        wheel_r = min(wr * self.wheel_scale, .42 * half_l)       # wheel radius on screen, in metres
-        half_l, half_w = half_l * self.s, be * self.s          # same in pixels
-        u, v = body(-pose.theta, 1, 0), body(-pose.theta, 0, 1)
-        chassis_body = self._plate(centre, u, v, half_l, half_w)
+        plate = ((lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale)   # metres
+        # The one exaggeration of this view: `wheel_scale` times the real 5 cm, never more than
+        # 42 % of the plate, so the rollers stay readable without the wheel eating the chassis.
+        wheel_r = min(wr * self.wheel_scale, WHEEL_MAX_PART_OF_PLATE * plate[0])   # metres
+        u, v = body(-pose.theta, 1, 0), body(-pose.theta, 0, 1)                    # screen vectors
+        chassis_body = self._plate(centre, u, v, plate[0] * self.s, plate[1] * self.s)
         pygame.draw.polygon(sc, mix(col, self.col_floor, .55), chassis_body)
         pygame.draw.polygon(sc, col, chassis_body, 1)
         pygame.draw.circle(sc, mix(col, self.col_floor, .82), centre, fp, 1)  # collision circle
         if self.show_wheels:
             headings = getattr(robot.chassis, "wheel_headings", [0.0] * 4)
-            for i, (sx, sy) in enumerate(CORNERS):
-                self._wheel(robot, pose.theta + headings[i], sx * (half_l - wheel_r * .7),
-                            sy * (be - wheel_r * .45), pose, wheel_r, i, col, dt)
-        pygame.draw.polygon(sc, col, shape(robot.spec.marker, centre, min(half_l, half_w) * .6,
+            for i, (mx, my) in enumerate(wheel_mounts(lx, ly)):                # body frame, metres
+                self._wheel(robot, pose.theta + headings[i], (mx, my), pose,
+                            wheel_r, i, col, dt)
+        marker_side = min(plate[0], plate[1]) * self.s
+        pygame.draw.polygon(sc, col, shape(robot.spec.marker, centre, marker_side * .6,
                                            pose.theta))
         pygame.draw.line(sc, col, centre,
                          self.px(*_add((pose.x, pose.y), body(pose.theta, fp_m * 1.25, 0))),
                          max(2, int(self.s * .03)))
+        self._text(robot.spec.name, centre[0], centre[1] - plate[1] * self.s - 14, col,
+                   center=True)
         if self.show_velocity:
             speed = math.hypot(robot.twist.vx, robot.twist.vy)
             if speed > .02:                                     # commanded velocity as a beam
-                richt = pose.theta + math.atan2(robot.twist.vy, abs(robot.twist.vx) or 1e-6)
+                heading = pose.theta + math.atan2(robot.twist.vy, abs(robot.twist.vx) or 1e-6)
                 pygame.draw.line(sc, mix(col, (1, 1, 1), .5), centre,
-                                 self.px(*_add((pose.x, pose.y), body(richt, speed, 0))), 2)
-        self._text(robot.spec.name, centre[0], centre[1] - half_w - 14, col, center=True)
+                                 self.px(*_add((pose.x, pose.y), body(heading, speed, 0))), 2)
 
-    def _wheel(self, robot, theta, dx, dy, pose, wheel_r, index, col, dt) -> None:
-        """Wheel body along the driving direction, roller strokes travelling along it.
+    def _wheel(self, robot, heading, mount, pose, wheel_r, index, col, dt) -> None:
+        """One wheel: tyre along its driving direction, roller strokes travelling along that.
 
-        `wheel_r` is the drawn wheel radius in metres: `gui_style.wheel_scale` times the real 5 cm,
-        but never more than 42 % of the chassis — an aid for the eye, like the roller speed that
-        is scaled to 0.25 because 12 rad/s at 30 fps would only flicker. Physics untouched.
+        `mount` is the wheel centre in the **body frame in metres** (`wheel_mounts()`), `heading`
+        the direction this wheel points in. The two are separate on purpose: the mount comes with
+        the body, the heading belongs to the wheel, so a steered front wheel is drawn where it sits
+        but turned by its own angle — and on a mecanum robot both angles are equal, because
+        `physics.Chassis.wheel_headings()` is [0, 0, 0, 0] there.
 
-        `theta` is the heading of **this wheel**, not of the body: the mount point comes from
-        `pose.theta`, so a steered front wheel is drawn where it sits but turned by its own angle
-        (for a mecanum robot both are the same angle, see `physics.Chassis.wheel_headings`).
+        `wheel_r` is in metres and already exaggerated (`gui_style.wheel_scale`); the roller phase
+        is scaled to `WHEEL_SPIN_GAIN`, because 12 rad/s at 30 fps would flicker instead of
+        rolling. Both are aids for the eye, neither touches physics or a topic.
         """
         sc = self.screen
         phase = self.phase.setdefault(robot.spec.name, [0.0] * 4)
         phase[index] = (phase[index] + (robot.wheels[index] if index < len(robot.wheels) else 0.0)
                         * dt * WHEEL_SPIN_GAIN) % math.tau
-        center = self.px(*_add((pose.x, pose.y), body(pose.theta, dx, dy)))
-        half_l = max(2.2, wheel_r * self.s)                                # half length of the wheel
-        half_w = max(1.4, half_l * .6)                                   # half width of the wheel
-        u, v = body(-theta, 1, 0), body(-theta, 0, 1)
-        plate = self._plate(center, u, v, half_l, half_w)
-        pygame.draw.polygon(sc, mix(col, (0, 0, 0), .55), plate)
+        centre = self.px(*_add((pose.x, pose.y), body(pose.theta, *mount)))
+        half_len = max(WHEEL_MIN_PX, wheel_r * self.s)          # pixels, along the rolling direction
+        half_wid = max(WHEEL_MIN_PX * .5, half_len * WHEEL_WIDTH_RATIO)   # pixels, across it
+        u, v = body(-heading, 1, 0), body(-heading, 0, 1)       # this wheel's axes on screen
+        tyre = self._plate(centre, u, v, half_len, half_wid)
+        pygame.draw.polygon(sc, mix(col, (0, 0, 0), .55), tyre)
         if self.s > 45:                                           # a 1 px edge below that is mush
-            pygame.draw.polygon(sc, col, plate, 1)
-        spin = body(-theta, ROLLERS[index][0] / 1.4143, ROLLERS[index][1] / 1.4143)
-        for k in range(WHEEL_STROKES):
-            anteil = (phase[index] / math.tau + k / WHEEL_STROKES) % 1.0
-            wander = (anteil * 2 - 1) * (half_l - half_w)            # stays inside the wheel
-            center_k = _add(center, (u[0] * wander, u[1] * wander))
-            pygame.draw.line(sc, mix(col, (1, 1, 1), .35), center_k,
-                             _add(center_k, (spin[0] * half_w * 1.3, spin[1] * half_w * 1.3)),
-                             max(1, int(half_w * .3)))
+            pygame.draw.polygon(sc, col, tyre, 1)
+        roller = body(-heading, ROLLERS[index][0], ROLLERS[index][1])
+        roller = (roller[0] * half_wid * 1.3, roller[1] * half_wid * 1.3)     # one stroke, full width
+        for stroke in range(WHEEL_STROKES):
+            share = (phase[index] / math.tau + stroke / WHEEL_STROKES) % 1.0
+            walk = (share * 2 - 1) * (half_len - half_wid)         # stays inside the tyre
+            here = _add(centre, (u[0] * walk, u[1] * walk))
+            pygame.draw.line(sc, mix(col, (1, 1, 1), .35), here,
+                             _add(here, roller), max(1, int(half_wid * .3)))
 
     @staticmethod
     def _plate(centre, u, v, half_l, half_w) -> list:
@@ -372,7 +442,7 @@ class Renderer:
         eng = self.engine
         self._text(f"{eng.world.name}  t={eng.t:6.1f}s  {self.clock.get_fps():4.0f} fps  "
                    f"{self.s:3.0f} px/m  robots: {len(eng.robots)}  task: {eng.task or '-'} "
-                   f"{HELP_TELEOP if self.teleop else HELP}",
+                   f"{keys.help_line(self.teleop)}",
                    8, 6, (235, 235, 240), big=True)
         width = self.size[0] // 2 if len(eng.robots) > 4 else self.size[0]
         for i, r in enumerate(eng.robots.values()):
@@ -450,6 +520,14 @@ class Renderer:
             self.cam.zoom_to_at(pygame.mouse.get_pos(), 1.25 if ev.y > 0 else 0.8)
 
     def _event_key(self, ev, flags) -> None:
+        """One key press, one meaning — `keys.py` says which, this only executes it.
+
+        The teleop keys (w a s d, the arrows, q/e as turners) are *polled* by the run loop while
+        they are held, so they never arrive here as a switch: `check_bindings()` in `keys.py` is
+        what guarantees that no letter in `KEYS` is also in the driving block. `q` is the single
+        key with two meanings and they are the two it always had — it turns while a key can drive,
+        and ends the run when none can.
+        """
         key = pygame.key.name(ev.key)
         flags["key"] = key
         if key in KEYS:
@@ -457,20 +535,20 @@ class Renderer:
             setattr(self, attribut, not getattr(self, attribut))
             if flank:
                 flags[flank] = True
-        elif key == "escape" or (key == "q" and not self.teleop):        # in teleop q turns
+        elif key == keys.QUIT or (key == "q" and not self.teleop):   # in teleop q turns
             self._alive, flags["quit"] = False, True
-        elif key == "m":
+        elif key == keys.MENU:
             flags["menu"] = "menu"
             self.menu.toggle()
-        elif key == "f":
+        elif key == keys.FIT:
             self.cam.center()
-        elif key == "0":
+        elif key == keys.ALL_ROBOTS:
             self.focus, flags["camera"] = None, 0
         elif key in "123456789":
             self.focus, flags["camera"] = int(key) - 1, int(key) - 1
-        elif key in ("+", "="):
+        elif key in keys.ZOOM_IN:
             self.cam.zoom_to(1.25)
-        elif key in ("-", "_"):
+        elif key in keys.ZOOM_OUT:
             self.cam.zoom_to(1 / 1.25)
 
     @property

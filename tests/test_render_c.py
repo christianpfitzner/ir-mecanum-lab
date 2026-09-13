@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pygame
 import pytest
 
-from mecanum_lab import render
+from mecanum_lab import keys, physics, render
 from mecanum_lab.types import (MARKERS, Odom, PALETTE, Pose, Rect, Robot, RobotSpec, Scan,
                                Twist, World)
 
@@ -132,6 +132,58 @@ def test_wheel_phase_follows_sim_time():
         assert any(abs(b - a) > 1e-6 for a, b in zip(first, rend.phase["alice"]))
 
 
+def test_every_wheel_is_drawn_at_its_axle_and_not_metres_away():
+    """The wheels belong to the robot: no wheel may leave the footprint circle.
+
+    The mount of a wheel used to be built from a pixel number that stood in a metre variable, so
+    `px()` put the four tyres 10 m in front of and behind the chassis — on no screen, and the
+    picture that made the wheel layer look "broken". The test asks the question a student would
+    ask of the frame: is there a wheel where the wheels are?
+    """
+    lx, ly = CFG["robot"]["lx"], CFG["robot"]["ly"]
+    reach = CFG["robot"]["footprint_r"]
+    for sx, sy in render.CORNERS:
+        assert abs(sx * lx) <= reach and abs(sy * ly) <= reach
+    assert all(math.hypot(*m) <= reach for m in render.wheel_mounts(lx, ly))
+
+
+def test_wheel_pixels_stay_inside_the_chassis_box():
+    """Pixel check of the same promise: colour where the tyres are, floor in front of the robot."""
+    robot = make_robot("alice", 0, with_scan=False)
+    robot.pose = Pose(3.0, 2.0, 0.0)                    # straight ahead, x forward = screen right
+    with gui(make_engine({"alice": robot})) as rend:
+        rend.show_ghost = rend.show_zones = False
+        for _ in range(3):                              # a frame, then the frame to look at
+            rend.engine.t += 0.1
+            rend.draw(cap=False)
+        lx, ly, wr = (CFG["robot"][k] for k in ("lx", "ly", "r"))
+        for mx, my in render.wheel_mounts(lx, ly):
+            px, py = (int(round(v)) for v in rend.px(robot.pose.x + mx, robot.pose.y + my))
+            assert rend.screen.get_at((px, py))[:3] != rend.col_floor, f"no wheel at {mx}, {my}"
+        far = tuple(int(round(v)) for v in rend.px(robot.pose.x + 2.0, robot.pose.y))
+        assert rend.screen.get_at(far)[:3] == rend.col_floor, "a wheel is drawn 2 m ahead"
+
+
+def test_roller_axes_match_the_kinematics_that_drive_the_wheels():
+    """The drawn rollers are the ones `physics.forward_kinematics()` assumes.
+
+    A mecanum wheel drives only across its roller axis, so the velocity of its centre — with this
+    one wheel turning and the robot free — has to stand on that axis. Measured against the module
+    that the exercise is graded with, not against a comment: mirror the diagonals (the other
+    arrangement, "O") and every dot product here comes out 1 instead of 0.
+    """
+    g = physics.Geometry()
+    for index, (sx, sy) in enumerate(render.CORNERS):
+        speeds = [0.0] * 4
+        speeds[index] = 1.0
+        vx, vy, omega = physics.forward_kinematics(g, speeds)
+        point = (vx - omega * sy * g.ly, vy + omega * sx * g.ly)      # body frame, at the wheel
+        axis = render.ROLLERS[index]
+        both = math.hypot(*point) * math.hypot(*axis)
+        assert abs((point[0] * axis[0] + point[1] * axis[1]) / both) < 0.02, index
+        assert math.hypot(*point) > 1e-6, "a wheel that drives nothing explains nothing"
+
+
 def test_trail_is_capped_at_configured_length():
     engine = make_engine()
     robot = engine.robots["alice"]
@@ -175,25 +227,29 @@ def test_frame_time_for_eight_robots_with_lidar():
 
 def test_poll_reports_each_key_as_edge_only():
     with gui() as rend:
+        was_scan = rend.show_scan
         press("l")
         press("space")
         flags = rend.poll()
         assert flags["toggle_lidar"] and flags["pause"] and flags["key"] == "space"
-        assert rend.paused and not rend.show_scan
-        assert rend.poll()["toggle_lidar"] is False     # no edge without a new key press
+        assert rend.paused and rend.show_scan != was_scan    # one press, one flip — not a level
+        assert rend.poll()["toggle_lidar"] is False          # no edge without a new key press
 
 
 def test_toggles_and_zoom_and_grid():
+    """A layer key flips its layer and nothing else; `+`/`-` are the zoom keys of the help line."""
     with gui() as rend:
+        before = {attribute: getattr(rend, attribute) for attribute in keys.LAYER_ATTRIBUTES}
         for key in ("t", "l", "plus", "plus", "minus"):
             press(key)
             rend.poll()
-        assert not rend.show_trails and not rend.show_scan
-        assert abs(rend.zoom - 1.25) < 1e-9
-        press("l")
-        press("t")
-        rend.poll()
-        assert rend.show_scan and rend.show_trails
+        assert rend.show_trails is not before["show_trails"]
+        assert rend.show_scan is not before["show_scan"]
+        assert abs(rend.zoom - 1.25) < 1e-9, "two steps in and one out must leave 1.25"
+        for key in ("l", "t"):                                # once more: back to where it started
+            press(key)
+            rend.poll()
+        assert {attribute: getattr(rend, attribute) for attribute in before} == before
 
 
 def test_camera_keys_focus_and_reset():

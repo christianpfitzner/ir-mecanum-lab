@@ -583,7 +583,7 @@ def test_the_readout_line_carries_the_five_numbers_of_the_radio():
 def test_the_network_layer_is_a_menu_row_and_a_key():
     assert {attribute: key for attribute, _text, key in render.menue.LAYERS}["show_network"] == "n"
     assert render.KEYS["n"] == ("show_network", "")
-    assert "n" in render.menue.FUSS.split()
+    assert "n" in render.keys.layer_hint().split(), "the key is promised nowhere but the panel"
 
 
 def test_the_readout_says_who_last_commanded_the_robot():

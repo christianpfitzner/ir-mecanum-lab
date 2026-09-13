@@ -599,13 +599,20 @@ T2: square path with odometry (1.0 m, 90 degrees CCW)
 Criterion & Points & checked by \\
 \midrule
 T1 kinematics (three phases of 10 P each) & 30 & autograder \\
-T2 square path (completion 20, driving quality 10) & 30 & autograder \\
-T3 goal without contact (target error 20, clearance 10) & 30 & autograder \\
-T4 bonus GPS & 10 & autograder \\
+T2 square path (every limit of the task at once, no partial credit) & 30 or 0 & autograder \\
+T3 goal without contact (every limit of the task at once, no partial credit) & 30 or 0 & autograder \\
+T4 bonus GPS (the same rule) & 10 or 0 & autograder \\
  short summary in the README & 0–5 & supervision \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+
+The autograder awards a task's points \emph{whole}: \kommando{./lab grade} checks every limit that
+\ordner{config/tasks.json} names for the task and gives its points only when all of them hold — and
+0 when one of them does not, naming the failed one in the report. T1 is the only task with a split,
+because its three command phases are graded one by one: \(30/3 = 10\) points each. The four
+autograder rows are \(30+30+30+10 = 100\) points.
 \subsection*{Allowed aids and independent work}
 Copying solution parts (also from generated answers of other people or language
 models) leads to withdrawal from the experiment; you may discuss anything.

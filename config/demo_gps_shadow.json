@@ -46,5 +46,12 @@
     ]
   },
   "debug_truth": true,
+  "_comment_view": "The story of this demo is a fix that is worth nothing where the robot is standing, so it draws the fix (g) and the odometry ghost (o) that the shadow produces; without them the shadow is a hatched rectangle and nothing else.",
+  "view": {
+    "layers": {
+      "gps": true,
+      "ghost": true
+    }
+  },
   "_comment_tail": "debug_truth publishes /<robot>/truth so ghost, truth and GPS can be compared."
 }

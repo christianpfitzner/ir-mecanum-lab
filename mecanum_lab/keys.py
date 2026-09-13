@@ -1,0 +1,195 @@
+"""Every key of the window in one table, plus the check that proves no key means two things.
+
+Four places used to write bindings down, and they drifted. The letters that switched a view layer
+lived in `render.KEYS`, the rows and key hints of the panel in `menu.LAYERS`, the help line in the
+header was a string no test ever compared with the code, and the keys that drove were read a fourth
+time in `node.teleop_keys()` — polled next to the event loop that had already read the same
+keyboard. Three real bugs came out of that, and all three stood between a student and the first
+minute of driving:
+
+  * `q` turned right and `e` turned left, the opposite of where the two keys lie;
+  * `q` also quit, decided by a mode nobody reads;
+  * `w`, `s` and `d` switched view layers, so they could not be the driving letters that a WASD
+    layout promises — and the help line still named keys whose code was gone.
+
+One rule now, and it is a runnable one: **a key means one thing, and the letters that drive are
+never layer switches.** `check_bindings()` below proves it for the table as it stands and is a step
+of `tools/check.sh`, because a rule that only lives in a comment is a wish.
+
+    while a key can drive (teleop on)   w / up     forward           s / down   backward
+                                       a / d      turn left/right    , / .      the same, for the right hand
+                                       q / e      turn left/right    left/right strafe (a mecanum base)
+    in every mode                      SPACE pause · ESC quit · m the layer panel · f the whole world
+                                       0 all robots · 1…9 follow one · = / - zoom · wheel zooms to the cursor
+    the layers (both modes)            l t g k r v c z h x o p n     — see LAYERS
+
+`q` is the one key with two meanings, and they are the two it always had: while teleop is on it
+turns, when teleop is off it ends the run — with no teleop nothing is driven, so it is stolen from
+nobody. `ESC` and the close button of the window end a run in every mode.
+
+Three layers had to give up a driving letter and kept their meaning instead of their key: the
+wheels are switched by `r` (the rollers), the painted floor by `c` (its colour), the GPS shadow by
+`x` (the place where a fix is lost).
+
+Names are the pygame names — what `pygame.key.name()` reports for a press and what
+`pygame.key.key_code()` accepts for the polling side. Lowercase, ASCII, like everywhere else here.
+"""
+
+# ------------------------------------------------------------------------------------- driving
+# key name -> (forward, sideways left, counter-clockwise), one axis per key, as unit values;
+# TELEOP_SPEED and TELEOP_YAW below turn a held key into a body velocity. The signs follow
+# CONTRACT section 5 (y to the left, theta counter-clockwise), so "turn left" is positive omega
+# here and everywhere else in this package.
+#
+# W/S and A/D are the layout everybody knows from a game; the arrow keys keep the mecanum
+# convention — up/down drive, left/right **strafe** — because sideways is what a mecanum base is
+# for and because the arrows lie where the two axes of the body frame are. Both sets publish one
+# Twist on /<robot>/cmd_vel and nothing else (CONTRACT section 6.9), so they cannot disagree about
+# physics, only about which finger is nearer.
+DRIVING = {
+    "w": (1.0, 0.0, 0.0), "up": (1.0, 0.0, 0.0),
+    "s": (-1.0, 0.0, 0.0), "down": (-1.0, 0.0, 0.0),
+    "a": (0.0, 0.0, 1.0), "q": (0.0, 0.0, 1.0), ",": (0.0, 0.0, 1.0),
+    "d": (0.0, 0.0, -1.0), "e": (0.0, 0.0, -1.0), ".": (0.0, 0.0, -1.0),
+    "left": (0.0, 1.0, 0.0), "right": (0.0, -1.0, 0.0),
+}
+TELEOP_SPEED = 0.35          # m/s of body speed while a drive key is held — walking pace, on purpose
+TELEOP_YAW = 0.9             # rad/s while a turn key is held
+FORWARD_KEYS = ("w", "s", "up", "down")
+STRAFE_KEYS = ("left", "right")
+TURN_KEYS = ("a", "q", ",", "d", "e", ".")
+
+# ---------------------------------------------------------------------------- the view layers
+# key name -> (attribute on the renderer, label in the panel, edge the run loop reports). The four
+# driving letters are not here — that is the rule, and `check_bindings()` is the proof.
+LAYERS = (
+    ("l", "show_scan", "lidar scan", "toggle_lidar"),
+    ("t", "show_trails", "odometry trail", "toggle_trail"),
+    ("g", "show_gps", "gps fix", ""),
+    ("k", "show_kf", "estimate + sigma ellipse", ""),
+    ("r", "show_wheels", "wheels", ""),
+    ("v", "show_velocity", "velocity vector", ""),
+    ("c", "show_markers", "floor markings", ""),
+    ("z", "show_goal", "goal", ""),
+    ("h", "show_hud", "readout lines", ""),
+    ("x", "show_zones", "gps shadow zones", ""),
+    ("o", "show_ghost", "odometry ghost + drift", ""),
+    ("p", "show_pois", "radiation source + field", ""),
+    ("n", "show_network", "radio link + access point", ""),
+)
+LAYER_ATTRIBUTES = tuple(row[1] for row in LAYERS)
+
+# ---------------------------------------------------------------------------- the rest, both modes
+MENU, FIT, PAUSE, QUIT, ALL_ROBOTS = "m", "f", "space", "escape", "0"
+PAUSE_EDGE = "pause"                       # the name the run loop hears when a frame stands still
+ZOOM_IN, ZOOM_OUT = ("=", "+"), ("-", "_")        # `+` is the unshifted `=` on a PC keyboard
+ROBOTS = tuple(str(digit) for digit in range(1, 10))         # 1..9: follow that robot
+
+
+# ------------------------------------------------------------------------------------ the lookups
+def layer_table() -> dict:
+    """name -> (attribute, edge name): the dict a key event handler works through."""
+    return {key: (attribute, edge) for key, attribute, _label, edge in LAYERS}
+
+
+def menu_rows() -> tuple:
+    """(attribute, label, key) for the panel: the same rows, columns turned by 90 degrees."""
+    return tuple((attribute, label, key) for key, attribute, label, _edge in LAYERS)
+
+
+def key_of(attribute: str) -> str:
+    """The key that switches one renderer attribute, '' when only the panel offers it."""
+    return next((key for key, attr, _label, _edge in LAYERS if attr == attribute), "")
+
+
+def help_line(teleop: bool) -> str:
+    """The header line of the window — built from this table, so it cannot name a dead key.
+
+    Worth the string building: it is the only documentation a student reads with the window open,
+    and for a long time it was a literal that nothing compared with the code behind it.
+    """
+    control = ("w/s drive · a/d or q/e turn · arrows drive/strafe · SPACE pause · ESC quit · "
+               if teleop else "SPACE pause · q quit · ")
+    return (control + "m layers · f whole world · 0 all · 1..9 follow · =/- zoom · "
+                      f"wheel zooms to cursor · drag pans · {layer_hint()}")
+
+
+def layer_hint() -> str:
+    """All layer keys in panel order — part of the header line, and the panel says it too."""
+    return "layers: " + " ".join(key for key, _attr, _label, _edge in LAYERS)
+
+
+# ------------------------------------------------------------------------------ the driving side
+def code(name: str) -> int:
+    """pygame key code of a name in this table."""
+    import pygame
+    return pygame.key.key_code(name)
+
+
+def pressed_names(state) -> set:
+    """A `pygame.key.get_pressed()` sequence -> the names of the keys that are down.
+
+    Asks for the code of every name in the table instead of walking all 512 slots of the state:
+    the names above are then the whole contract, and a key a keyboard does not have reads as not
+    pressed instead of raising in the middle of a run.
+    """
+    return {name for name in DRIVING if _down(state, name)}
+
+
+def _down(state, name: str) -> bool:
+    try:
+        return bool(state[code(name)])
+    except (KeyError, IndexError, ValueError):
+        return False
+
+
+def driving_twist(names: set) -> tuple:
+    """The keys that are down -> (vx, vy, omega): the one place a key becomes a body velocity.
+
+    One axis is the sum of its keys, clamped: `w` and `s` cancel, `a` and `d` cancel, and `q` held
+    together with `a` is still one turn at `TELEOP_YAW` and not two. The axes still combine, so
+    `w` + `d` is a curve — which is the only thing a differential base cannot do anyway.
+    """
+    axes = [0.0, 0.0, 0.0]
+    for key, vector in DRIVING.items():
+        if key in names:
+            axes = [total + part for total, part in zip(axes, vector)]
+    speed, strafe, yaw = (max(-1.0, min(1.0, axis)) for axis in axes)
+    return (speed * TELEOP_SPEED, strafe * TELEOP_SPEED, yaw * TELEOP_YAW)
+
+
+# --------------------------------------------------------------------------------- the guarantee
+def check_bindings(layers: dict | None = None) -> list:
+    """Every double binding of this table as one sentence each; [] means the table is clean.
+
+    Each rule below is a mistake this file's four predecessors actually contained. A key that means
+    two things at once is not cosmetic: nobody reports it, they drive badly and blame themselves,
+    which in a lab course is the most expensive kind of bug there is.
+    """
+    layers = layer_table() if layers is None else layers
+    problems = []
+    for key, (attribute, _edge) in layers.items():
+        if key in DRIVING:
+            problems.append(f"'{key}' drives and switches the layer '{attribute}'")
+    for label, block in (("driving", tuple(DRIVING)), ("layer", tuple(layers))):
+        for key in sorted({name for name in block if block.count(name) > 1}):
+            problems.append(f"'{key}' is bound twice inside the {label} block")
+    for field, values in (("layer key", [row[0] for row in LAYERS]),
+                          ("renderer attribute", [row[1] for row in LAYERS]),
+                          ("edge name", [row[3] for row in LAYERS if row[3]])):
+        for name in sorted({value for value in values if values.count(value) > 1}):
+            problems.append(f"the {field} '{name}' appears twice in LAYERS")
+    for view_key in (MENU, FIT, PAUSE, QUIT, ALL_ROBOTS) + ROBOTS:
+        if view_key in DRIVING or view_key in layers:
+            problems.append(f"'{view_key}' is a camera or view key and something else as well")
+    for key, attribute, _label, _edge in LAYERS:
+        if key != key_of(attribute):
+            problems.append(f"the layer '{attribute}' is offered twice: '{key}' and "
+                            f"'{key_of(attribute)}'")
+    for axis, keys in (("forward", FORWARD_KEYS), ("strafe", STRAFE_KEYS), ("turn", TURN_KEYS)):
+        for key in keys:
+            if key not in DRIVING:
+                problems.append(f"'{key}' is counted on the {axis} axis but binds nothing")
+    if set(ZOOM_IN) & set(ZOOM_OUT):
+        problems.append("zooming in and zooming out share a key")
+    return problems

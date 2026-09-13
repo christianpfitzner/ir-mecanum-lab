@@ -174,3 +174,97 @@ def test_t4_row_says_last_spawn_pose_and_not_own_start_pose():
     assert "not your own start pose" in row, "the row must keep the negation, it is the whole exercise"
     assert not re.search(r"(?<!not )your own start pose", row), (
         "T4 must not promise 'your own start pose' anywhere except in the sentence that rules it out")
+
+
+# ---------------------------------------------------------------- the grading rubric table
+#
+# Two pages after the thresholds the sheet says how the points are awarded. It used to promise
+# "T2 square path (completion 20, driving quality 10)" and "T3 goal without contact (target error 20,
+# clearance 10)". The grader has no such split: `grade._eval_mission` awards `points` when every limit of
+# the task holds and 0.0 when one of them does not. Only T1 is split — `_eval_phase` gives
+# points / len(phases) per phase — so 10/10/10 is real and stays printed. The behaviour test below is the
+# half that reads the code instead of the numbers: it satisfies one criterion of the real `quadrat` task
+# and violates another, and asserts the award is 0.0.
+
+RUBRIC_TASKS = ("kinematik", "quadrat", "korridor", "gps_anfahrt")
+
+
+def rubric_rows():
+    src = open(TEX, encoding="utf-8").read()
+    start = src.index(r"\subsection*{Grading rubric}")
+    block = src[start:src.index(r"\end{table}", start)]
+    rows = {}
+    for line in block.splitlines():
+        for task_id in RUBRIC_TASKS:
+            if line.startswith(f"T{RUBRIC_TASKS.index(task_id) + 1} "):
+                rows[task_id] = re.sub(r"\s+", " ", line).strip()
+    return rows
+
+
+def test_rubric_points_are_the_points_of_the_task_and_sum_to_100():
+    by_id = {a["id"]: a for a in task_list()}
+    rows = rubric_rows()
+    assert set(rows) == set(RUBRIC_TASKS), "the rubric must list exactly the experiment-1 tasks"
+    total = 0
+    for task_id, line in rows.items():
+        points = f"{by_id[task_id]['points']:g}"
+        assert re.search(rf"&\s*{re.escape(points)}(\s+or\s+0)?\s*&", line), (
+            f"rubric row {task_id} does not carry {points}: {line}")
+        total += by_id[task_id]["points"]
+    assert total == 100, "T1+T2+T3+T4 are 100 autograder points (90 without the T4 bonus)"
+
+
+def test_rubric_promises_no_partial_credit_where_the_grader_has_none():
+    by_id = {a["id"]: a for a in task_list()}
+    rows = rubric_rows()
+    for task_id in ("quadrat", "korridor", "gps_anfahrt"):
+        line = rows[task_id]
+        criterion = line.split("&")[0]
+        digits = re.findall(r"\d+(?:\.\d+)?", re.sub(r"^T\d+", "", criterion))
+        assert not digits, f"{task_id}: the rubric splits points ({digits}) but the grader awards all-or-0"
+        assert "at once" in line or "same rule" in line, (
+            f"{task_id}: the row must say the award is every limit at once, not just drop the numbers")
+    for task_id in ("quadrat", "korridor", "gps_anfahrt"):
+        assert "or 0" in rows[task_id], f"{task_id}: the Points cell must print '… or 0'"
+    t1 = rows["kinematik"]
+    per_phase = by_id["kinematik"]["points"] / len(by_id["kinematik"]["phases"])
+    assert f"{per_phase:g} P each" in t1, (
+        "T1 really is split by phase (points / len(phases)); keep it printed, do not harmonise it away")
+    assert "& 30 &" in t1 and "or 0" not in t1, "T1's row stays 30: a phase can pass while another fails"
+
+
+def test_award_is_all_criteria_at_once_not_one_criterion_at_a_time():
+    """The real `quadrat` task, one criterion met and one violated: the points are 0.0, not 20."""
+    import json as _json
+    from mecanum_lab.grade import Grader
+    from mecanum_lab.stub import StubBus
+    from mecanum_lab.types import Odom
+
+    with open(TASKS_FILE, encoding="utf-8") as fh:
+        task = next(a for a in _json.load(fh)["tasks"] if a["id"] == "quadrat")
+    path_limit = float(task["path_max"])
+
+    def grade_met_one_and_violated_one(m_per_s):
+        bus = StubBus("test")
+        start = Odom(t=0.0, x=2.0, y=2.0, theta=0.0)
+        bus.publish("/alice/odom", start)
+        gr = Grader("alice", task["id"], bus, {"tasks": [task], "order": [task["id"]]},
+                    world_info={"name": "production", "size": [24, 16], "goal": None,
+                                "spawns": [[2.0, 2.0, 0.0]], "walls": 8}).start()
+        t, dt = 0.0, 0.02
+        while not gr.tick(dt) and t < 40.0:
+            t += dt
+            bus.publish("/alice/odom", start)                  # pose never moves: closure error 0.0 m
+            bus.publish("/sim/robots", _json.dumps([{
+                "name": "alice", "index": 0, "contacts": 0, "distance": m_per_s * t,
+                "mission": "running" if t < 20.0 else "done", "mode": "wheels", "task": "quadrat"}]))
+        return gr.report()["tasks"][0]
+
+    good = grade_met_one_and_violated_one(0.35)               # 7 m: inside path_min..path_max
+    assert good["passed"] and good["points"] == task["points"], good["reason"]
+
+    bad = grade_met_one_and_violated_one(0.35 + (path_limit + 1.0) / 20.0)     # 13 m of path
+    assert not bad["passed"] and bad["points"] == 0.0, (
+        f"a task that meets closure and touches no wall still awards points: {bad}")
+    assert "path" in bad["reason"] and "closure" not in bad["reason"], (
+        f"the report should name the one limit that failed: {bad['reason']}")

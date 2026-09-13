@@ -84,5 +84,13 @@
     "jitter": 0.35
   },
   "debug_truth": true,
+  "_comment_view": "This demo is about the measurements themselves — beams without echo, fixes with quality 1, a trail that drifts — so it asks for the layers the default view keeps empty.",
+  "view": {
+    "layers": {
+      "scan": true,
+      "gps": true,
+      "trails": true
+    }
+  },
   "_comment_tail": "debug_truth publishes /<robot>/truth, so ghost, truth and GPS can be compared."
 }
