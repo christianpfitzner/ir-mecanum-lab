@@ -3,8 +3,10 @@
 All of this is checked with `tools/worldcheck.py` too — but that tool is a CLI for the
 supervisor, and these are the invariants a student's new world file must not break.
 """
+import heapq
 import math
 import os
+import re
 import subprocess
 import sys
 
@@ -83,6 +85,91 @@ def test_the_maze_is_no_arena():
     shares = [all((i + di, j + dj) in frei for di in (-1, 0, 1) for dj in (-1, 0, 1))
                for i, j in frei]
     assert sum(shares) / len(shares) < 0.6, "the maze may be coarser, but it must stay a maze"
+
+
+# ------------------------------------------------------------------------------- rooms
+#   The one world whose walls divide the hall instead of standing in it. `production` has racks — you
+#   drive around them and the hall stays one hall — so every measure of how open a world is rates it
+#   like an indoor plan. What makes `rooms` indoor is measured here in the two things that do differ.
+
+
+def _open_share(world) -> float:
+    """Share of free cells whose whole 3x3 neighbourhood is free — the maze test's own yardstick."""
+    free = free_cells(world)
+    return sum(all((i + di, j + dj) in free for di in (-1, 0, 1) for dj in (-1, 0, 1))
+               for i, j in free) / len(free)
+
+
+def _doors(line: str, wall: str = "#") -> list:
+    """Widths of the gaps in a line that is mostly wall — the doors of that wall.
+
+    Only lines that are at least 60 % wall count: a row of racks is not a wall that divides the hall,
+    and `production`, whose obstacles are all blocks, has no such line at all. A gap wider than six
+    cells is not a door either, it is the hall opening up.
+    """
+    if line.count(wall) < 0.6 * len(line):
+        return []
+    return [len(run) for run in re.findall(rf"[^{wall}]+", line) if 0 < len(run) <= 6]
+
+
+def test_rooms_is_no_arena():
+    """0.58 by the maze's yardstick, where `arena` reaches 0.89 and `open` 0.91."""
+    assert _open_share(load_world("rooms", cfg=CFG)) < 0.75, \
+        "rooms has been emptied — an indoor plan with nothing in it is the arena again"
+
+
+def test_the_widest_way_through_rooms_is_a_corridor():
+    """The widest route from a spawn to the goal is 0.75 m — the spine's own width, not an accident.
+
+    Measured as the widest path (the route whose narrowest point is as wide as any route's can be),
+    because that is what a driver faces: 0.75 m in `rooms` and in `track`, against 1.25 m in
+    `production` and 4.75 m in `arena`. The tight cells of that route are the cells of the 1.5 m corridor
+    — measured, they are the painted axis row of the plan — which is worth saying because it is the
+    *corridor* that makes this world indoor, not the doors: widening the doorway into the goal room to
+    4 m leaves the number at 0.75 m, while opening the corridor to 2.5 m turns the plan into a hall
+    (1.25 m) and this assertion says so. The lower bound is what the strict world check asks of the
+    robot (0.46 m): constrained route, still drivable.
+    """
+    world = load_world("rooms", cfg=CFG)
+    free = free_cells(world)
+    capacity = {p: gap(world, (p[0] + .5) * world.cell, (p[1] + .5) * world.cell) for p in free}
+    goal = (int(world.goal.x / world.cell), int(world.goal.y / world.cell))
+    widest = 0.0
+    for pose in world.spawns:
+        start = (int(pose.x / world.cell), int(pose.y / world.cell))
+        best, queue = {start: capacity[start]}, [(-capacity[start], start)]
+        while queue:
+            narrow, p = heapq.heappop(queue); narrow = -narrow
+            if narrow < best.get(p, 0) - 1e-9:
+                continue
+            for neighbour in ((p[0] + 1, p[1]), (p[0] - 1, p[1]), (p[0], p[1] + 1), (p[0], p[1] - 1)):
+                if neighbour in free:
+                    narrow_here = min(narrow, capacity[neighbour])
+                    if narrow_here > best.get(neighbour, -1):
+                        best[neighbour] = narrow_here
+                        heapq.heappush(queue, (-narrow_here, neighbour))
+        widest = max(widest, best.get(goal, 0.0))
+    needed = CFG["robot"]["footprint_r"] + 0.25
+    assert widest >= needed, f"the widest route is {widest:.2f} m, the robot needs {needed:.2f} m"
+    assert widest <= 1.0, f"a route {widest:.2f} m wide everywhere is `arena` with walls drawn in"
+
+
+def test_the_hard_door_in_rooms_is_still_the_only_one():
+    """Ten doorways divide the hall, nine of them 1.5 m and one 1.0 m — and that one is the exercise.
+
+    The wide doors are what makes the graded route drivable: the strict check wants 0.46 m at the
+    narrowest point of a route, and a 1 m doorway leaves only 0.25 m at its centre cell. The single
+    narrow doorway joins two rooms directly, off every start->goal route — the place where a sideways
+    odometry error costs a student a minute instead of a collision. Both halves are asserted because
+    both are easy to break by "fixing" one of them: widen the hard door and the world has lost its
+    point, narrow the rest and it has become unfair.
+    """
+    lines = open(os.path.join(REPO, "worlds", "rooms.txt"), encoding="utf-8").read().splitlines()
+    openings = [w for line in lines for w in _doors(line)] \
+        + [w for column in zip(*lines) for w in _doors("".join(column))]
+    assert len(openings) >= 6, f"only {len(openings)} doorways in walls that divide the hall"
+    assert sorted(openings)[:2] == [2, 3], f"door widths {sorted(openings)} — expected one 1 m door, rest 1.5 m"
+    assert 1 not in openings, "a 0.5 m doorway is not a door for a 0.42 m robot, it is a trap"
 
 
 # ------------------------------------------------------------------- cell size per world

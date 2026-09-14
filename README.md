@@ -109,9 +109,9 @@ are off until asked (`x`). On the bus nothing is hidden, `ros2 topic echo` still
 `--view sensors` starts with everything on, `--layers scan,ghost,-hud` picks layers by hand. Layers, view
 profiles and every segment of the readout line: **[docs/window.md](docs/window.md)**.
 
-## The five halls
+## The six halls
 
-![The five arenas at one scale, drawn by `tools/worldpic.py`: size and cell width above each panel, the tasks graded in it and the tightest passage below it.](docs/img/worlds.png)
+![The six arenas at one scale, drawn by `tools/worldpic.py`: size and cell width above each panel, the tasks graded in it and the tightest passage below it.](docs/img/worlds.png)
 
 | Hall | Picture | What it is for | Started with |
 |---|---|---|---|
@@ -120,6 +120,7 @@ profiles and every segment of the readout line: **[docs/window.md](docs/window.m
 | `open` | ![open: floor and a border wall](docs/img/world_open.png) | drift work: nothing between the robot and the wall, so a wrong wheel radius cannot hide behind a collision | `ros2 launch mecanum_lab lab.launch.py world:=open` |
 | `track` | ![track: a lane around a central island](docs/img/world_track.png) | the lane the odometry demos drive their drift into | `ros2 launch mecanum_lab lab.launch.py world:=track` |
 | `maze` | ![maze: narrow passages on a coarse grid](docs/img/world_maze.png) | narrow passages, and the hall `config/default.json` falls back to when nothing names one | `ros2 launch mecanum_lab lab.launch.py world:=maze` |
+| `rooms` | ![rooms: an indoor floor plan — rooms off a corridor, doorways, a goal in an alcove](docs/img/world_rooms.png) | the one plan whose walls *divide* the hall: every route runs through the corridor and a doorway, so a wrong lateral metre shows itself before a collision does. Long flat walls for the LIDAR, rooms to put a GPS shadow in | `ros2 launch mecanum_lab lab.launch.py world:=rooms` |
 
 Every task names the hall it is graded in inside `config/tasks.json`; `world:=` or `--world` overrides
 it. Sizes, passage widths, the task-to-hall table and how to add `worlds/name.txt` of your own:
@@ -181,7 +182,7 @@ nobody named outbids the `config:=` file, which is how a demo with `"world": "op
 | [docs/demos.md](docs/demos.md) | the six demos and what makes a run go fast (`--speed`, `--fixed-step`) |
 | [docs/kinematics.md](docs/kinematics.md) | Experiment 1: `serve()` and `mission()`, and the standing still |
 | [docs/window.md](docs/window.md) | layers, view profiles, the readout line |
-| [docs/worlds.md](docs/worlds.md) | the five arenas at one scale, task↔arena, the empty hall |
+| [docs/worlds.md](docs/worlds.md) | the six arenas at one scale, task↔arena, the empty hall, the indoor plan |
 | [docs/steering.md](docs/steering.md) | the second drive train (Ackermann) and its two measured lessons |
 | [docs/poi.md](docs/poi.md) | the radiation source `/poi`, its field, why it goes through tables |
 | [docs/wifi.md](docs/wifi.md) | the radio link `/link`, and what `autonomy` means when it drops |

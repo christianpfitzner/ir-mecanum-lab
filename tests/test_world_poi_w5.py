@@ -118,7 +118,7 @@ def test_the_picture_draws_every_world_including_the_empty_one(tmp_path):
 def test_the_documentation_quotes_the_widths_the_checker_measures():
     """The documentation states passage widths; the numbers have to be the checker's, not the author's."""
     pages = text()
-    quoted = {"arena": "5.25", "maze": "0.50", "open": "9.25"}
+    quoted = {"arena": "5.25", "maze": "0.50", "open": "9.25", "rooms": "0.75"}
     for name, number in quoted.items():
         caption = worldpic.clearance(name, CFG)              # what goes under the panel
         assert number in caption, f"{name}: the picture says {caption!r}"

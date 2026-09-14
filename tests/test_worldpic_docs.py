@@ -3,15 +3,16 @@
 One test, two things: the tool still draws every shipped world (no window, no network), and the
 PNG that the README links is present and non-trivial. If someone edits worlds/*.txt into
 something unparsable, or breaks tools/worldpic.py, the README figure is broken too — that is
-what this catches. How many panels there are follows `worlds/`: since `open` the grid is five wide
-in three columns, and `tests/test_world_poi_w5.py` is where the numbers under the panels are
-compared with the README.
+what this catches. How many panels there are follows `worlds/`: since `rooms` the set is six, in three columns, and
+`tests/test_world_poi_w5.py` is where the numbers under the panels are compared with the README.
 """
 import os
 import subprocess
 import sys
 
 from support_docs import where
+
+from mecanum_lab.worlds import list_worlds
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WERKZEUG = os.path.join(ROOT, "tools", "worldpic.py")
@@ -53,7 +54,7 @@ def test_the_hall_pictures_of_the_front_page_are_the_tool_run_today(tmp_path):
     import pygame
     pygame.display.init()
 
-    for name in ("arena", "maze", "open", "production", "track"):
+    for name in list_worlds():
         committed = os.path.join(ROOT, "docs", "img", f"world_{name}.png")
         fresh = tmp_path / f"world_{name}.png"
         result = subprocess.run([sys.executable, WERKZEUG, "--worlds", name, "--out", str(fresh)],
