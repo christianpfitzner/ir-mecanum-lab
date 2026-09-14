@@ -6,19 +6,27 @@
              ├─ <robot>/laser        static, offset in tf.mount
              └─ <robot>/imu_link     static, offset in tf.mount
 
-Two decisions are worth knowing before changing anything here:
+Three decisions are worth knowing before changing anything here:
 
 * **Why the robot name in front of the frame.** TF names are global in a ROS graph, and in
   the lab 25 robots drive in the same hall. Without the prefix would every robot claim the
   frame `odom` for itself and RViz could no longer assign a scan to a robot. Topic names and
   `/sim/robots` stay as they are — only the headers gain the prefix.
+* **Why `tf.tree` can hand the top edge away.** With `tf.tree: slam` the simulator stops publishing
+  `map -> <robot>/odom` and calls its own ground frame `hall`, so that a mapping node can publish
+  `map -> <robot>/odom` the way it always wants to. Two publishers on that one edge would give
+  `<robot>/odom` two parents, which is not a tree. The default `sim` changes nothing for the labs.
+* **Why hall coordinates are called `hall` in that mode.** A mapper anchors `map` wherever the first scan
+  found the robot, which is not the bottom-left corner of the hall, and GPS, truth and KF messages are
+  measured from the hall. Two places that are not the same must not share a frame name.
 * **Why `map -> odom` is the identity by default.** Then `map -> base_link` is exactly the
   drifting odometry, which is the point of the Kalman lab: the students close that gap with
   GPS and IMU themselves instead of getting the answer from the simulator. The tutor view of
   the exact pose is one setting away (`--set tf.map_to_odom=truth`) and does not replace
-  `/<robot>/truth`.
+  `/<robot>/truth`. It has nothing left to say in `slam` mode, where the mapper owns that edge.
 
-RViz works with this: Fixed Frame `map`, the rest follows from /tf and /tf_static.
+RViz works with this: Fixed Frame `map` (`hall` with `tf.tree: slam`), the rest follows from /tf and
+/tf_static.
 """
 import math
 
@@ -28,12 +36,22 @@ from .types import cfg_get, wrap_angle
 KIND_FRAME = {"odom": "odom", "scan": "laser", "imu": "imu", "gps": "map", "truth": "map",
               "kf": "map"}
 
+# tf.tree -> what the frame of the hall's own coordinates is called here. In `slam` mode the name `map` is
+# left to the mapper, which anchors its map wherever the first scan found the robot — not at the bottom-left
+# corner of the hall, which is where the simulator's GPS and truth messages are measured from.
+GROUND = {"sim": "map", "slam": "hall"}
+
 
 def frames(name: str, cfg: dict | None = None) -> dict:
     """Frame names of one robot, with the robot as prefix unless tf.namespaces is false."""
     pr = f"{name}/" if name and cfg_get(cfg or {}, "tf.namespaces", True) else ""
-    return {"map": "map", "odom": pr + "odom", "base": pr + "base_link",
+    return {"map": GROUND.get(tree(cfg), "map"), "odom": pr + "odom", "base": pr + "base_link",
             "laser": pr + "laser", "imu": pr + "imu_link"}
+
+
+def tree(cfg: dict | None = None) -> str:
+    """`tf.tree`, read the one place: `sim` publishes the whole tree, `slam` leaves its top edge out."""
+    return str(cfg_get(cfg or {}, "tf.tree", "sim")).lower()
 
 
 def frame_for(kind: str, name: str = "", cfg: dict | None = None) -> str:
@@ -83,7 +101,11 @@ def static_tree(M, engine, cfg: dict, t: float) -> list:
 
 
 def dynamic_tree(M, engine, cfg: dict, t: float) -> list:
-    """map -> odom (see module docstring) and odom -> base_link from the odometry."""
+    """map -> odom (see module docstring) and odom -> base_link from the odometry.
+
+    With `tf.tree: slam` the first of those is not published at all: a mapping node owns `map -> odom`, and
+    two publishers on one edge give `odom` two parents.
+    """
     truth_mode = str(cfg_get(cfg, "tf.map_to_odom", "odom")).lower() == "truth"
     sending = []
     for robot in engine.robots.values():
@@ -97,7 +119,8 @@ def dynamic_tree(M, engine, cfg: dict, t: float) -> list:
             x = truth_pose.x - (cos * odo.x - sin * odo.y)
             y = truth_pose.y - (sin * odo.x + cos * odo.y)
             yaw = theta
-        sending.append(_trans(M, t, "map", f["odom"], x, y, yaw))
+        if tree(cfg) == "sim":
+            sending.append(_trans(M, t, f["map"], f["odom"], x, y, yaw))
     return sending
 
 

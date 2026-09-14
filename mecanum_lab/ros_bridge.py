@@ -217,8 +217,15 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         m.angle_increment, m.scan_time = payload.angle_increment, 0.02
         m.time_increment = m.angle_increment / max(360 * 10, 1)
         m.range_min, m.range_max = payload.range_min, payload.range_max
-        # A laser reports "no echo" as its range, not as infinity.
-        m.ranges = [payload.range_max if r != r or r == math.inf or r > payload.range_max
+        # "No echo" has two dialects. The simulator has always spoken the first one — the missing beam comes
+        # back as the laser's own range, which is what every laboratory here has measured since the start, so
+        # it stays the default. The second is what `sensor_msgs/msg/LaserScan` documents and what a mapper
+        # understands: infinity, „this beam left and did not come back". The difference is not cosmetic — a
+        # beam beyond its `max_laser_range` is dropped by slam_toolbox rather than traced past, so with the
+        # first dialect a hall that is open in every direction arrives as a map with one metre of floor on it.
+        far = float("inf") if str(tf_bcast.cfg_get(cfg, "sensor.lidar.no_echo", "range_max")).lower() == "inf" \
+            else payload.range_max
+        m.ranges = [far if r != r or r == math.inf or r > payload.range_max
                     else float(r) for r in payload.ranges]
         m.intensities = []
         return m

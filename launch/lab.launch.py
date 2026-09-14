@@ -55,6 +55,10 @@ BASICS = [
     ("log", "", "measurement log as CSV, e.g. messung.csv — tools/kfplot.py reads it (empty = no log)"),
     ("json", "", "grading report as JSON, e.g. bericht.json (empty = the report on screen only)"),
     ("seed", "", "noise seed: the same seed, the same measurement series (empty = the simulator's 1)"),
+    ("tf_tree", "", "tf tree to publish: sim (whole tree, map is the hall) | slam (a mapper publishes "
+                    "map -> odom, hall coordinates are frame `hall`) — empty = sim"),
+    ("lidar_no_echo", "", "a missing echo as: range_max (default, what the laboratories measure) | inf "
+                         "(what a mapper reads as \"open beyond\") — empty = range_max"),
 ]
 
 # launch argument -> the option of `mecanum_lab.node` it stands for. Everything here is passed only when
@@ -90,6 +94,10 @@ def start(context, *args, **kwargs):
             sim_cmd += [option, path_of(given) if argument == "config" else given]
     if read_arg("truth").lower() in TRUE:
         sim_cmd.append("--truth")           # a flag of its own, so it is not in the table
+    if read_arg("tf_tree"):
+        sim_cmd += ["--set", f"tf.tree={read_arg('tf_tree')}"]      # a config path, likewise
+    if read_arg("lidar_no_echo"):
+        sim_cmd += ["--set", f"sensor.lidar.no_echo={read_arg('lidar_no_echo')}"]
     if read_arg("grade"):
         sim_cmd += ["--grade", read_arg("grade"), "--robot", robot]
     controller_cmd = child("controller") + ["--robot", robot, "--controller", controller]

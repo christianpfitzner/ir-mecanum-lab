@@ -184,3 +184,45 @@ def test_frames_of_messages_without_a_prefix_stay_as_they_were():
     scan = Scan(t=0.0, angle_min=0.0, angle_increment=0.1, range_min=0.05, range_max=8.0,
                 ranges=[1.0] * 4)
     assert ros_bridge.to_ros(M, "scan", scan).header.frame_id == "laser"
+
+
+# ------------------------------------------------- the tree a mapper is allowed to own the top of
+
+SLAM = {**CFG, "tf": {**CFG["tf"], "tree": "slam"}}
+
+
+def edges_of(sending):
+    return {(t.header.frame_id, t.child_frame_id) for t in sending}
+
+
+def test_in_slam_mode_the_simulator_leaves_the_top_edge_to_the_mapper():
+    """`map -> <robot>/odom` is the edge a SLAM node always publishes. Two publishers on one edge gives
+    <robot>/odom two parents, which is not a tree — so one of them has to stay quiet, and here it is the
+    simulator."""
+    sending = tf_bcast.dynamic_tree(M, engine(make_robot()), SLAM, 1.0)
+    assert edges_of(sending) == {("alice/odom", "alice/base_link")}
+    assert not [parent for parent, _ in edges_of(sending) if parent in ("map", "hall")]
+
+
+def test_in_slam_mode_the_hall_is_not_called_map():
+    """GPS, truth and KF positions are measured from the corner of the hall. A mapper anchors `map` at
+    wherever its first scan found the robot. Two places that are not one place must not share a name."""
+    assert tf_bcast.frames("alice", SLAM)["map"] == "hall"
+    for kind in ("gps", "truth", "kf"):
+        assert tf_bcast.frame_for(kind, "alice", SLAM) == "hall"
+    for kind, frame in (("scan", "alice/laser"), ("imu", "alice/imu_link"), ("odom", "alice/odom")):
+        assert tf_bcast.frame_for(kind, "alice", SLAM) == frame
+
+
+def test_a_tree_that_is_not_named_stays_the_tree_of_every_laboratory():
+    """Every exercise written before this switch existed reads the default, so the default has to be
+    exactly what those exercises are built on: the whole tree, `map -> odom` the identity."""
+    assert tf_bcast.tree({}) == "sim" and tf_bcast.tree(CFG) == "sim"
+    assert edges_of(tf_bcast.dynamic_tree(M, engine(make_robot()), CFG, 1.0)) == \
+        {("map", "alice/odom"), ("alice/odom", "alice/base_link")}
+
+
+def test_the_mounts_underneath_are_the_same_in_both_trees():
+    for cfg in (CFG, SLAM):
+        assert edges_of(tf_bcast.static_tree(M, engine(make_robot()), cfg, 1.0)) == \
+            {("alice/base_link", "alice/laser"), ("alice/base_link", "alice/imu_link")}
