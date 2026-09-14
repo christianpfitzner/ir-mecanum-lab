@@ -33,12 +33,18 @@ log = logging.getLogger("mecanum.ros")
 # kind -> (class in the M dict, direction); direction "p" = sim sends, "s" = sim receives
 KIND_MSG = {"twist": "Twist", "wheels": "Float64MultiArray", "odom": "Odometry",
             "scan": "LaserScan", "gps": "PoseStamped", "truth": "PoseStamped",
+            # The fix mirrored with its uncertainty, from the same payload and the same stamp — see
+            # the comment at types.MSG_SPECS["gpscov"] for why /gps itself stays a PoseStamped.
+            "gpscov": "PoseWithCovarianceStamped",
             "imu": "Imu", "kf": "PoseWithCovarianceStamped", "kfinfo": "String",
             "mission": "String", "robots": "String", "world": "String",
             "task": "String", "config": "String", "clock": "Clock", "poi": "String",
             "link": "String", "sensorinfo": "String"}
 # Frame names live in tf_bcast: the same names in the message headers and in /tf, each
 # carrying the robot as prefix. Nothing here invents frame names of its own.
+# Which kind is *read* from which topic where they differ; publishing is unaffected. Reading the GPS
+# fix off its covariance topic is why `rob.gps().sigma_xy` is never a silent 0.
+READS = {"gps": "gpscov"}
 # Placeholder uncertainty of the IMU assembly (diagonal), so RViz and rqt do not work
 # with zero covariances. Anyone who wants tighter numbers: they belong in the filter,
 # not in the driver — the filter knows its own state.
@@ -187,6 +193,16 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
                            tf_bcast.frame_for(kind, robot, cfg))
         _set_pose(M, m.pose, payload.x, payload.y, payload.theta)
         return m
+    if kind == "gpscov":
+        # The fix of `/gps` again, with the R of that one emission. `sats` and `quality` have no
+        # place in this message either — `/sensor/info` is where the instrument reports them.
+        m = M["PoseWithCovarianceStamped"]()
+        m.header = _header(M, payload.t, tf_bcast.frame_for("gps", robot, cfg))
+        _set_pose(M, m.pose.pose, payload.x, payload.y, payload.theta)
+        # ROS stores the pose covariance as [x, y, z, roll, pitch, yaw] — on the diagonal, squared
+        m.pose.covariance = cov36((payload.sigma_xy ** 2, payload.sigma_xy ** 2, 1e-12, 1e-12,
+                                   1e-12, payload.sigma_theta ** 2))
+        return m
     if kind == "kf":
         m = M["PoseWithCovarianceStamped"]()
         m.header = _header(M, payload.t, tf_bcast.frame_for("kf", robot, cfg))
@@ -260,6 +276,11 @@ def from_ros(kind: str, msg):
     if kind in ("gps", "truth"):
         p = msg.pose.position
         return Gps(_stamp(msg.header), p.x, p.y, quat_to_yaw(msg.pose.orientation))
+    if kind == "gpscov":
+        p, cov = msg.pose.pose, cov_diag(msg.pose.covariance)
+        return Gps(_stamp(msg.header), p.position.x, p.position.y, quat_to_yaw(p.orientation),
+                   sigma_xy=math.sqrt(max(cov[0], 0.0)),
+                   sigma_theta=math.sqrt(max(cov[5], 0.0)))
     if kind == "kf":
         p, cov = msg.pose.pose, cov_diag(msg.pose.covariance)
         return Kf(_stamp(msg.header), p.position.x, p.position.y, quat_to_yaw(p.orientation),
@@ -354,8 +375,15 @@ class RclpyBus:
                                                          topic(kind, robot), 10)
         p, M = self._pubs[key], self.M
 
+        if kind == "gps":                               # every `/gps` also appears on `/gps_cov`
+            cov = self.pub("gpscov", robot)             # with the σ the emission was drawn with
+        else:
+            cov = None
+
         def send(payload):
             p.publish(to_ros(M, kind, payload, robot, self.cfg))
+            if cov is not None:
+                cov(payload)
         return send
 
     def publish(self, name: str, payload) -> None:
@@ -365,9 +393,17 @@ class RclpyBus:
     # ---------------------------------------------------------------- subscriber side
 
     def sub(self, kind: str, robot: str | None, cb) -> None:
-        """Subscription with the real message type; `cb` gets the dataclass from types.py again."""
-        self._subscribe(KIND_MSG[kind], topic(kind, robot),
-                        lambda msg, k=kind, c=cb: self._recv(topic(k, robot), c, from_ros(k, msg)))
+        """Subscription with the real message type; `cb` gets the dataclass from types.py again.
+
+        A GPS fix is read on `/gps_cov` and not on `/gps`: the `PoseStamped` on `/gps` has no place for
+        the σ of its emission, and `rob.gps()` must answer the same `types.Gps` — σ included — whether
+        or not ROS is sourced. `/gps` itself is still published exactly as it was, so a solution that
+        subscribes to it by name is unaffected.
+        """
+        gelesen = READS.get(kind, kind)
+        self._subscribe(KIND_MSG[gelesen], topic(gelesen, robot),
+                        lambda msg, k=kind, g=gelesen, c=cb:
+                        self._recv(topic(k, robot), c, from_ros(g, msg)))
 
     def sub_topic(self, name: str, cb) -> None:
         """Subscription to a string topic; `cb` gets the plain text (JSON or task name)."""

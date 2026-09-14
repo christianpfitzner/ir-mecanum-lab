@@ -174,6 +174,15 @@ class Gps:
     not two numbers in one message: no radio (gap window, blackout zone, dropped packet) against a fix
     that is worthless where it was taken. This used to claim that a receiver could answer with quality
     0, which no code path ever produced.
+
+    The two sigmas ride along because they are not a constant of the device: a `gps.zones` shadow
+    multiplies `sigma_xy` for the fixes it produces (`sensors.GpsSensor._measure`), so the number a
+    filter needs is the one of the emission it is holding — not the one in `config/default.json`, and
+    not the one `/sensor/info` answers, which is the *setting*. With `delay_ticks` the difference is
+    visible in one message: a fix measured in the open and delivered after the robot drove into the
+    shadow carries the open-sky σ, and a filter that reads the setting instead trusts a number that
+    belongs to a place the robot has already left. ROS publishes the same two numbers as the diagonal
+    of a `PoseWithCovarianceStamped` on `/gps_cov` (see `types.MSG_SPECS`).
     """
     t: float = 0.0
     x: float = 0.0
@@ -181,6 +190,8 @@ class Gps:
     theta: float = 0.0
     quality: int = 2              # 2 good · 1 degraded; 0 belongs to a place, not to a message
     sats: int = 8                 # anchors in view (`GpsSensor.sky`), which is where 0 would come from
+    sigma_xy: float = 0.0         # the σ **this** fix was drawn with, metres
+    sigma_theta: float = 0.0      # the σ **this** fix was drawn with, radians
 
 
 @dataclass
@@ -364,6 +375,12 @@ MSG_SPECS = {
     "odom":    ("nav_msgs/msg/Odometry",            "odom",          "robot"),
     "scan":    ("sensor_msgs/msg/LaserScan",        "scan",          "robot"),
     "gps":     ("geometry_msgs/msg/PoseStamped",    "gps",           "robot"),
+    # The same fix a second time, and this one brings its uncertainty: `/gps` stays a `PoseStamped`
+    # because the handout, the student solutions and `ros2 topic echo` all read it that way, and
+    # changing a published type mid-course would silently break every one of them. A subscriber who
+    # wants R subscribes to `/gps_cov` instead — same stamp, same frame, same numbers, plus the
+    # diagonal (σ_xy², σ_xy², …, σ_theta²) of the emission that was measured here.
+    "gpscov":  ("geometry_msgs/msg/PoseWithCovarianceStamped", "gps_cov", "robot"),
     "imu":     ("sensor_msgs/msg/Imu",              "imu",           "robot"),
     "kf":      ("geometry_msgs/msg/PoseWithCovarianceStamped", "kf/pose", "robot"),
     "kfinfo":  ("std_msgs/msg/String",              "kf/info",       "robot"),

@@ -1,9 +1,7 @@
 # The six demos, the one drift that needs no file, and how fast a run goes
 
-Each demo changes one block of the config and leaves the graded defaults alone. All six ship as files
-under `config/` because the graded tasks are calibrated on the plain sensor settings of each experiment,
-and a default that lies would move what every filter is graded against. One page each, with the commands,
-the keys, what the window shows and what was measured:
+Each demo changes one block of the config and leaves the graded defaults alone. All six ship as files under
+`config/`, because the graded tasks are calibrated on the plain sensor settings.
 
 | demo | what it changes | page |
 |---|---|---|
@@ -14,16 +12,11 @@ the keys, what the window shows and what was measured:
 | `wifi` | the radio link and its access point | [demos/wifi.md](demos/wifi.md) |
 | `poi_exploration` | a radiation source somewhere in the hall | [demos/poi_exploration.md](demos/poi_exploration.md) |
 
-Everything else on this page belongs to no single demo: the drift that comes from the wall, the two
-knobs that decide how long a run takes, and how the figures in `docs/img/` are built.
-
 ## Wheel slip: odometry you can watch lying
 
-Press the robot against a wall and the odometry keeps counting metres that were never driven. No sensor
-noise is involved. The model is physical: against an obstacle the body stands still while the wheels keep
-the speed the motor demands, and odometry integrates wheel speeds — `sensors.py` integrates what the
-wheels report, never the truth. `robot.slip` scales it: `1` is full slip and the default, `0` is ideal
-static friction with honest odometry.
+Press the robot into a wall. The body stands still, the wheels keep the speed the motor demands, and
+`sensors.py` integrates what the wheels report — never the truth. `robot.slip` scales the effect: `1` is
+full slip and the default, `0` is ideal static friction with honest odometry.
 
 Measured in `arena`, 4 s of full throttle east into the wall, seed 5:
 
@@ -38,24 +31,23 @@ By hand:
 ros2 launch mecanum_lab lab.launch.py world:=arena
 ```
 
-then `Up` into the east wall. The `odom x` in the readout climbs while the dot stays where it is. To
-drive it with nothing but the counter — no `/gps`, no truth, no `distance` field — the worked example is
-`student/poi_seek_example.py`, on [demos/poi_exploration.md](demos/poi_exploration.md).
+then `Up` into the east wall, and watch the `odom x` in the readout climb while the dot stays put. Want it
+on the counter alone — no `/gps`, no truth, no `distance` field? `student/poi_seek_example.py`, on
+[demos/poi_exploration.md](demos/poi_exploration.md).
 
 ## How fast a run goes
 
-`./lab grade` runs in real time, because that is what the lab course does. Two knobs change the pace and
-neither changes the measurement: `--speed 4` takes four simulation seconds per wall second, and
-`--fixed-step` steps exactly 1/`rate` per round and never sleeps, which also switches the sleeps of the
-in-process bus off so a student node can keep up. Both keep the fixed physics step and the seed. A run
-that cannot keep up says so once, with the seconds it lost.
+`./lab grade` runs in real time — that is what the lab course does. Two knobs change the pace and neither
+changes the measurement. `--speed 4` takes four simulation seconds per wall second. `--fixed-step` steps
+exactly 1/`rate` per round and never sleeps; that also switches the sleeps of the in-process bus off, so a
+student node can keep up. Both keep the fixed physics step and the seed, and a run that cannot keep up says
+so once, with the seconds it lost.
 
 ```bash
 ./lab grade --task alle --controller student/solution.py --speed 4
 ```
 
-104 s of simulated drive in 26 s of wall. Stepped as fast as the CPU allows, for a CI box without a
-window:
+104 s of simulated drive in 26 s of wall. For a CI box without a window:
 
 ```bash
 ./lab grade --task alle --controller student/solution.py --fixed-step
@@ -67,14 +59,13 @@ The same report in 5 s, about 36× realtime. Without pygame at all, for a loop o
 python3 tools/fastgrade.py --task kf_alle --speed 8
 ```
 
-Experiment 2 has to stay near real speed, because `rate_hz` is the node's message rate per **sim**
-second: `docs/CONTRACT.md` §9.1 and `docs/CONTRACT-KF.md` §5.1.
+Experiment 2 has to stay near real speed: `rate_hz` is the node's message rate per **sim** second, see
+`docs/CONTRACT.md` §9.1 and `docs/CONTRACT-KF.md` §5.1.
 
 ## How the two figures are built
 
-The same determinism makes a screenshot reproducible, so both figures are build products rather than
-photographs of a monitor. `--frame-max N` stops after N drawn frames, `--screenshot FILE.png` saves the
-last one:
+A deterministic run makes a screenshot reproducible, so both figures are build products rather than
+photographs of a monitor. `--frame-max N` stops after N drawn frames, `--screenshot FILE.png` saves the last:
 
 ```bash
 ./lab sim --world production --config config/demo_gps_shadow.json --robots muster \
@@ -86,27 +77,23 @@ last one:
           --headless --fixed-step --frame-max 30 --screenshot docs/img/readout-radio.png
 ```
 
-Both run headless in CI with the dummy video driver. `tests/test_readout_pictures_w7.py` reads these two
-commands out of this file, runs them and compares the committed picture with what the command draws
-today, byte for byte below the two text rows — the fps counter in the first row is the one number a
-headless run cannot promise. The same test insists a robot is drawn in both. `tools/worldpic.py` draws
-the arena figures the same way. A figure that cannot be regenerated by the command next to it is a figure
-that is quietly lying.
+`tests/test_readout_pictures_w7.py` reads these two commands out of this file and runs them headless on the
+dummy video driver. Below the two text rows it compares committed pixels with today's drawing byte for byte
+— the fps counter in row 1 is the one number a headless run cannot promise — and it insists a robot is
+drawn in both. `tools/worldpic.py` draws the arena figures the same way.
 
 ![Frame 30 of `config/demo_gps_shadow.json` on `production`, 0.60 s of simulation time: the robot at its
-spawn pose and the readout line above the map. Its own odometer says `x=+2.25 y=+2.75` while the GPS fix
-for the same instant says `x=+2.29 y=+2.76` — five centimetres of error at a robot that has not moved,
-with `q2 8 sats`. The hatched rectangles are the GPS shadow zones, each labelled with what it does to a
-fix; the robot starts outside all of them.](docs/img/readout-gps-shadow.png)
+spawn pose, the readout line above the map. Its odometer says `x=+2.25 y=+2.75`, the GPS fix of the same
+instant `x=+2.29 y=+2.76` — five centimetres of error at a robot that has not moved, `q2 8 sats`. The
+hatched rectangles are the GPS shadow zones, each labelled with what it does to a fix; the robot starts
+outside all of them.](docs/img/readout-gps-shadow.png)
 
-![Frame 30 of `config/demo_wifi.json`, the same 0.60 s: the access point at the left wall, the robot at
-the spawn pose with the link-quality bar above it, and `wifi q 1.00 -43.6` at the right end of the
-readout line — the best the link gets in this hall.](docs/img/readout-radio.png)
+![Frame 30 of `config/demo_wifi.json`, the same 0.60 s: the access point at the left wall, the robot at the
+spawn pose with its link-quality bar above it, and `wifi q 1.00 -43.6` at the right end of the readout
+line — the best the link gets in this hall.](docs/img/readout-radio.png)
 
-Both frames are the readout line and the map at the spawn pose, which is the state a headless run reaches
-without anyone driving. A robot *inside* the shadow or *under* the failsafe needs a controller and a few
-thousand frames, so the in-flight numbers on the demo pages stay quoted transcripts of driven runs, and
-`tests/test_wifi_w6.py` asserts the positions those transcripts name. What a screenshot does prove is
-that the segments exist, that they are drawn from the numbers the topics carry, and that the picture is
-rebuildable. Both are 1120 × 700 px — `view.width` × `view.height` of `config/default.json` — at the
-default `view.scale` of 54 px/m.
+Both frames show the spawn pose, because that is what a headless run reaches without anyone driving. A
+robot *inside* the shadow or *under* the failsafe needs a controller and a few thousand frames, so the
+in-flight numbers on the demo pages stay quoted transcripts of driven runs — `tests/test_wifi_w6.py`
+asserts the positions those transcripts name. Both are 1120 × 700 px (`view.width` × `view.height` of
+`config/default.json`) at the default `view.scale` of 54 px/m.

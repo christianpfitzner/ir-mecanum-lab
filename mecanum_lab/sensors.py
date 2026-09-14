@@ -356,7 +356,8 @@ class GpsSensor:
         return Gps(t=t, x=pose.x + self.bias[0] + dx + self.noise.gauss(sigma),
                    y=pose.y + self.bias[1] + dy + self.noise.gauss(sigma),
                    theta=wrap_angle(pose.theta + self.noise.gauss(self.sigma_theta)),
-                   quality=quality, sats=sats)
+                   quality=quality, sats=sats,
+                   sigma_xy=sigma, sigma_theta=self.sigma_theta)
 
     def sky(self, pose, zone=None) -> tuple:
         """(quality, anchors in view) at `pose` — the same rule the fix reports with.

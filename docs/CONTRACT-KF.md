@@ -30,13 +30,16 @@ For this to work the robot stays in `pass-through` mode: the experiment 2 node n
 | Topic | Type | Direction | Content |
 |---|---|---|---|
 | `/<robot>/imu` | `sensor_msgs/msg/Imu` | sim → all | 100 Hz (configurable), body-frame axes, `linear_acceleration.z ≈ +g` |
+| `/<robot>/gps_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | sim → all | the fix of `/<robot>/gps` again, with the covariance of **that emission** on the diagonal — the R a filter should use, see §8.2 |
 | `/<robot>/kf/pose` | `geometry_msgs/msg/PoseWithCovarianceStamped` | students → sim/grader | own estimate incl. 1σ (diagonal) |
 | `/<robot>/kf/info` | `std_msgs/msg/String` | students → all | JSON diagnostics (run time, rates, Q/R) — the evaluator ignores it |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → all | as in experiment 1, now with an adjustable rate (`truth.rate`), only with `debug_truth` |
 | `/sim/config` | `std_msgs/msg/String` | sim → all | JSON of the sensor configuration (the grader checks the test profile) |
 
 `types.MSG_SPECS` carries the new keys `imu`, `kf`, `kfinfo`; `topic("kf","alice")`
-→ `/alice/kf/pose`.
+→ `/alice/kf/pose`. `gpscov` (→ `/alice/gps_cov`) is registered there too and is published as a mirror
+of every `gps` payload — `/gps` itself stayed a `PoseStamped`, because the handout and every solution in
+this tree subscribe to it as one.
 
 ## 3. IMU model (`sensors.ImuSensor`) — intent and values
 
@@ -348,7 +351,16 @@ Two consequences of that rule, both in the reference solution and in the templat
 
 `types.Imu`: `t, ax, ay, az, gx, gy, gz, roll, pitch, temp` (`az` ≈ +g at rest; `temp` is the °C of
 §3, and on the ROS wire it rides on `/<robot>/sensor/info`, because `sensor_msgs/msg/Imu` has no such
-field). `types.Odom`: `t, x, y, theta, vx, vy, omega`. `types.Gps`: `t, x, y, theta`.
+field). `types.Odom`: `t, x, y, theta, vx, vy, omega`. `types.Gps`: `t, x, y, theta, quality, sats,
+sigma_xy, sigma_theta`.
+
+`rob.gps().sigma_xy` is the σ **that fix** was drawn with; `rob.config("gps.sigma_xy")` is the
+**setting**. They differ wherever this contract talks about imperfections: under a `gps.zones` shadow
+(the shadow multiplies the σ of the fixes it produces) and, once `delay_ticks` is on, for as long as a
+fix measured somewhere else is still on the wire. A filter that builds R from the setting is wrong in
+exactly those two runs — and those are the runs the tasks are made of. `/<robot>/gps_cov` is the same
+answer on the ROS side: same stamp, same frame, `covariance[0] = σ_xy²`, `covariance[35] = σ_theta²`,
+all 30 off-diagonal fields 0.0 because the sim draws the two axes independently.
 
 ### 8.3 Grading (grade.py, per task in `config/tasks.json`)
 

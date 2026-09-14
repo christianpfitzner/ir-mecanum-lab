@@ -162,6 +162,12 @@ def sensor_readout(rend, robot) -> list:
     fix, rays, inertial = robot.gps, robot.scan, robot.imu
     quality, sats, lost = _gps_view(rend, robot)
     gps = "gps " + (f"x={fix.x:+.2f} y={fix.y:+.2f}" if fix else "no fix")
+    if fix is not None and fix.sigma_xy:
+        # the σ of the fix that arrived, not of the settings — in a `gps.zones` shadow this number
+        # moves and the configured one does not, which is the difference a filter has to see. Only
+        # the position, because only the position is on this segment; the yaw σ is on `/gps_cov`
+        # and in the log's `sigmatheta_gps`. A noiseless receiver (σ 0) prints nothing here.
+        gps += f" σ{fix.sigma_xy:.2f}"
     gps += f" q{quality} {sats} sats" + (f" lost {lost}" if lost else "")
     amber = mix(GREY, (250, 205, 90), 0.55 if quality == 1 else 0.9)      # q1 warm, q0 loud
     out = [(gps, GREY if quality == 2 else amber)]

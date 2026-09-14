@@ -27,9 +27,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STEP = 0.02                      # the 50 Hz physics step these drives are run at
 DEMO = "config/demo_sensor_reality.json"
 MEASURED = ("odom", "scan", "gps", "imu", "truth")
-# The four fields W3 added to the messages. Comparing streams is about the numbers that already
-# existed; the new fields have their own tests below.
-NEW_FIELDS = {"quality", "sats", "missing", "temp"}
+# The fields later rounds added to the messages. Comparing streams is about the numbers that already
+# existed; the new fields have their own tests (`quality`, `sats`, `missing`, `temp` in
+# test_sensor_reality.py itself, `sigma_xy`/`sigma_theta` in test_gps_covariance_a.py).
+NEW_FIELDS = {"quality", "sats", "missing", "temp", "sigma_xy", "sigma_theta"}
 # Every odom/scan/gps/imu/truth message of the drive below, full precision, the four fields of W3
 # left out; one line per message, each ending in a newline. Measured against the modules from
 # before the knobs existed: 2337 messages, sha256 of that text.

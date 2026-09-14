@@ -23,6 +23,7 @@ log = logging.getLogger("mecanum.logbook")
 COLUMNS = ["t", "robot",
            "x_truth", "y_truth", "th_truth", "vx_truth", "vy_truth", "omega_truth",
            "x_gps", "y_gps", "th_gps", "t_age_gps", "q_gps", "sats_gps", "lost_gps",
+           "sigma_gps", "sigmatheta_gps",
            "x_odom", "y_odom", "th_odom",
            "x_kf", "y_kf", "th_kf", "sx_kf", "sy_kf", "n_kf",
            "ax_imu", "ay_imu", "gz_imu", "temp_imu", "noecho_scan",
@@ -30,7 +31,8 @@ COLUMNS = ["t", "robot",
 
 # Which field of which message goes into which column (dataclass field names, see types.py)
 FIELDS = {"truth": {"x": "x_truth", "y": "y_truth", "theta": "th_truth"},
-          "gps": {"x": "x_gps", "y": "y_gps", "theta": "th_gps", "t": "t_gps"},
+          "gps": {"x": "x_gps", "y": "y_gps", "theta": "th_gps", "t": "t_gps",
+                  "sigma_xy": "sigma_gps", "sigma_theta": "sigmatheta_gps"},
           "odom": {"x": "x_odom", "y": "y_odom", "theta": "th_odom"},
           "kf": {"x": "x_kf", "y": "y_kf", "theta": "th_kf", "sx": "sx_kf", "sy": "sy_kf"},
           "imu": {"ax": "ax_imu", "ay": "ay_imu", "gz": "gz_imu", "temp": "temp_imu"},
@@ -77,6 +79,11 @@ class Logbook:
         after the last fix the message still says "good", and the interesting moment is exactly the
         one where nothing arrives. `q_gps` says what the sky is worth there and then, `sats_gps`
         how many anchors sent it, `lost_gps` counts the packets the transport dropped.
+
+        `sigma_gps` and `sigmatheta_gps` are different from those three: they come from the **last fix
+        that arrived** and are the σ that emission was drawn with, so a `gps.zones` shadow shows up in
+        them while `gps.sigma_xy` in the settings keeps saying the configured number. Which of the two
+        a filter should use is the question the columns are there to make visible.
         """
         t = float(self.eng.t)
         if t - self.last_t < self.interval:

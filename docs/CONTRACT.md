@@ -85,6 +85,7 @@ for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also
 | `/<robot>/odom` | `nav_msgs/msg/Odometry` | sim → everyone | dead reckoning from *measured* wheel speeds, noisy |
 | `/<robot>/scan` | `sensor_msgs/msg/LaserScan` | sim → everyone | 360 rays, 0…2π, range `range_max` |
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
+| `/<robot>/gps_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | sim → everyone | the same fix, one emission later on the same stamp, with its covariance on the diagonal (`σ_xy²`, `σ_xy²`, …, `σ_theta²`) — subscribe to this instead of `/gps` and nothing is lost, see §6.4 |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
 | `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity}` of the radiation counter (§6.13) — a String topic because no standard message carries a stamped scalar, same pattern as `/sim/robots`; which source is loudest, and how far away, stay simulation truth |
 | `/<robot>/link` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, rssi_dbm, ap, up, dropped, latency_ms}` of the radio the commands travel on (§6.14); only when `wifi.enabled` |
@@ -360,6 +361,14 @@ Measured with a 25 s straight drive at 0.5 m/s in `production` (seed 1), one num
   wants to read a quality. `ros2 topic echo /alice/sensor/info` therefore answers what the readout
   line answers. Named for the instruments and not for the GPS, because the temperature is the IMU's
   and the gaps are the LIDAR's.
+* A GPS fix carries the σ **it was drawn with**: `types.Gps.sigma_xy` and `sigma_theta` travel in the
+  message, because they are not constants of the device. A `gps.zones` shadow multiplies `sigma_xy` for
+  the fixes it produces, and with `delay_ticks` a fix measured in the open is delivered after the robot
+  has crossed into the shadow — a filter that looks the σ up in the settings (or in `/sensor/info`, which
+  answers the *setting*) then trusts a wide reading too little and a narrow one too much. The measurement
+  stream itself did not change with these two fields: `tests/test_sensor_reality.py` keeps its digest over
+  every value, stamp and random draw of a 12 s drive, and the σ fields are excluded from it exactly as
+  `quality` and `sats` are.
 * `quality 0` is a property of a **place**, not of a message: `GpsSensor.sky()` says what the sky at a
   position is worth, and a receiver standing where it is worth 0 sends nothing at all — `fix()` answers
   `None` and no `/gps` message exists to carry the number. Where 0 does appear is the answer `/sensor/info`
