@@ -45,9 +45,10 @@ KIND_MSG = {"twist": "Twist", "wheels": "Float64MultiArray", "odom": "Odometry",
 # Which kind is *read* from which topic where they differ; publishing is unaffected. Reading the GPS
 # fix off its covariance topic is why `rob.gps().sigma_xy` is never a silent 0.
 READS = {"gps": "gpscov"}
-# Placeholder uncertainty of the IMU assembly (diagonal), so RViz and rqt do not work
-# with zero covariances. Anyone who wants tighter numbers: they belong in the filter,
-# not in the driver — the filter knows its own state.
+# Placeholder uncertainty of the IMU assembly, one number per covariance on the diagonal of the
+# 3x3 that `Imu` declares for it, so RViz and rqt do not work with zero covariances. Anyone who
+# wants tighter numbers: they belong in the filter, not in the driver — the filter knows its own
+# state. The three fields are 3x3 and not 6x6, see `cov9`.
 IMU_COV = {"angular": 1.0e-4, "linear": 4.0e-4, "orientation": 1.0e-4}
 _M, _M_LOCK = None, threading.Lock()
 
@@ -102,16 +103,36 @@ def quat_to_yaw(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
-def cov36(diag: tuple) -> list:
-    """Diagonal -> 6x6 covariance in row-major order (36 entries)."""
-    m = [0.0] * 36
-    for i, v in enumerate(diag[:6]):
-        m[i * 7] = v
+def cov_n(diag, n: int) -> list:
+    """Diagonal -> n x n covariance in row-major order (n*n entries); one number fills the diagonal."""
+    if isinstance(diag, (int, float)):
+        diag = (diag,) * n
+    m = [0.0] * (n * n)
+    for i, v in enumerate(tuple(diag)[:n]):
+        m[i * (n + 1)] = float(v)
     return m
 
 
+def cov36(diag: tuple) -> list:
+    """Diagonal -> 6x6 covariance (36 entries): the pose and twist of `Odometry`, `PoseWithCovariance`."""
+    return cov_n(diag, 6)
+
+
+def cov9(diag) -> list:
+    """Diagonal -> 3x3 covariance (9 entries): the three covariance fields of `sensor_msgs/msg/Imu`.
+
+    Six numbers describe a *pose* (x, y, z, roll, pitch, yaw); an attitude, a body rate and an
+    acceleration are three each, so `Imu` declares `float64[9]` for all three of its covariances.
+    Handing one of them 36 is not harmless: the setter Humble generates counts the entries and
+    answers with an `AssertionError` **inside the publisher**, which ends the simulator at its first
+    IMU message. The rclpy of newer releases copies the list without counting, so 36 stays green on
+    a kilted development machine and is red only on the students' humble one.
+    """
+    return cov_n(diag, 3)
+
+
 def cov_diag(cov, n: int = 6) -> list:
-    """Read the diagonal out of a 6x6 (or 3x3) covariance — the inverse of cov36.
+    """Read the diagonal out of a 6x6 (or 3x3) covariance — the inverse of cov36 and cov9.
 
     Under ROS `cov` is a numpy-like array: `cov or []` would be an ambiguous truth value
     there (ValueError in the callback traceback), so the code always goes by its length.
@@ -217,13 +238,13 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         qx, qy, qz, qw = yaw_to_quat(0.0)
         m.orientation.x, m.orientation.y = qx, qy
         m.orientation.z, m.orientation.w = qz, qw
-        m.orientation_covariance = cov36((IMU_COV["orientation"],) * 6)
+        m.orientation_covariance = cov9(IMU_COV["orientation"])
         m.angular_velocity.x, m.angular_velocity.y = payload.gx, payload.gy
         m.angular_velocity.z = payload.gz
-        m.angular_velocity_covariance = cov36((IMU_COV["angular"],) * 6)
+        m.angular_velocity_covariance = cov9(IMU_COV["angular"])
         m.linear_acceleration.x, m.linear_acceleration.y = payload.ax, payload.ay
         m.linear_acceleration.z = payload.az
-        m.linear_acceleration_covariance = cov36((IMU_COV["linear"],) * 6)
+        m.linear_acceleration_covariance = cov9(IMU_COV["linear"])
         return m
     if kind == "scan":
         m = M["LaserScan"]()

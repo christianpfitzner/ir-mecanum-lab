@@ -129,6 +129,13 @@ if [[ "${1:-}" == "--ros" ]]; then
   run "ros2 topic list | grep -q /ros_test/odom"
   run "timeout 25 ros2 topic echo /ros_test/odom --once"
   run "timeout 25 ros2 topic echo /ros_test/scan --once | head -20"
+  # Both covariance topics, and not as decoration: a message field of a fixed length is filled by the
+  # bridge, and the rclpy of a recent ROS copies a list of the wrong length into it without counting
+  # the entries. Humble's does not — its setter raises inside the publisher and the simulator dies at
+  # its first IMU message. Only the machine that has to run this in the lab room (the students'
+  # humble install) sees that, so every topic with a covariance in it is echoed here.
+  run "timeout 25 ros2 topic echo /ros_test/imu --once"
+  run "timeout 25 ros2 topic echo /ros_test/gps_cov --once | grep -q covariance"
   # A rate test never ends on its own: the timeout is the abort, not the failure case. So
   # measure into a file and check its content — through the pipe, pipefail would report the
   # timeout as a failure of the simulation.
