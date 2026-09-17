@@ -74,7 +74,16 @@ Naming scheme: `/<robot>/<topic>` for robot edges, `/sim/<...>` for the simulati
 `map` (the world of `worlds/<name>.txt`, no prefix) → `<robot>/odom` → `<robot>/base_link` →
 `<robot>/laser`, `<robot>/imu_link`. The same names appear in the message headers — one source
 for both: `tf_bcast.frames()` in `tf_bcast.py`, which `ros_bridge.to_ros()` also calls.
-`gps`, `truth` and the students' `kf/pose` stay in `map`.
+`gps`, `truth` and the students' `kf/pose` stay in that ground frame — `map` while the simulator keeps the
+top edge of the tree, `hall` once it hands that edge to a mapper (`tf.tree: slam`, `tf_bcast.GROUND`). The
+name is therefore a fact of the *run*: a controller is a second process with its own config file, and what
+it publishes has to carry the name this graph answers on `/sim/config` (`ros_bridge.RclpyBus._adopt_tf`),
+not the one its local default says. A frame no transform ever reaches is a topic RViz cannot draw.
+
+**A header also names the moment it describes**, in simulation seconds. The engine stamps every measurement
+it emits (`engine._push`), and a pose a node reports is stamped with the measurement it was predicted from
+(`robot_io.send_kf(..., t=)`). `0.0` is the epoch: every TF consumer drops a stream stamped like that, and
+`ros2 topic echo` is the only thing that shows it.
 
 | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | sim → everyone | the tree above, published by `tf_bcast.attach()`; **no tf2_ros dependency** — plain rclpy, so §1 stays true. `tf.map_to_odom: odom` (default) keeps `map → odom` the identity, so `map → base_link` is the drifting odometry: closing that gap is the students' job in lab 2, not a gift from the sim. `tf.map_to_odom: truth` is the tutor's view; `/<robot>/truth` remains the ground truth topic. |
 
@@ -474,6 +483,11 @@ otherwise `robot_io` is not portable. The `kind` values are the keys of
 real ROS messages happens **only** in `ros_bridge.py`. Build **no** second stub bus in
 ros_bridge — use `from . import stub`.
 
+Every header `to_ros()` builds takes its frame names out of the bus's `cfg` (see `tf_bcast`), so `RclpyBus`
+subscribes to `/sim/config` in its constructor and adopts that block once (`_adopt_tf`): the frames of a
+run belong to the run. A bus built *with* a config — the simulator's own, from `enable_tf()` — is never
+overridden, and the adoption replaces the dict instead of writing into the caller's.
+
 ### 6.8 `mecanum_lab/robot_io.py` [D]
 ```python
 class RobotIO:
@@ -485,6 +499,8 @@ class RobotIO:
     def send_wheels(self, w: Sequence[float]) -> None
     def publish_cmd_vel(self, vx, vy, omega) -> None
     def set_mission_state(self, s: str) -> None
+    def last_stamp(self) -> float     # sim seconds of the newest measurement (odom, then scan/gps/imu)
+    def send_kf(self, x, y, theta=0, sx=0, sy=0, sth=0, info=None, t=None)
     def task(self) -> str
     def spawn(self, name, variant="") -> dict ; def robots(self) -> list[dict]
 def run_loop(node: RobotIO, on_tick, hz: float = 50) -> None

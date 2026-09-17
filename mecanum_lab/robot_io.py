@@ -183,16 +183,46 @@ class RobotIO:
             self._reported = state
             self._state(str(state))
 
+    def last_stamp(self) -> float:
+        """Simulation seconds of the newest measurement this node has — 0.0 while it has none.
+
+        Odometry first, then LIDAR, GPS, IMU — in that order and not as a maximum. The pose a filter
+        reports was predicted from the odometry, and `<hall> -> <robot>/odom` is broadcast at exactly
+        that stamp, so a consumer that has to bring the pose into the hall finds the transform it needs
+        at that moment; an estimate stamped with a LIDAR scan 40 ms newer than the last odometry asks
+        every TF consumer to extrapolate into a future the simulator has not published yet. The other
+        three sensors are the fallback of a task that does not deliver odometry, not a race to win.
+
+        0.0 is the honest answer of a node that has received nothing yet. It is not a usable stamp for
+        a message on the bus — see `send_kf`.
+        """
+        for kind in ("odom", "scan", "gps", "imu"):
+            t = getattr(self.bus.last(kind, self.name)[0], "t", None)
+            if t:
+                return float(t)
+        return 0.0
+
     def send_kf(self, x: float, y: float, theta: float = 0.0, sx: float = 0.0,
-                sy: float = 0.0, sth: float = 0.0, info: dict | None = None) -> None:
+                sy: float = 0.0, sth: float = 0.0, info: dict | None = None,
+                t: float | None = None) -> None:
         """Report your own state estimate (experiment 2) — including the uncertainty.
 
         `sx/sy/sth` are standard deviations (1σ) in m and radius, not variances. Without
         these numbers the task `kf_kovarianz` cannot be graded; a filter that claims 5 m
         and is 0.1 m off has estimated nothing. `info` goes to `/<robot>/kf/info` as JSON
         and shows up in the GUI — for Q, R, counters, whatever.
+
+        `t` is **the moment the estimate describes**, in simulation seconds, and on the ROS bus it is
+        the header stamp of `/<robot>/kf/pose`; left out it is `last_stamp()`. It used to be a
+        hard-wired 0.0, which is a pose at the epoch: RViz draws a `PoseWithCovariance` through TF, a
+        TF lookup at 0.0 is out of the cache from the first second of a run on, and the display's
+        message filter answers by dropping the stream — `Message Filter dropping message: frame 'map'
+        at time 0.000 ... because the queue is full` in the terminal, and an empty estimate panel next
+        to a filter that publishes at 30 Hz. Grading does not depend on this argument either way: the
+        simulator stamps the arrival into `Kf.t` itself (`engine.set_kf`) and measures against that.
         """
-        self._kf(Kf(t=0.0, x=float(x), y=float(y), theta=float(theta),
+        self._kf(Kf(t=float(self.last_stamp() if t is None else t),
+                    x=float(x), y=float(y), theta=float(theta),
                     sx=abs(float(sx)), sy=abs(float(sy)), sth=abs(float(sth))))
         if info is not None:
             self._kfinfo(json.dumps(info, ensure_ascii=False))

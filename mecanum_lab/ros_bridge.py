@@ -375,8 +375,38 @@ class RclpyBus:
         self.cfg = cfg or {}
         self.name, self._pubs, self._last, self._srv, self._cli = node_name, {}, {}, {}, {}
         self._subscribed, self._iface = set(), _spawn_iface(self.M)
+        # Every header this bus builds takes its frame names out of self.cfg (tf_bcast), so this has to
+        # be the config of *this run* and not the one the file on disk happens to say: subscribe to
+        # /sim/config and take the tree out of the answer (see _adopt_tf).
+        self.sub_topic(topic("config"), self._adopt_tf)
         log.info("ROS node '%s' (%s)", node_name, "SpawnRobot interface" if self._iface
                  else "spawn fallback: JSON handshake")
+
+    def _adopt_tf(self, text) -> None:
+        """The `tf` block of /sim/config, once, into this bus's cfg.
+
+        The frame names of a run belong to the run: `tf.tree: slam` starts the simulator in the tree
+        where a mapper owns `map -> <robot>/odom` and the simulator's own ground frame is called `hall`
+        (tf_bcast.GROUND). A controller process is a second process with its own config file, which
+        says nothing about that decision — so its `kf/pose` used to be stamped `map`, the default, in a
+        graph whose root is `hall`. RViz is the one consumer that reads that header (everything else of
+        the exercise reads the numbers), and a frame no transform ever reaches is a message filter that
+        drops the whole stream: the estimate panel stays empty on a filter that is working.
+
+        One-shot and deliberately not an override: a bus built *with* a cfg — the simulator's own, from
+        `enable_tf` — knows better than a topic it is replying to, and `/sim/config` is published every
+        second for the life of a run. A new dict rather than a key added in place, so the caller's cfg
+        stays the caller's.
+        """
+        if "tf" in self.cfg or not isinstance(text, str):
+            return
+        try:
+            profile = json.loads(text)
+        except ValueError:
+            return
+        tree = profile.get("tf") if isinstance(profile, dict) else None
+        if isinstance(tree, dict):
+            self.cfg = {**self.cfg, "tf": dict(tree)}
 
     def enable_tf(self, engine, cfg: dict | None = None) -> None:
         """/tf and /tf_static: map -> <robot>/odom -> <robot>/base_link -> laser, imu_link.

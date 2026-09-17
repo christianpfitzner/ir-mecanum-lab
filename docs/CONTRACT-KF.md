@@ -31,10 +31,10 @@ For this to work the robot stays in `pass-through` mode: the experiment 2 node n
 |---|---|---|---|
 | `/<robot>/imu` | `sensor_msgs/msg/Imu` | sim → all | 100 Hz (configurable), body-frame axes, `linear_acceleration.z ≈ +g` |
 | `/<robot>/gps_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | sim → all | the fix of `/<robot>/gps` again, with the covariance of **that emission** on the diagonal — the R a filter should use, see §8.2 |
-| `/<robot>/kf/pose` | `geometry_msgs/msg/PoseWithCovarianceStamped` | students → sim/grader | own estimate incl. 1σ (diagonal) |
+| `/<robot>/kf/pose` | `geometry_msgs/msg/PoseWithCovarianceStamped` | students → sim/grader | own estimate incl. 1σ (diagonal); header stamp = the moment the estimate describes (`send_kf`'s `t`, §8.2), header frame = the ground frame of the run (§8.2) |
 | `/<robot>/kf/info` | `std_msgs/msg/String` | students → all | JSON diagnostics (run time, rates, Q/R) — the evaluator ignores it |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → all | as in experiment 1, now with an adjustable rate (`truth.rate`), only with `debug_truth` |
-| `/sim/config` | `std_msgs/msg/String` | sim → all | JSON of the sensor configuration (the grader checks the test profile) |
+| `/sim/config` | `std_msgs/msg/String` | sim → all | JSON of the sensor configuration (the grader checks the test profile) **and of the `tf` block**, so a node in a second process learns the frame names of the run instead of guessing them (§8.2) |
 
 `types.MSG_SPECS` carries the new keys `imu`, `kf`, `kfinfo`; `topic("kf","alice")`
 → `/alice/kf/pose`. `gpscov` (→ `/alice/gps_cov`) is registered there too and is published as a mirror
@@ -342,12 +342,25 @@ Two consequences of that rule, both in the reference solution and in the templat
 |---|---|
 | `rob.gps()`, `rob.odom()`, `rob.imu()`, `rob.scan()` | last measurement or None (dataclass from `types.py`) |
 | `rob.age("gps")` | age of the last measurement in s (1e9 = never) |
-| `rob.sensor_profile()` | dict of the active sensor setup (`gps`, `imu`, `odom`, `truth`, `rate`, `debug_truth`, `seed`) |
+| `rob.sensor_profile()` | dict of the active sensor setup (`gps`, `imu`, `odom`, `truth`, `rate`, `debug_truth`, `seed`, `tf`) |
 | `rob.config("gps.sigma_xy", 0.5)` | a single sensor value, no dict wrangling |
 | `rob.task()` | active task title, e.g. `kf_fusion` |
-| `rob.send_kf(x, y, theta, sx, sy, sth, info=None)` | estimate incl. 1σ on `/<robot>/kf/pose` |
+| `rob.send_kf(x, y, theta, sx, sy, sth, info=None, t=None)` | estimate incl. 1σ on `/<robot>/kf/pose`; `t` is its moment in sim seconds and defaults to `last_stamp()` |
 | `rob.truth()` | exact pose — **only** a self-check, never inside the filter |
 | `rob.running()`, `rob.spin(dt)`, `rob.sleep(s)` | lifecycle |
+
+**Two header fields of `kf/pose` decide whether the estimate can be seen at all, and the API spares a
+student from thinking about them.** The stamp is the moment the estimate describes: `send_kf(..., t=)`,
+with `last_stamp()` — the stamp of the odometry it was predicted from, which is the moment
+`<hall> -> <robot>/odom` is broadcast — behind a left-out `t`. A hard-wired `0.0` there is a pose at the
+epoch; RViz draws a `PoseWithCovariance` through TF, a TF lookup at 0.0 is out of the cache from the first
+second of a run on, and the display's message filter drops the stream: `Message Filter dropping message:
+frame 'map' at time 0.000 … because the queue is full`, and an empty estimate panel next to a filter that
+publishes at 30 Hz. The frame is the run's and not the caller's: `tf.tree: slam` renames the ground frame
+`hall` (CONTRACT §3), and the bus of a controller process learns that from `/sim/config`
+(`ros_bridge.RclpyBus._adopt_tf`) instead of falling back to `tf_bcast`'s default. Grading depends on
+neither field — the simulator stamps the arrival into `Kf.t` itself (`engine.set_kf`) and counts arrivals;
+RViz and every other TF consumer depends on both. `tests/test_kf_header.py` holds these two fields down.
 
 `types.Imu`: `t, ax, ay, az, gx, gy, gz, roll, pitch, temp` (`az` ≈ +g at rest; `temp` is the °C of
 §3, and on the ROS wire it rides on `/<robot>/sensor/info`, because `sensor_msgs/msg/Imu` has no such

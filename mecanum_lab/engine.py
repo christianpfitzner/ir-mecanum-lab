@@ -713,10 +713,17 @@ class SimEngine:
         `poi` (the detector: rate, `d0`, counts, whether the distance is published) is in here; the
         `pois` (where the sources are) are deliberately not. One is how the sensor works, the other
         is the answer to the question the sensor asks.
+
+        `tf` is in here for the same reason as `steering`: which frame the hall's coordinates go by is
+        a fact of the running graph and not of the config file of whoever publishes into it — `tf.tree:
+        slam` renames the ground frame from `map` to `hall` (tf_bcast.GROUND), and a node that guesses
+        the name stamps its `kf/pose` into a frame no transform ever reaches, which is a topic RViz
+        cannot draw and a filter that looks broken while it is right. Nothing in the block is a secret:
+        the mount offsets are on `/tf_static` and the tree itself is on `/tf`.
         """
         profile = {k: cfg_get(self.cfg, k) for k in
                   ("gps", "odom", "imu", "lidar", "truth", "rate", "debug_truth", "steering",
-                   "poi", "wifi")}
+                   "poi", "wifi", "tf")}
         # Which access point the running model actually uses — the per-world default and the override
         # are two different config layers and a student should never have to guess which one won.
         profile["wifi"] = dict(profile.get("wifi") or {},
