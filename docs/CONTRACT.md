@@ -116,6 +116,9 @@ The `wheel_speeds` order is sacred: **index 0=front left (FL), 1=front right (FR
 *never* sent `wheel_speeds` and `cmd_vel` arrives, the sim takes the twist
 directly ("pass-through"). As soon as the first `wheel_speeds` message arrives, the
 robot stays in `wheels` mode forever. The mode is in `/sim/robots` and in the HUD.
+`passthrough: false` (config) switches the fallback off: every robot starts — and resets — in `wheels`
+mode, so a `cmd_vel` drives nothing until a node turns it into wheel speeds. The odometry lab uses that
+for the sessions in which the students' own kinematics has to do the driving.
 
 ## 4. Spawn service (ROS 2 has no built-in string service)
 

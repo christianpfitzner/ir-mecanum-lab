@@ -171,7 +171,7 @@ class SimEngine:
         else:
             chassis = physics.Chassis(physics.make_geometry(cfg_get(self.cfg, "robot"), variant),
                                       spawn_pose, seed=seed)
-        r = Robot(spec=spec, chassis=chassis)
+        r = Robot(spec=spec, chassis=chassis, mode=self._start_mode())
         r.wheel_angle = [0.0] * 4                      # encoder angles, rad since spawn
         r.odometer = self._make_odometer(r)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
@@ -188,6 +188,10 @@ class SimEngine:
                   "scale a=%.4f g=%.4f", name, *r.inertial.b_a, *r.inertial.b_g,
                   r.inertial.k_a, r.inertial.k_g)
         return r
+
+    def _start_mode(self) -> str:
+        """`pass-through` (cmd_vel drives through the built-in kinematics) unless `passthrough` is off."""
+        return "pass-through" if cfg_get(self.cfg, "passthrough", True) else "wheels"
 
     def next_name(self) -> str:
         """The first `robot<N>` that nobody has taken — the name an anonymous spawn gets."""
@@ -247,7 +251,7 @@ class SimEngine:
             self._wifi.forget(name)         # and neither is what was still on the wire to it
         self._clock_to_sim(r)
         r.wheel_cmd = r.vel_cmd = None
-        r.mode, r.t_cmd, r.t_vel = "pass-through", -1.0, -1.0
+        r.mode, r.t_cmd, r.t_vel = self._start_mode(), -1.0, -1.0
         r.imu, r.kf, r.kf_err = None, None, None
         r.contacts, r.distance, r.mission_state = 0, 0.0, "idle"
         return True
@@ -347,7 +351,7 @@ class SimEngine:
         if self._wifi is None:                       # a profile that removes the radio also ends any
             for r in self.robots.values():           # autonomy it started: nothing could lift it
                 if r.mode == "autonomy":
-                    r.mode = "pass-through"
+                    r.mode = self._start_mode()
         self._gps.t0 = getattr(self, "t_task", self.t)
         for r in self.robots.values():
             r.odometer = self._make_odometer(r)

@@ -98,3 +98,18 @@ def test_joint_states_survive_the_ros_conversion():
     assert msg.header.frame_id.endswith("base_link")
     back = ros_bridge.from_ros("joints", msg)
     assert back == sent
+
+
+@pytest.mark.parametrize("passthrough, moves", [(True, True), (False, False)])
+def test_passthrough_off_means_cmd_vel_alone_drives_nothing(passthrough, moves):
+    from mecanum_lab.types import Twist
+    cfg = load_config(None, {"world": "open", "gui": False, "passthrough": passthrough})
+    eng = SimEngine(load_world("open", cfg=cfg), cfg, seed=1)
+    rob = eng.spawn("dd", "diff")
+    assert rob.mode == ("pass-through" if passthrough else "wheels")
+    while eng.t < 2.0:
+        eng._apply_cmd("dd", "twist", Twist(0.3, 0.0, 0.0))
+        eng.step(1.0 / 50)
+    assert (rob.distance > 0.3) == moves
+    eng.reset_robot("dd")
+    assert rob.mode == ("pass-through" if passthrough else "wheels")

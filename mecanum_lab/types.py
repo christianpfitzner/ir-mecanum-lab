@@ -454,6 +454,9 @@ DEFAULT_CONFIG = {
     "debug_truth": False,           # publish /<robot>/truth with the exact pose
     "spawn_limit": 12,
     "cmd_timeout": 0.35,            # s: after this, wheel commands count as stale
+    # false: no pass-through — a robot starts in `wheels` mode and moves only on `wheel_speeds`, so a
+    # cmd_vel (the window's keys included) drives nothing until a node turns it into wheel speeds.
+    "passthrough": True,
     "robot": {
         "lx": 0.14, "ly": 0.13, "r": 0.05, "footprint_r": 0.21,
         "max_speed": 12.0,          # rad/s
