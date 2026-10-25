@@ -26,7 +26,7 @@ import threading
 import time
 
 from . import stub, tf_bcast
-from .types import Gps, Imu, Kf, Link, Odom, Poi, Scan, SensorInfo, Twist, topic
+from .types import Gps, Imu, Joints, Kf, Link, Odom, Poi, Scan, SensorInfo, Twist, topic
 
 log = logging.getLogger("mecanum.ros")
 
@@ -36,7 +36,7 @@ KIND_MSG = {"twist": "Twist", "wheels": "Float64MultiArray", "odom": "Odometry",
             # The fix mirrored with its uncertainty, from the same payload and the same stamp — see
             # the comment at types.MSG_SPECS["gpscov"] for why /gps itself stays a PoseStamped.
             "gpscov": "PoseWithCovarianceStamped",
-            "imu": "Imu", "kf": "PoseWithCovarianceStamped", "kfinfo": "String",
+            "imu": "Imu", "joints": "JointState", "kf": "PoseWithCovarianceStamped", "kfinfo": "String",
             "mission": "String", "robots": "String", "world": "String",
             "task": "String", "config": "String", "clock": "Clock", "poi": "String",
             "link": "String", "sensorinfo": "String"}
@@ -68,7 +68,7 @@ def load_msgs(force: bool = False):
                                            Quaternion, Transform, TransformStamped, Twist as T,
                                            Vector3)
             from nav_msgs.msg import Odometry
-            from sensor_msgs.msg import Imu, LaserScan
+            from sensor_msgs.msg import Imu, JointState, LaserScan
             from std_msgs.msg import Float64MultiArray, String
             from rosgraph_msgs.msg import Clock
             try:
@@ -84,7 +84,7 @@ def load_msgs(force: bool = False):
         _M = {"Time": Time, "Header": Header, "String": String, "Clock": Clock,
               "Twist": T, "Vector3": Vector3, "Pose": P, "Quaternion": Quaternion,
               "PoseStamped": PoseStamped, "PoseWithCovarianceStamped": PWCS,
-              "Odometry": Odometry, "LaserScan": LaserScan, "Imu": Imu,
+              "Odometry": Odometry, "LaserScan": LaserScan, "Imu": Imu, "JointState": JointState,
               "Float64MultiArray": Float64MultiArray, "Transform": Transform,
               "TransformStamped": TransformStamped, "TFMessage": TFMessage}
         return _M
@@ -232,6 +232,10 @@ def to_ros(M, kind: str, payload, robot: str | None = None, cfg: dict | None = N
         m.pose.covariance = cov36((payload.sx ** 2, payload.sy ** 2, 1e-12, 1e-12, 1e-12,
                                    payload.sth ** 2))
         return m
+    if kind == "joints":
+        return M["JointState"](header=_header(M, payload.t, tf_bcast.frame_for("joints", robot, cfg)),
+                               name=list(payload.name), position=[float(v) for v in payload.position],
+                               velocity=[float(v) for v in payload.velocity])
     if kind == "imu":
         m = M["Imu"]()
         m.header = _header(M, payload.t, tf_bcast.frame_for("imu", robot, cfg))
@@ -307,6 +311,8 @@ def from_ros(kind: str, msg):
         return Kf(_stamp(msg.header), p.position.x, p.position.y, quat_to_yaw(p.orientation),
                   math.sqrt(max(cov[0], 0.0)), math.sqrt(max(cov[1], 0.0)),
                   math.sqrt(max(cov[5], 0.0)))
+    if kind == "joints":
+        return Joints(_stamp(msg.header), list(msg.name), list(msg.position), list(msg.velocity))
     if kind == "imu":
         g, a = msg.angular_velocity, msg.linear_acceleration
         return Imu(_stamp(msg.header), a.x, a.y, a.z, g.x, g.y, g.z)

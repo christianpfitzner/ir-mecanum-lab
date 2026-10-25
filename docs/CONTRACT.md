@@ -96,6 +96,7 @@ it emits (`engine._push`), and a pose a node reports is stamped with the measure
 | `/<robot>/gps` | `geometry_msgs/msg/PoseStamped` | sim → everyone | noisy global position ("UWB/MoCap") |
 | `/<robot>/gps_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | sim → everyone | the same fix, one emission later on the same stamp, with its covariance on the diagonal (`σ_xy²`, `σ_xy²`, …, `σ_theta²`) — subscribe to this instead of `/gps` and nothing is lost, see §6.4 |
 | `/<robot>/truth` | `geometry_msgs/msg/PoseStamped` | sim → everyone | exact pose, only with `debug_truth: true` |
+| `/<robot>/joint_states` | `sensor_msgs/msg/JointState` | sim → everyone | wheel encoders, only with `encoders.enabled` (§6.15): one entry per driven wheel, angle in whole ticks and noisy rate |
 | `/<robot>/poi` | `std_msgs/msg/String` | sim → everyone | JSON `{t, intensity}` of the radiation counter (§6.13) — a String topic because no standard message carries a stamped scalar, same pattern as `/sim/robots`; which source is loudest, and how far away, stay simulation truth |
 | `/<robot>/link` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, rssi_dbm, ap, up, dropped, latency_ms}` of the radio the commands travel on (§6.14); only when `wifi.enabled` |
 | `/<robot>/sensor/info` | `std_msgs/msg/String` | sim → everyone | JSON `{t, quality, sats, lost, latency_ms, temp, scan_gaps}` — what the instruments say about themselves, at `gps.rate`; the three measurement messages have no field for any of it (§6.4) |
@@ -214,6 +215,21 @@ wall-free world — not as `v/omega`, which would compare the model with itself:
 car brakes before a corner. `w = v/r` still holds per wheel: the rear pair rolls at `v(1 − W/2R)`
 and `v(1 + W/2R)`, so their mean is exactly `v`, and the four speeds go out on `/<robot>/wheel_speeds`
 with the old labels (§3).
+
+### 5.2 The differential drive (`--variant diff`, `mecanum_lab/diffdrive.py`)
+
+Two driven wheels on one axle through the centre, left at y = +b/2, right at y = −b/2:
+
+```
+w_L = (v - omega*b/2) / r          v     = r/2 * (w_R + w_L)
+w_R = (v + omega*b/2) / r          omega = r/b * (w_R - w_L)
+```
+
+It is a subclass of the mecanum `Chassis` with lx = 0 and ly = b/2: with one speed per side (FL = RL,
+FR = RR, which `set_wheels()` enforces) the equations of §5 reduce to exactly these, so motor lag,
+integration and the wall stay one implementation. On `wheel_speeds` it reads slot 0 (left) and slot 1
+(right); 2 and 3 are ignored. `cmd_vel` drops `vy` with one warning, as the steering car does. The
+config block is `diff` (`track`, `r`, motor numbers equal to the mecanum robot's).
 
 ## 6. Interfaces between modules (implement exactly like this)
 
@@ -820,6 +836,18 @@ something does give out.
 **On the wire** `/link` is JSON on a `std_msgs/msg/String` for the same reason as `/poi` (§6.13): a
 link budget has no standard message, and a custom interface would put a colcon build in front of a
 student who only wants to read a quality. `ros2 topic echo /alice/link` needs nothing but ROS.
+
+### 6.15 Wheel encoders — `/<robot>/joint_states` (`engine._step_encoders`)
+
+`encoders.enabled` (default `false`) publishes a `types.Joints` per robot at `encoders.rate`: the joint
+names come from the chassis (`wheel_fl` … `wheel_rr` on mecanum and steering, `wheel_left`,
+`wheel_right` on the differential drive), `position` is the wheel angle since the spawn floored to
+whole ticks (`encoders.ticks_per_rev`), `velocity` the actual rate plus `odom.sigma_wheel` of noise.
+The angles integrate the wheel speeds the chassis really has, so slip at a wall is counted like the
+simulator's own odometry counts it. The noise has its own generator (seed + `ENCODER_SEED`): turning
+the encoders on moves no number of any other sensor (`tests/test_diffdrive_encoders.py`). The lab that uses
+them — kinematics of both drives and odometry from the encoders — is its own repository, `ohm-odometry`
+(ROS package `ohm_odometry`), which switches them on with its `config/lab_odometry.json`.
 
 ## 7. LOC budgets (a target, not a kill criterion — justify a deviation > 25 %)
 

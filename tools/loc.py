@@ -316,7 +316,7 @@ BUDGET = {
     "mecanum_lab/types.py": 565, "mecanum_lab/stub.py": 115,
     "mecanum_lab/engine.py": 650, "mecanum_lab/worlds.py": 135,
     "mecanum_lab/physics.py": 180, "mecanum_lab/sensors.py": 560,
-    "mecanum_lab/steering.py": 290, "mecanum_lab/pois.py": 170,
+    "mecanum_lab/steering.py": 290, "mecanum_lab/diffdrive.py": 90, "mecanum_lab/pois.py": 170,
     "mecanum_lab/wifi.py": 365,
     "mecanum_lab/overlays.py": 520,
     "mecanum_lab/render.py": 485, "mecanum_lab/cam.py": 115, "mecanum_lab/menu.py": 90,

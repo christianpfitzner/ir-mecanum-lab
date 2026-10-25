@@ -4,6 +4,7 @@ Topics (CONTRACT §3, CONTRACT-KF §2), the first ones relative to the robot nam
     cmd_vel        Twist         in   commanded body speed (vx, vy, omega)
     wheel_speeds   4 rad/s       out  [VL, VR, HL, HR] — the task in experiment 1
     odom gps scan  Odom Gps Scan in   dead reckoning, global pose, 360 LIDAR rays
+    joint_states   Joints        in   wheel encoders: angle and rate per driven wheel
     imu            Imu           in   6-DOF inertial measurement (experiment 2, 100 Hz)
     poi            Poi           in   radiation reading of the loudest source (`pois.py`), see poi()
     link           Link          in   the radio this node's own commands travel on (`wifi.py`)
@@ -86,6 +87,7 @@ class RobotIO:
     def gps(self): return self._value("gps")
     def scan(self): return self._value("scan")
     def imu(self): return self._value("imu")
+    def joints(self): return self._value("joints")       # wheel encoders, see types.Joints
     def kf(self): return self._value("kf")
     def cmd_vel(self): return self._value("twist", fresh=True)
 

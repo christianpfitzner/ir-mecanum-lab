@@ -79,7 +79,8 @@ network. On one seed the reference solution is 100/100 through `./lab grade` and
 
 What the tasks ask is not written on this page: the rules are data in `config/tasks.json`, `./lab docs`
 prints them beside a running simulator, and the sheets a student reads are
-`docs/praktikum/anleitung.tex` and `docs/praktikum/kalman.tex` (`make anleitung`, `make kalman`). Why the
+`docs/praktikum/anleitung.tex` and `docs/praktikum/kalman.tex` (`make anleitung`, `make kalman`). The
+kinematics-and-odometry session is a separate repository, `ohm-odometry`, next to this one. Why the
 robot stands still while the first task is graded: **[docs/kinematics.md](docs/kinematics.md)**.
 
 ## The window
@@ -176,6 +177,7 @@ nobody named outbids the `config:=` file — which is how a demo with `"world": 
 | page | what is on it |
 |---|---|
 | [docs/steering.md](docs/steering.md) | the second drive train (Ackermann) and its two measured lessons |
+| `docs/CONTRACT.md` §5.2, §6.15 | the third drive train (`variant:=diff`) and the wheel encoders on `/<robot>/joint_states` |
 | [docs/poi.md](docs/poi.md) | the radiation source `/poi`, its field, why it goes through tables |
 | [docs/wifi.md](docs/wifi.md) | the radio link `/link`, and what `autonomy` means when it drops |
 | [docs/CONTRACT.md](docs/CONTRACT.md) | the interface of Experiment 1: topics, units, signs, geometry |

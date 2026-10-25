@@ -40,6 +40,7 @@ BASICS = [
     ("world", "", "hall to drive: production | track | maze | open (empty = the config file's hall)"),
     ("robot", "muster", "your robot name (one person, one robot)"),
     ("robots", "", "robots to spawn at start, comma-separated (empty = only yours)"),
+    ("variant", "", "drive train of the robots: diff | steering | stock … (empty = mecanum, cycled)"),
     ("controller", "", "your node (empty = the keyboard alone drives)"),   # empty is the point
     ("task", "", "task or group announced to the students (empty = the grader decides, see grade:=)"),
     ("grade", "", "grade inside the sim process (empty = do not grade) — not the ./lab grade "
@@ -66,7 +67,7 @@ BASICS = [
 # every one of them instead of being decided per argument.
 PASSTHROUGH = (("world", "--world"), ("config", "--config"), ("seconds", "--seconds"),
                ("view", "--view"), ("layers", "--layers"), ("task", "--task"),
-               ("log", "--log"), ("json", "--json"), ("seed", "--seed"))
+               ("log", "--log"), ("json", "--json"), ("seed", "--seed"), ("variant", "--variant"))
 
 
 def path_of(given: str) -> str:

@@ -10,12 +10,14 @@ import json
 import logging
 import math
 
-from . import physics, pois, sensors, steering, wifi
-from .types import (Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config, merge,
-                    sanitize_name, PALETTE, MARKERS, VARIANTS)
+from . import diffdrive, physics, pois, sensors, steering, wifi
+from .types import (Joints, Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config,
+                    merge, sanitize_name, PALETTE, MARKERS, VARIANTS)
 
 log = logging.getLogger("mecanum.engine")
 MAX_OUTBOX = 20000
+ENCODERS = (("wheel_fl", 0), ("wheel_fr", 1), ("wheel_rl", 2), ("wheel_rr", 3))   # mecanum default
+ENCODER_SEED = 7919         # own noise stream: switching the encoders on moves no other sensor
 
 
 class SpawnError(Exception):
@@ -62,6 +64,8 @@ class SimEngine:
         self._gps = self._make_gps()
         self._poi = self._make_pois()
         self._wifi = self._make_wifi()
+        self._enc = (sensors.Noise(None if self.seed is None else self.seed + ENCODER_SEED)
+                     if cfg_get(self.cfg, "encoders.enabled", False) else None)
 
     def _make_gps(self):
         """GPS sensor, with `kf.gps_delay` (seconds, the student-facing name) turned into ticks.
@@ -159,12 +163,16 @@ class SimEngine:
         spawn_pose = pose or self.world.spawn_pose(idx)
         # The second drive train brings its own geometry and its own chassis; one `if` here and the
         # rest of the engine does not care which of the two it is looking at.
-        chassis = (steering.make_chassis(cfg_get(self.cfg, "steering"), variant, spawn_pose,
-                                         seed=idx + (self._index or 1))
-                   if steering.is_steering(variant) else
-                   physics.Chassis(physics.make_geometry(cfg_get(self.cfg, "robot"), variant),
-                                   spawn_pose, seed=idx + (self._index or 1)))
+        seed = idx + (self._index or 1)
+        if steering.is_steering(variant):
+            chassis = steering.make_chassis(cfg_get(self.cfg, "steering"), variant, spawn_pose, seed)
+        elif diffdrive.is_diff(variant):
+            chassis = diffdrive.make_chassis(cfg_get(self.cfg, "diff"), variant, spawn_pose, seed)
+        else:
+            chassis = physics.Chassis(physics.make_geometry(cfg_get(self.cfg, "robot"), variant),
+                                      spawn_pose, seed=seed)
         r = Robot(spec=spec, chassis=chassis)
+        r.wheel_angle = [0.0] * 4                      # encoder angles, rad since spawn
         r.odometer = self._make_odometer(r)
         r.inertial = sensors.ImuSensor(self._noise, cfg_get(self.cfg, "imu"), robot=name)
         self._clock_to_sim(r)
@@ -233,6 +241,7 @@ class SimEngine:
         r.chassis.contacts = 0
         r.odometer.reset(r.chassis.pose)
         r.inertial.reset()
+        r.wheel_angle = [0.0] * 4
         self._gps.drops.pop(name, None)     # the losses of the previous drive are not this one's
         if self._wifi is not None:
             self._wifi.forget(name)         # and neither is what was still on the wire to it
@@ -471,6 +480,8 @@ class SimEngine:
             r.contacts = r.chassis.contacts
             r.distance += math.hypot(p.x - x0, p.y - y0)
             odo = r.odometer.update(r.chassis.odo_feed(), dt)      # integrate every step
+            if self._enc is not None:
+                self._step_encoders(r, dt)
             for msg in r.inertial.sample(r.pose, r.twist, dt):  # IMU runs faster than the physics
                 self._push("imu", r.spec.name, msg)
                 r.imu = msg
@@ -508,6 +519,24 @@ class SimEngine:
             if self._due(r, "sensorinfo", cfg_get(self.cfg, "gps.rate", 5.0), dt):
                 self._push("sensorinfo", r.spec.name, self.sensor_info(r.spec.name))
         self.t += dt
+
+    def _step_encoders(self, r: Robot, dt: float) -> None:
+        """Wheel angles integrated every step, published as whole ticks at `encoders.rate`.
+
+        Integrated from the wheel speeds the chassis really has, so a wheel that spins at a wall
+        counts the same metres the simulator's own odometry counts (physics.Chassis._collide).
+        """
+        for i, w in enumerate(r.chassis.wheels):
+            r.wheel_angle[i] += w * dt
+        if not self._due(r, "joints", cfg_get(self.cfg, "encoders.rate", 50.0), dt):
+            return
+        tick = 2.0 * math.pi / max(1, int(cfg_get(self.cfg, "encoders.ticks_per_rev", 1024)))
+        sigma = float(cfg_get(self.cfg, "odom.sigma_wheel", 0.0) or 0.0)
+        slots = getattr(r.chassis, "encoders", ENCODERS)
+        self._push("joints", r.spec.name, Joints(
+            name=[n for n, _ in slots],
+            position=[math.floor(r.wheel_angle[i] / tick) * tick for _, i in slots],
+            velocity=[r.chassis.wheels[i] + self._enc.gauss(sigma) for _, i in slots]))
 
     def _step_link(self, r: Robot, dt: float) -> None:
         """One physics step of the radio for one robot: level, autonomy decision, `/link`.

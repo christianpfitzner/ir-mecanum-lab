@@ -292,6 +292,21 @@ class SensorInfo:
 
 
 @dataclass
+class Joints:
+    """Wheel encoders, the `sensor_msgs/msg/JointState` of `/<robot>/joint_states` (CONTRACT §6.15).
+
+    One entry per *driven* wheel: four on a mecanum robot (`wheel_fl` … `wheel_rr`), two on the
+    differential drive (`wheel_left`, `wheel_right`). `position` is the wheel angle in rad since the
+    spawn, counted in encoder ticks (`encoders.ticks_per_rev`), `velocity` the measured rate in rad/s
+    with `odom.sigma_wheel` of noise. Both are raw: turning them into a pose is the exercise.
+    """
+    t: float = 0.0
+    name: list = field(default_factory=list)
+    position: list = field(default_factory=list)     # rad, quantised to whole ticks
+    velocity: list = field(default_factory=list)     # rad/s, noisy
+
+
+@dataclass
 class Kf:
     """Students' own state estimate — the grader measures it against `truth`.
 
@@ -382,6 +397,7 @@ MSG_SPECS = {
     # diagonal (σ_xy², σ_xy², …, σ_theta²) of the emission that was measured here.
     "gpscov":  ("geometry_msgs/msg/PoseWithCovarianceStamped", "gps_cov", "robot"),
     "imu":     ("sensor_msgs/msg/Imu",              "imu",           "robot"),
+    "joints":  ("sensor_msgs/msg/JointState",       "joint_states",  "robot"),
     "kf":      ("geometry_msgs/msg/PoseWithCovarianceStamped", "kf/pose", "robot"),
     "kfinfo":  ("std_msgs/msg/String",              "kf/info",       "robot"),
     "truth":   ("geometry_msgs/msg/PoseStamped",    "truth",         "robot"),
@@ -475,6 +491,10 @@ DEFAULT_CONFIG = {
              # a stop bolt in the wrong hole) cannot be noticed and turns every corner the same
              # wrong way. 1.0 = the model knows the car; only then is the odometry exact.
              "steer_max_scale": 1.0},
+    # Wheel encoders on /<robot>/joint_states (CONTRACT §6.15). Off by default: the graded streams
+    # of both experiments stay byte for byte what they were. The odometry lab switches them on
+    # (repository ohm-odometry); their noise has its own seed, so the other sensors keep theirs.
+    "encoders": {"enabled": False, "rate": 50.0, "ticks_per_rev": 1024},
     "lidar": {"rate": 20.0, "beams": 360, "range_max": 8.0, "range_min": 0.05,
               "sigma": 0.015, "max_walls": 400,   # max_walls: segments one scan may use
               # Weakest echo a beam may return, as |cos| of the incidence angle on the surface it
@@ -514,6 +534,11 @@ DEFAULT_CONFIG = {
     # bicycle with Ackermann geometry on the front axle, modelled in steering.py. The angles are
     # in degrees here because that is what a workshop speaks; the code turns them into radians.
     # Nothing in this block is read for the mecanum robot, so no graded number depends on it.
+    # Third drive train (`--variant diff`, diffdrive.py): two driven wheels on one axle through the
+    # centre, a caster in front. `track` is the distance between the two wheels (b), `body_lx` only
+    # sizes the plate in the window. Motor numbers are the mecanum ones, so the two compare fairly.
+    "diff": {"track": 0.30, "r": 0.05, "body_lx": 0.14, "footprint_r": 0.21, "max_speed": 12.0,
+             "max_accel": 40.0, "tau": 0.06, "slip": 1.0},
     "steering": {
         "wheel_base": 1.0,            # m, front axle to rear axle: the L of R = L / tan(delta)
         "track": 0.62,                # m, distance between the two front wheels (Ackermann arm)

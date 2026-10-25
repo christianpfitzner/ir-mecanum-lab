@@ -788,7 +788,7 @@ def parser():
     p.add_argument("--json", default=None, help="Write the grading report as JSON")
     p.add_argument("--name", default="", help="Robot name for spawn/despawn")
     p.add_argument("--variant", default="", help="Drive variant: stock|slow|fast|agile, "
-                   "steering|steering-big (Ackermann car, see README)")
+                   "steering|steering-big (Ackermann car, see README), diff (differential drive)")
     return p
 
 

@@ -34,7 +34,7 @@ from .types import cfg_get, wrap_angle
 
 # message kind -> which of the robot frames its header carries
 KIND_FRAME = {"odom": "odom", "scan": "laser", "imu": "imu", "gps": "map", "truth": "map",
-              "kf": "map"}
+              "kf": "map", "joints": "base"}
 
 # tf.tree -> what the frame of the hall's own coordinates is called here. In `slam` mode the name `map` is
 # left to the mapper, which anchors its map wherever the first scan found the robot — not at the bottom-left

@@ -611,7 +611,8 @@ class Renderer:
         sc = self.screen
         lx, ly, wr, fp_m = self._geom(robot)
         centre, fp = self.px(pose.x, pose.y), max(6, fp_m * self.s)
-        plate = ((lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale)   # metres
+        body_lx = max(lx, getattr(getattr(robot.chassis, "geom", None), "body_lx", 0.0))  # diff: lx 0
+        plate = ((body_lx + wr) * self.chassis_scale, (ly + wr) * self.chassis_scale)   # metres
         # The one exaggeration of this view: `wheel_scale` times the real 5 cm. The cap is the
         # collision circle — a tyre drawn past the circle the physics collides with would show a
         # robot that cannot fit through the gaps the grader measures it through.
@@ -663,7 +664,9 @@ class Renderer:
         pygame.draw.polygon(sc, mix(col, (0, 0, 0), .55), tyre)
         if self.s > 45:                                           # a 1 px edge below that is mush
             pygame.draw.polygon(sc, col, tyre, 1)
-        roller = screen(heading, *ROLLERS[index])
+        # A plain tyre (differential drive) shows tread lines across it instead of 45° rollers.
+        rollers = getattr(robot.chassis, "rollers", True)
+        roller = screen(heading, *(ROLLERS[index] if rollers else (0, 1)))
         roller = (roller[0] * half_wid * 1.3, roller[1] * half_wid * 1.3)     # one stroke, full width
         for stroke in range(WHEEL_STROKES):
             share = (phase[index] / math.tau + stroke / WHEEL_STROKES) % 1.0
