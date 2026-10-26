@@ -1,8 +1,7 @@
-# CONTRACT.md — Internal engineering contract (not for students)
+# CONTRACT.md — interfaces of the simulator (not for students)
 
-This file is the **single source of truth** on naming, interfaces and file
-ownership. Every module follows it; deviations only after talking to the
-integrator (who also does the integration and the testing).
+Naming, topics, interfaces and conventions. Every module follows it; a change to an
+interface is written down here first.
 
 Project goal: a 2D mecanum simulator in Pygame with ROS 2 bindings for a
 university lab course. Constraints: **very little code**, **very few
@@ -23,48 +22,43 @@ dependencies**, **runs immediately**, readable and editable by students.
 | 7 | Everything runs under `SDL_VIDEODRIVER=dummy` (headless, CI) and without ROS. |
 | 8 | No `print` for debugging in the simulation path — `logging` through `mecanum_lab.log`. |
 
-## 2. Directory & file ownership
+## 2. Directory layout
 
 ```
 mecanum-lab/
-├── lab                       bash, ONLY ENTRY POINT for students        [B]
-├── README.md                 Quickstart                               [E]
-├── requirements.txt          pygame                                   [B]
+├── lab                       bash, ONLY ENTRY POINT for students
+├── README.md                 Quickstart
+├── requirements.txt          pygame
 ├── config/
-│   ├── default.json          simulation configuration                   [MINE]
-│   └── tasks.json            grading thresholds                         [D]
-├── worlds/*.txt              environments as ASCII grids                [A]
+│   ├── default.json          simulation configuration
+│   └── tasks.json            grading thresholds
+├── worlds/*.txt              environments as ASCII grids
 │                             cell size per world: worlds.cell_by_world   (types.py)
 ├── mecanum_lab/
-│   ├── __init__.py           log helper, version                        [MINE]
-│   ├── types.py              data types, topics, config                 [MINE]
-│   ├── stub.py               in-process bus (runs without ROS)           [MINE]
-│   ├── engine.py             SimEngine: robots, step, sensors           [MINE]
-│   ├── worlds.py             ASCII grid -> World                        [A]
-│   ├── physics.py            Mecanum IK/FK, chassis, collision          [A]
-│   ├── sensors.py            odometry / LIDAR / GPS + noise             [A]
-│   ├── render.py             pygame renderer: layers, walls, robots     [C]
-│   ├── cam.py                camera: zoom to cursor, pan, resize        [C]
-│   ├── menu.py               layer menu — view only, never the bus      [C]
-│   ├── ros_bridge.py         rclpy backend + stub bus + services        [B]
-│   ├── tf_bcast.py           /tf and /tf_static (map → odom → base_link) [B]
-│   ├── node.py               CLI: sim/run/teleop/spawn/grade/robots     [B]
-│   ├── robot_io.py            client for student nodes  [D]
-│   ├── tasks.py              task definitions           [D]
-│   └── grade.py              grading run                [D]
+│   ├── __init__.py           log helper, version
+│   ├── types.py              data types, topics, config
+│   ├── stub.py               in-process bus (runs without ROS)
+│   ├── engine.py             SimEngine: robots, step, sensors
+│   ├── worlds.py             ASCII grid -> World
+│   ├── physics.py            Mecanum IK/FK, chassis, collision
+│   ├── sensors.py            odometry / LIDAR / GPS + noise
+│   ├── render.py             pygame renderer: layers, walls, robots
+│   ├── cam.py                camera: zoom to cursor, pan, resize
+│   ├── menu.py               layer menu — view only, never the bus
+│   ├── ros_bridge.py         rclpy backend + stub bus + services
+│   ├── tf_bcast.py           /tf and /tf_static (map → odom → base_link)
+│   ├── node.py               CLI: sim/run/teleop/spawn/grade/robots
+│   ├── robot_io.py            client for student nodes
+│   ├── tasks.py              task definitions
+│   └── grade.py              grading run
 ├── student/
-│   ├── controller_template.py  submission template with TODOs           [D]
-│   └── solution.py             reference solution                       [D]
-├── launch/*.launch.py        ROS 2 launch files                         [B]
-├── interfaces/mecanum_lab_interfaces/   own spawn service               [B]
-├── tests/                    pytest, no ROS dependency            [A,B,D]
-└── docs/praktikum/anleitung.tex  handout (LaTeX)                        [E]
+│   ├── controller_template.py  submission template with TODOs
+│   └── solution.py             reference solution
+├── launch/*.launch.py        ROS 2 launch files
+├── interfaces/mecanum_lab_interfaces/   own spawn service
+├── tests/                    pytest, no ROS dependency
+└── docs/praktikum/anleitung.tex  handout (LaTeX)
 ```
-
-**Rule:** every file belongs to exactly one agent. Freedom from `git` conflicts beats
-elegance. If agent X needs a change in a file owned by someone else: write it into
-`docs/notes/<agent>.md` — one file per agent, never shared — and **do not edit
-it yourself**. Same place for: LOC tally, deviations from this contract, test commands.
 
 ## 3. Topics, frames, types
 
@@ -165,7 +159,7 @@ Name rules: `^[a-z][a-z0-9_]{1,23}$`; duplicate → `success=false`, `message="N
 taken."`; `spawn_limit` reached → `message="Robot limit (12) reached."`; both are `SpawnError`, which
 the handler turns into `success=false` rather than a stack trace on the caller's terminal.
 
-## 5. Physics conventions (agents A and D must compute identically)
+## 5. Physics conventions (simulator and reference solution compute identically)
 
 Right-handed system, x forward, y to the **left**, theta counter-clockwise (CCW)
 positive. Wheels: `FL` (front left), `FR` (front right), `RL`, `RR`.
@@ -236,13 +230,13 @@ config block is `diff` (`track`, `r`, motor numbers equal to the mecanum robot's
 
 ## 6. Interfaces between modules (implement exactly like this)
 
-### 6.1 `mecanum_lab/types.py` [MINE, already written — read only]
+### 6.1 `mecanum_lab/types.py`
 `Pose(x,y,theta)`, `Twist(vx,vy,omega)`, `Rect(x0,y0,x1,y1)`, `World(name,cell,walls,spawns,goal,size)`,
 `RobotSpec(name,index,color,variant,pose)`, `Robot(...)`, `Odom`, `Scan`, `Gps`,
 `PALETTE`, `MARKERS`, `CONFIG` (dict), `load_config()`, `topic(kind, robot=None)`,
 `sanitize_name()`, `log`.
 
-### 6.2 `mecanum_lab/worlds.py` [A]
+### 6.2 `mecanum_lab/worlds.py`
 ```python
 def load_world(name: str, path: str | None = None) -> World      # cached; path: worlds/<name>.txt
 def parse_grid(text: str, cell: float = 0.5, name: str = "?") -> World
@@ -265,7 +259,7 @@ legal (the checker only says so) and `tools/worldcheck.py` then has no start→g
 reports the widest free spot it found instead — the same per-cell clearance number, just without a
 path to walk. That is the number `tools/worldpic.py` puts under the panel and the README quotes.
 
-### 6.3 `mecanum_lab/physics.py` [A]
+### 6.3 `mecanum_lab/physics.py`
 ```python
 @dataclass
 class Geometry: lx, ly, r, max_speed, max_accel, tau, footprint_r
@@ -297,7 +291,7 @@ and targets to zero) and `set_twist(vx, vy, omega)` / `odo_feed()` (the two ends
 path: in through the kinematics, out to the integrator). All four are behaviour-neutral: a mecanum
 robot computes what it computed before, line for line, and `steering.py` overrides them (§6.12).
 
-### 6.4 `mecanum_lab/sensors.py` [A]
+### 6.4 `mecanum_lab/sensors.py`
 ```python
 class Noise:  __init__(self, seed); gauss(sigma); uniform(a); chance(p); late(frac)
 class OdometrySensor: __init__(self, g, noise, cfg); reset(pose); update(self, wheels, dt) -> Odom
@@ -307,7 +301,7 @@ def odom_geometry(true_geometry, scales) -> physics.Geometry   # what the odomet
 ```
 `GpsSensor.sky(pose)` also belongs there: `(quality, satellites in view)` for a position, without a
 random number — see the block below.
-**Naming rule (integrator, after a name collision was found):** the sensor classes are
+**Naming rule (after a name collision was found):** the sensor classes are
 `OdometrySensor`, `Lidar`, `GpsSensor`; `types.Odom/Scan/Gps` are the messages. One
 module must not carry both names — `sensors.Gps` would have shadowed the import of
 `types.Gps` and produced `TypeError: unexpected keyword 't'`.
@@ -415,7 +409,7 @@ of one fixed 12 s drive, sha256 `5e3ff35e3bdd5c8367da9d460971702e3850fabe8986c48
 identical with `config/demo_gps_shadow.json` and `config/demo_odom_error.json` loaded as well
 (`tests/test_sensor_reality.py`).
 
-### 6.5 `mecanum_lab/engine.py` [MINE, already written — read only]
+### 6.5 `mecanum_lab/engine.py`
 ```python
 SimEngine(world, cfg=None, seed=None)
   .spawn(name, variant="", pose=None) -> Robot        # raises SpawnError
@@ -428,7 +422,7 @@ SimEngine(world, cfg=None, seed=None)
   .drain() -> list[(kind, robot|None, payload)]        # for the bridge to process
   .robots: dict[str, Robot] ; .world ; .t ; .robots_info() ; .world_json()
 ```
-The engine calls physics/sensors **exactly like this** (agent A has to match it):
+The engine calls physics/sensors **exactly like this**:
 `physics.make_geometry(cfg["robot"], variant)`,
 `physics.Chassis(geom, pose, seed=…)` with **public attributes**
 `geom, pose, wheels, twist, contacts` plus `set_wheels(list)`, `step(dt, walls)`;
@@ -456,7 +450,7 @@ and why `robots_info()` carries `steer_deg` next to `wheels` — two rack angles
 from the car that is really driving.
 
 
-### 6.6 `mecanum_lab/render.py` [C]
+### 6.6 `mecanum_lab/render.py`
 ```python
 class Renderer:
     def __init__(self, engine, cfg: dict)
@@ -481,9 +475,9 @@ layer must never change what `node.run_loop()` publishes; the lidar dots and the
 `/<robot>/scan` are deliberately independent, and the scan dots use the robot's own colour so a
 crowded hall is still readable.
 
-### 6.7 `mecanum_lab/ros_bridge.py` [B]
+### 6.7 `mecanum_lab/ros_bridge.py`
 ```python
-class Bus:                       # shared surface for rclpy and stub (stub.py [MINE])
+class Bus:                       # shared surface for rclpy and stub (stub.py)
     def pub(self, kind: str, robot: str | None = None) -> Callable[[payload], None]
     def publish(self, topic_name: str, payload) -> None
     def sub(self, kind: str, robot: str | None, cb) -> None       # cb(payload)
@@ -507,7 +501,7 @@ subscribes to `/sim/config` in its constructor and adopts that block once (`_ado
 run belong to the run. A bus built *with* a config — the simulator's own, from `enable_tf()` — is never
 overridden, and the adoption replaces the dict instead of writing into the caller's.
 
-### 6.8 `mecanum_lab/robot_io.py` [D]
+### 6.8 `mecanum_lab/robot_io.py`
 ```python
 class RobotIO:
     def __init__(self, name: str, role="controller")     # connects to the bus (rclpy or stub)
@@ -535,7 +529,7 @@ demo's last `cmd_vel` through a kinematics forever would drive a parked car into
 it. A module without `drive` — every template, both reference solutions — takes the same path it
 took before, in the same order.
 
-### 6.9 CLI `python -m mecanum_lab.node <command>` [B]
+### 6.9 CLI `python -m mecanum_lab.node <command>`
 ```
 run     sim + one/many controllers in ONE process (stub, no ROS)   -> quick start
         --world maze --robot alice --controller student/controller_template.py [--headless]
@@ -564,7 +558,7 @@ is what it has always promised and never did.
 `./lab <command>` (bash) = `python3 -m mecanum_lab.node <command>` with the correct
 `PYTHONPATH` and `source /opt/ros/$ROS_DISTRO/setup.bash`, if present.
 
-### 6.10 `mecanum_lab/overlays.py` [integrator]
+### 6.10 `mecanum_lab/overlays.py`
 ```python
 def zones(rend) -> None                    # gps.zones as hatched shadow, red where blocked
 def odom_ghost(rend, robot) -> None        # where odometry thinks the robot is + Δ in m
@@ -590,7 +584,7 @@ HUD says that the car in front of you is turning, and `R = L/tan(delta)` is the 
 of that car has to keep in mind. The wheels themselves are drawn by `render._wheel()`, which gets
 their angles from `chassis.wheel_headings` — the mount point stays on the body, only the stroke turns.
 
-### 6.11 English names, deprecated aliases (`tools/germanids.py`) [MINE]
+### 6.11 English names, deprecated aliases (`tools/germanids.py`)
 
 Identifiers, launch arguments and JSON keys are English. The migration renamed them in one go;
 where a name was printed in a handout or typed daily by a student, the old spelling still works as
@@ -656,7 +650,7 @@ handout. `physics.WHEELS_EN` gives the English reading of the same four indices
 (`FL, FR, RL, RR`) and the handout prints both spellings side by side.
 
 
-### 6.12 `mecanum_lab/steering.py` [integrator] — the second drive train
+### 6.12 `mecanum_lab/steering.py` — the second drive train
 
 ```python
 def is_steering(variant: str) -> bool                     # "steering", "steering-big", ...
@@ -698,7 +692,7 @@ measured over 20 s at full lock with the other noise off, scale 1.0 gives 0.0° 
 controller that goes with it (rounded rectangle, then LIDAR parking), and the reason the example is a
 `drive()` demo: §6.8.
 
-### 6.13 `mecanum_lab/pois.py` [integrator] — Points of Interest, and the counter that finds them
+### 6.13 `mecanum_lab/pois.py` — Points of Interest, and the counter that finds them
 
 ```python
 def load_sources(value, world, d0_default: float = 1.0) -> list[Source]   # raises ValueError
@@ -782,7 +776,7 @@ off by a `gps.gap` opened to the length of the exercise): the odometry counts **
 and the ghost is **1.00 m** ahead of the robot at 5 % wrong wheel radius — **0.01 m** with honest ones —
 and both runs end with **0 wall contacts**.
 
-### 6.14 `mecanum_lab/wifi.py` [integrator] — the radio the commands travel on
+### 6.14 `mecanum_lab/wifi.py` — the radio the commands travel on
 
 ```python
 def quality_of(rssi, floor = -85.0, good = -50.0) -> float      # 0 at the floor, 1 on the flat part
@@ -940,7 +934,7 @@ package, in the comment above `BUDGET` in `tools/loc.py`: this section is the ta
 ledger. No threshold of `config/tasks.json` and no wheel equation is in that diff, which is why 100/100
 twice, 90/90 and 30/30 are the numbers they were.
 
-## 8. Graded tasks (Experiment 1) — details in `config/tasks.json` [D]
+## 8. Graded tasks (Experiment 1) — details in `config/tasks.json`
 
 | ID | Name | Checks | Limits, read from `config/tasks.json` |
 |---|---|---|---|
@@ -980,8 +974,7 @@ the thresholds of `config/tasks.json` are calibrated on (§9.1):
 ./lab grade --robot test --task alle           # the reference solution passes all
 ```
 
-Testability is part of the task: every agent ships its tests in `tests/`,
-file name `test_<module>_<agent>.py`, so nothing gets overwritten.
+Every module ships its tests in `tests/`.
 
 ### 9.1 The same grade at three paces (measured, not assumed)
 

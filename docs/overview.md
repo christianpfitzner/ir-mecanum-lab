@@ -76,8 +76,7 @@ python3 tools/kfplot.py messung.csv
 
 `grade:=alle` in a launch file measures something else: your node is a second process there, on a real
 network. On one seed the reference solution is 100/100 through `./lab grade` and 70/100 through
-`grade:=alle` — see [When something does not work](#when-something-does-not-work) and
-`docs/CONTRACT.md` §9.2.
+`grade:=alle` — see `docs/CONTRACT.md` §9.2.
 
 What the tasks ask is not written on this page: the rules are data in `config/tasks.json`, `./lab docs`
 prints them beside a running simulator, and the sheets a student reads are
@@ -185,51 +184,3 @@ nobody named outbids the `config:=` file — which is how a demo with `"world": 
 | [docs/CONTRACT.md](CONTRACT.md) | the interface of Experiment 1: topics, units, signs, geometry |
 | [docs/CONTRACT-KF.md](CONTRACT-KF.md) | the interface of Experiment 2 |
 | `docs/praktikum/` | the handouts: `make anleitung`, `make kalman` |
-
-## More commands
-
-What the tasks are, what is on the bus, what the examples do:
-
-```bash
-./lab docs
-```
-
-The teaching team's gate — tests, grading, budgets, hygiene:
-
-```bash
-tools/check.sh
-```
-
-`./lab grade` also takes `--json bericht.json` to write a report next to the grade. Beside a running
-simulator, `ros2 topic echo /sim/robots --once` says who is driving and
-`ros2 service call /sim/spawn_next std_srvs/srv/Trigger` adds a robot with the name the simulator chose.
-Without ROS 2 those are `./lab spawn --name carlo` and `./lab rviz --robot alice`; to keep the in-process
-bus even with ROS sourced, `MECANUM_ROS=stub ./lab sim`.
-
-## When something does not work
-
-* **`pygame is missing`** → `./install.sh`, or run everything with `--headless`.
-* **No display, or SSH** → `--headless`, or `SDL_VIDEODRIVER=dummy`.
-* **`ros2: command not found`** → source `/opt/ros/<distro>/setup.bash`. Everything except the `ros2 …`
-  commands works without it.
-* **The robot ignores the keyboard** → a node is publishing `cmd_vel` every tick. Start without
-  `controller:=`, or with `--no-teleop` to watch the node on purpose.
-* **RViz prints `Message Filter dropping message: frame 'muster/odom' …`** → one line, two meanings. Once,
-  in the first 0.05 s, that is a spawned robot whose `/odom` was already stamped 0.02 and 0.04 while `/tf`
-  arrives at the next `tf.rate` tick (20 Hz). As a long stream it means the simulator is gone, and RViz is
-  still waiting for transforms.
-* **A grade that does not repeat** → grade with `./lab grade`, not with `grade:=` in a launch file. The
-  launch form puts your node in a second process on a real network, and the tasks that drive by odometry
-  measure that: 100/100 against 70/100 on the same seed, because T3 gives up on its own estimate after
-  4.6 m of the 12.9 m it needs. Every limit is calibrated on the one-process run (CONTRACT §9).
-* **A grade in the wrong hall** → a run follows the hall named in the task, so `--task alle` in `maze`
-  grades 40/100 with 31 wall contacts. `./lab grade --task alle --world maze` reproduces it.
-* **`no measurement pairs`** → your node must publish `/<robot>/kf/pose`, and the simulator must publish
-  truth (`--truth`, `truth:=true`; on by default in `kf.launch.py`).
-* **The estimate lags behind the measurements** → you used the wall clock. What counts are the message
-  stamps (`fix.t`, `odom.t`), never `time.time()`.
-* **The second task starts far away** → discard the previous task's measurements (`fix.t >= mission
-  start`). The handout section "Three rules" is about nothing else.
-
-Two rules hold the tree together: stdlib and pygame only, and everything named and written in English.
-Both are checked by `tools/check.sh`. Every run is deterministic from `--seed`.

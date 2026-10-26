@@ -23,8 +23,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-# The pages a student reads: the landing page, the pages next to it, the demo pages. Not `docs/notes/`
-# (those are the notes of whoever built the simulator, where a block is a recipe with a loop in it), not
+# The pages a student reads: the landing page, the pages next to it, the demo pages. Not
 # `docs/praktikum/` (a handout with its own typesetting), not `build/` and `install/` (colcon's copies).
 PAGES = ["README.md", "docs/*.md", "docs/demos/*.md"]
 FENCE = re.compile(r"^```(\w*)\s*$")

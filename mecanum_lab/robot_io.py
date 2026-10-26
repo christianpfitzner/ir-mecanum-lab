@@ -29,7 +29,7 @@ log = logging.getLogger("mecanum.robotio")
 def make_bus(node_name: str = "student"):
     """Real ROS when it is present and ready; otherwise the in-process bus (no ROS needed)."""
     try:
-        from . import ros_bridge                     # written by agent B
+        from . import ros_bridge
         bus = ros_bridge.make_bus("auto", node_name=node_name)
         if bus is not None:
             return bus

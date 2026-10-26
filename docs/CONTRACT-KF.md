@@ -230,38 +230,38 @@ and the outage limit do the checking. On NEES the same solution scatters between
 covariance, the upper one
 (3.5) any smug filter.
 
-## 6. File ownership for experiment 2
+## 6. Files of experiment 2
 
 The list is what is in the tree today, one line per file, with the role experiment 2 uses it for:
 
 ```
-mecanum_lab/types.py           Imu (incl. `temp`), Kf, SensorInfo, MSG_SPECS, config blocks [Int.]
-mecanum_lab/sensors.py         ImuSensor (§3 incl. the thermal term), GpsSensor (gap, zones) [Int.]
-mecanum_lab/engine.py          IMU tick, truth rate, set_kf, /sim/config, sensor_info()      [Int.]
-mecanum_lab/ros_bridge.py      Imu, PoseWithCovarianceStamped, the JSON-on-a-String topics   [Int.]
-mecanum_lab/robot_io.py        imu() kf() send_kf() truth() sensor_profile() config()        [Int.]
-mecanum_lab/tasks.py           experiment selection, the `sim` profile of a task             [Int.]
-mecanum_lab/grade.py           kind "kf_drive": RMSE, improvement, max error, NEES, outage   [Int.]
-mecanum_lab/node.py            --set, --truth, --log, profile merge, the pace of §5.1        [Int.]
-mecanum_lab/logbook.py         the CSV a report is written from: x_kf, sx_kf, temp_imu, q_gps [Int.]
-mecanum_lab/render.py          truth/gps/kf overlay, the σ ellipse of the estimate           [Int.]
-config/tasks.json              four KF tasks, their thresholds and their profiles            [Int.]
-worlds/arena.txt               open floor with perimeter walls                               [Int.]
-launch/kf.launch.py            main launch: every setting as a declared argument             [Int.]
-student/kf_template.py         submission template; grades as an empty estimate              [D]
-student/kf_solution.py         reference solution (passes kf_alle)                           [D]
-tools/kfplot.py                CSV -> numbers + ASCII chart (matplotlib optional)            [F]
-tools/fastgrade.py             the same Grader without the wall-clock pace, see §5.1         [F]
-docs/praktikum/kalman.tex      handout for experiment 2                                      [E]
-install.sh, README.md          one-command install and quickstart                            [E]
-config/rviz/template/lab.rviz   RViz view, written per robot at launch                       [F]
-tests/test_sensors_imu_b.py        noise density, bias, double integration, outage           [A]
-tests/test_kf_grading_integrator.py  the verdict over scripted truth/gps/kf/pose             [Int.]
-tests/test_kf_solution_d.py          reference solution, API rules, its line budget          [D]
-tests/test_grading_speed.py          the pace of §5.1, with a scripted clock                 [Int.]
-tests/test_sensor_knobs.py           the gps delay the students are told to survive          [Int.]
-tests/test_config_layering.py        the layer merge of §4 (`None` = nothing overridden)     [Int.]
-tests/test_sensor_info.py            where the °C of §3 lives on the wire                    [Int.]
+mecanum_lab/types.py           Imu (incl. `temp`), Kf, SensorInfo, MSG_SPECS, config blocks
+mecanum_lab/sensors.py         ImuSensor (§3 incl. the thermal term), GpsSensor (gap, zones)
+mecanum_lab/engine.py          IMU tick, truth rate, set_kf, /sim/config, sensor_info()
+mecanum_lab/ros_bridge.py      Imu, PoseWithCovarianceStamped, the JSON-on-a-String topics
+mecanum_lab/robot_io.py        imu() kf() send_kf() truth() sensor_profile() config()
+mecanum_lab/tasks.py           experiment selection, the `sim` profile of a task
+mecanum_lab/grade.py           kind "kf_drive": RMSE, improvement, max error, NEES, outage
+mecanum_lab/node.py            --set, --truth, --log, profile merge, the pace of §5.1
+mecanum_lab/logbook.py         the CSV a report is written from: x_kf, sx_kf, temp_imu, q_gps
+mecanum_lab/render.py          truth/gps/kf overlay, the σ ellipse of the estimate
+config/tasks.json              four KF tasks, their thresholds and their profiles
+worlds/arena.txt               open floor with perimeter walls
+launch/kf.launch.py            main launch: every setting as a declared argument
+student/kf_template.py         submission template; grades as an empty estimate
+student/kf_solution.py         reference solution (passes kf_alle)
+tools/kfplot.py                CSV -> numbers + ASCII chart (matplotlib optional)
+tools/fastgrade.py             the same Grader without the wall-clock pace, see §5.1
+docs/praktikum/kalman.tex      handout for experiment 2
+install.sh, README.md          one-command install and quickstart
+config/rviz/template/lab.rviz   RViz view, written per robot at launch
+tests/test_sensors_imu_b.py        noise density, bias, double integration, outage
+tests/test_kf_grading_integrator.py  the verdict over scripted truth/gps/kf/pose
+tests/test_kf_solution_d.py          reference solution, API rules, its line budget
+tests/test_grading_speed.py          the pace of §5.1, with a scripted clock
+tests/test_sensor_knobs.py           the gps delay the students are told to survive
+tests/test_config_layering.py        the layer merge of §4 (`None` = nothing overridden)
+tests/test_sensor_info.py            where the °C of §3 lives on the wire
 ```
 
 The line counts are the output of `python3 tools/loc.py` on this tree, shown as `lines / budget`;
@@ -290,7 +290,7 @@ determinism through the seed, English as the comment and handout language, no `p
 the simulation path. The reference solution must **not** use numpy — it is the reading
 model for the students' submitted code.
 
-## 8. Working instructions for the agents (experiment 2)
+## 8. Rules for the node and the grader (experiment 2)
 
 ### 8.1 What the student node may and must do
 
@@ -329,8 +329,8 @@ Two consequences of that rule, both in the reference solution and in the templat
 * **The start itself must be fresh.** At the moment `mission()` begins, note the newest stamp
   the bus already knows (`stamp(rob.odom(), rob.imu(), rob.gps())`) and do not build the
   filter until a stamp lies above it. Comparing stamps with stamps is enough — comparing with
-  the wall clock is not, and is exactly what made a KF task fail at random (`integrator.md`
-  no. 19).
+  the wall clock is not, and is exactly what made a KF task fail at random (found in
+  the integration test).
 * **A node that slept does not extrapolate.** If the next measurement is more than `SLEEP`
   seconds ahead of the filter's own time, the node was not running: start the filter again on
   that measurement instead of one giant CV step (which throws the state ahead by seconds of
@@ -391,6 +391,6 @@ Valid for the reference solution: `python3 tools/fastgrade.py --task kf_alle
 ### 8.4 Constraints for all files
 
 Stdlib + pygame, **no numpy** (the reference solution is a reading model), English as the
-comment language, no banner comments, keep the LOC budgets from §6. Tests are named
-`tests/test_<module>_<agent>.py` and run without ROS, without a window, without network
+comment language, no banner comments, keep the LOC budgets from §6. Tests
+run without ROS, without a window, without network
 (`SDL_VIDEODRIVER=dummy MECANUM_ROS=stub python3 -m pytest tests -q`).

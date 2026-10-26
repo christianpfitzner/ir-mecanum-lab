@@ -153,7 +153,7 @@
     "Always form the heading error with types.wrap_angle(), otherwise the robot turns 350 degrees around the goal.",
     "The loading spot is world()['spawns'][-1]; T3's gate is world()['goal']."
    ],
-   "deliverable": "Robot stands within 0.45 m of the loading spot (the last spawn pose of the world), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open, see docs/notes/integrator.md.)"
+   "deliverable": "Robot stands within 0.45 m of the loading spot (the last spawn pose of the world), zero contacts, and the goal must not have been reached beforehand. Why 0.45 and not 0.3: a correct GPS approach measures 0.07, 0.17, 0.18, 0.25, 0.33 m over repeated paced runs — the plan ends while the robot is still closing, so where it stops depends on when the last command is cut off. A limit that a finished solution misses under load is not a requirement but a lottery; what separates solutions here is zero contacts and 'not reached beforehand'. (The principled fix — measure after a short settling window, or grade in fixed steps — is still open.)"
   },
   {
    "id": "kf_gps",
