@@ -554,6 +554,16 @@ class Renderer:
                                           2 * radius, 2 * height), 1)
         pygame.draw.polygon(sc, KF_COLOR, [(center[0], center[1] - 6), (center[0] + 6, center[1]),
                                            (center[0], center[1] + 6), (center[0] - 6, center[1])])
+        # The reported pose as the outline of the robot, with its heading: an odometry with a wrong
+        # angle shows up as a rotated outline long before its position drifts away.
+        lx, ly, wr, _ = self._geom(robot)
+        g = getattr(robot.chassis, "geom", None)
+        half_l = (max(lx, getattr(g, "body_lx", 0.0)) + wr) * self.chassis_scale * self.s
+        half_w = (ly + wr) * self.chassis_scale * self.s
+        u, v = screen(kf.theta, 1, 0), screen(kf.theta, 0, 1)
+        pygame.draw.polygon(sc, KF_COLOR, self._plate(center, u, v, half_l, half_w), 2)
+        pygame.draw.line(sc, KF_COLOR, center, (center[0] + u[0] * half_l * 1.4,
+                                                center[1] + u[1] * half_l * 1.4), 2)
         pygame.draw.line(sc, (240, 120, 120), center, self.px(robot.pose.x, robot.pose.y), 1)
 
     def _trail(self, robot) -> None:
