@@ -247,13 +247,11 @@ def test_the_readme_table_is_the_table_and_not_a_memory_of_it():
     keys, and the direction the turn keys turn in. A row that renames a key or flips a direction fails
     here rather than in front of a class.
     """
-    readme = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/README.md")
-    with open(readme, encoding="utf-8") as fh:
-        text = fh.read()
-    rows = [line for line in text.splitlines() if line.startswith("| `")]
+    corpus = text()                                             # README + docs/ + docs/demos/
+    rows = [line for line in corpus.splitlines() if line.startswith("| `")]
 
     layer_keys = keys.layer_hint().split("layers: ")[1]
-    assert f"| `{layer_keys}`" in text, f"README does not list the layer keys {layer_keys}"
+    assert f"| `{layer_keys}`" in corpus, f"the documentation does not list the layer keys {layer_keys}"
     for key, _attr, label, _edge in LAYERS:
         assert key in layer_keys, f"{label} is on key {key}, which README cannot show"
 

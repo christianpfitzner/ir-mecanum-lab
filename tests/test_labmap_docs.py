@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import labmap                                                   # noqa: E402
+from support_docs import text                                   # noqa: E402
 from mecanum_lab import physics                                  # noqa: E402
 from mecanum_lab.types import MSG_SPECS, topic                   # noqa: E402
 
@@ -150,14 +151,12 @@ def test_the_loop_panel_stays_a_diagram_and_not_an_interface_table():
     assert len(wires) <= len(DRAWN), f"panel B has grown to {sorted(set(wires))}"
 
 
-def test_readme_shows_the_figure():
+def test_the_documentation_shows_the_figure():
     """A figure no page links to is a figure no student sees.
 
-    README carries it in the section that explains the lab, next to the sentence that tells the reader
+    `docs/overview.md` carries it in the section that explains the lab, next to the sentence that tells the reader
     what they are looking at: the chassis on the left, the loop on the right, both drawn from the
     modules the exercise is graded with.
     """
-    with open(os.path.join(REPO, "README.md"), encoding="utf-8") as handle:
-        readme = handle.read()
-    assert "docs/img/howitworks.png" in readme, "README no longer shows the how-it-works figure"
+    assert "img/howitworks.png" in text(), "no page shows the how-it-works figure any more"
     assert os.path.getsize(PNG) > 20_000, "a PNG of a few hundred bytes is an empty figure"
