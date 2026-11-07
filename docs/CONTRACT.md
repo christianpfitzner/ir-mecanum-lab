@@ -248,6 +248,17 @@ ASCII grid: each character block is `cell` meters across.
 Robot centre sits in the cell centre; theta from the order: 1=`0°`, 2=`90°`, 3=`180°`, 4=`270°`, then 0° again.
 Neighbouring wall cells merge into large rectangles (2-pass, reduces ray tests).
 
+Three things the grid cannot say come from the config instead, all off by default
+(`worlds.apply_config()`, `tests/test_circles_spawns.py`):
+
+* `obstacles.circles: [[x, y, r], ...]` — round obstacles in metres. The LIDAR sees them (with the
+  same `reflectivity_min` rule as a flat face), the robot collides with them, the window draws them.
+* `spawns: [[x, y, theta_deg], ...]` — start poses that replace the grid's spawns, any heading.
+* `--world <file>.txt` — a world file outside `worlds/`, e.g. the hall a lab repository brings along;
+  the world is named after the file.
+
+Without circles and spawns the engine gets the cached world object itself, so no graded stream changes.
+
 Nothing that is not drawn lives in a grid file: the world has no comments and no sidecar format, so
 **a world key that is data comes from the config** — `pois` (the sources of §6.13) and
 `worlds.cell_by_world` are both config keys, and a demo file that plants a source therefore names

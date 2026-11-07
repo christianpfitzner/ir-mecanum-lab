@@ -16,8 +16,9 @@ in the center of its cell, the heading follows the spawn number (0, 90, 180, 270
 import logging
 import math
 import os
+from dataclasses import replace
 
-from .types import ROOT, Pose, Rect, World, cfg_get
+from .types import ROOT, Circle, Pose, Rect, World, cfg_get
 
 CELL = 0.5                                       # edge length of a grid cell in meters
 THETA = (0.0, math.pi / 2, math.pi, -math.pi / 2)
@@ -107,7 +108,11 @@ def load_world(name: str, path: str | None = None, cfg: dict | None = None) -> W
     """Read worlds/<name>.txt (path relative to the project, not to the cwd) and cache it.
 
     Cached per cell size: the same file can be read as a 0.5 m and as a 0.6 m world.
+    A `name` that ends in `.txt` is a file of its own, e.g. the hall a lab repository brings along
+    (`--world /path/to/box.txt`); the world is then called after the file, `box`.
     """
+    if not path and str(name).endswith(".txt"):
+        path, name = name, os.path.basename(name)[:-4]
     zellen = cell_size(cfg, name)
     key = (name, zellen)
     if key not in _cache or path:
@@ -115,6 +120,29 @@ def load_world(name: str, path: str | None = None, cfg: dict | None = None) -> W
         with open(p, encoding="utf-8") as fh:
             _cache[key] = parse_grid(fh.read(), zellen, name)
     return _cache[key]
+
+
+def apply_config(world: World, cfg: dict | None) -> World:
+    """The world with what the config adds to the grid: round obstacles and start poses with any heading.
+
+    `obstacles.circles` is `[[x, y, r], ...]` and `spawns` is `[[x, y, theta_deg], ...]` (types.DEFAULT_CONFIG).
+    Both are empty by default, and then the very same world object comes back — the cached one, so no
+    hall of a graded task changes. Otherwise a copy, because the cache is shared by every engine.
+    A circle outside the hall or a pose inside a wall or circle raises: nobody can solve that scenario.
+    """
+    circles = [Circle(*map(float, c)) for c in (cfg_get(cfg or {}, "obstacles.circles") or [])]
+    poses = [Pose(float(x), float(y), math.radians(float(deg)))
+             for x, y, deg in (cfg_get(cfg or {}, "spawns") or [])]
+    if not circles and not poses:
+        return world
+    out = replace(world, circles=circles, spawns=poses or world.spawns)
+    for c in circles:
+        if c.r <= 0.0:
+            raise ValueError(f"circle at ({c.x:g}, {c.y:g}) in world '{world.name}': radius must be > 0")
+        world.free("circle", c.x, c.y)              # against the walls; `out` would find the circle itself
+    for pose in poses:
+        out.free("spawn pose", pose.x, pose.y, " (config key `spawns`)")
+    return out
 
 
 def list_worlds() -> list:

@@ -19,7 +19,7 @@ the same three calls.
 from dataclasses import dataclass, fields
 import math
 
-from .types import Pose, Twist, wrap_angle
+from .types import Circle, Pose, Twist, wrap_angle
 
 WHEELS = ("VL", "VR", "HL", "HR")          # index 0..3; the order is contractual
 WHEELS_EN = ("FL", "FR", "RL", "RR")       # the same four wheels with English labels (CONTRACT §6.9)
@@ -145,10 +145,20 @@ class Chassis:
         self._collide(walls)
 
     def _collide(self, walls: list) -> None:
-        """Circle against rectangles: push out, wheels off, count a contact only once."""
+        """Circle against rectangles and round obstacles: push out, wheels off, count a contact only once."""
         g, p = self.geometry, self.pose
         r, hit = g.footprint_r, False
         for w in walls:
+            if isinstance(w, Circle):
+                dx, dy = p.x - w.x, p.y - w.y
+                d = math.hypot(dx, dy)
+                if d >= r + w.r:
+                    continue
+                hit = True
+                if d < 1e-9:                          # centre on centre: any direction leads out
+                    dx, dy, d = 1.0, 0.0, 1.0
+                p.x, p.y = w.x + dx / d * (r + w.r), w.y + dy / d * (r + w.r)
+                continue
             dx = p.x - min(max(p.x, w.x0), w.x1)
             dy = p.y - min(max(p.y, w.y0), w.y1)
             d2 = dx * dx + dy * dy

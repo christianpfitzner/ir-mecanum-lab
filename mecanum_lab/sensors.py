@@ -169,27 +169,49 @@ class Lidar:
         step = 2 * math.pi / self.beams
         self.dirs = [(math.cos(i * step), math.sin(i * step)) for i in range(self.beams)]
         self.increment = step
+        self._cached = (None, None)                  # (pose and world, true echoes of that pose)
 
     def scan(self, pose) -> Scan:
         """One full-circle measurement starting from `pose`."""
+        ranges = [max(self.range_min, hit + self.noise.gauss(self.sigma)) if hit is not None
+                  else float("inf")                  # no echo — never a wall at `range_max`
+                  for hit in self._echoes(pose)]
+        return Scan(t=0.0, angle_min=0.0, angle_increment=self.increment,
+                    range_min=self.range_min, range_max=self.range_max, ranges=ranges,
+                    missing=sum(1 for r in ranges if math.isinf(r)))
+
+    def _echoes(self, pose) -> list:
+        """The true distance of every beam, None where no echo comes back — noise comes on top.
+
+        A robot that stands (lab "Polygon map") casts the same 360 rays 20 times a second; the
+        last pose is remembered, so that costs the ray casting once. Only the noise is drawn anew,
+        in the same order as before, so a seed gives the same scans with and without the cache.
+        """
+        key = (pose.x, pose.y, pose.theta, id(self.world.walls), id(self.world.circles))
+        if self._cached[0] == key:
+            return self._cached[1]
         cands = [w for w in self.world.walls if self._near(pose, w)][:self.max_walls]
+        rounds = [c for c in self.world.circles or []
+                  if math.hypot(c.x - pose.x, c.y - pose.y) - c.r <= self.range_max]
         cos_t, sin_t = math.cos(pose.theta), math.sin(pose.theta)
-        ranges = []
-        for i, (bx, by) in enumerate(self.dirs):
+        echoes = []
+        for bx, by in self.dirs:
             dx = bx * cos_t - by * sin_t                 # beam direction in the world frame
             dy = bx * sin_t + by * cos_t
-            hit, face = self.range_max, 0
+            hit, face, round_cos = self.range_max, 0, None
             for w in cands:
                 found = _ray_rect(pose.x, pose.y, dx, dy, w)
                 if found is not None and found[0] < hit:
                     hit, face = found
-            if hit < self.range_max and self._reflects(dx, dy, face):
-                ranges.append(max(self.range_min, hit + self.noise.gauss(self.sigma)))
-            else:
-                ranges.append(float("inf"))         # no echo — never a wall at `range_max`
-        return Scan(t=0.0, angle_min=0.0, angle_increment=self.increment,
-                    range_min=self.range_min, range_max=self.range_max, ranges=ranges,
-                    missing=sum(1 for r in ranges if math.isinf(r)))
+            for c in rounds:                             # nearest circle wins over a farther wall
+                found = _ray_circle(pose.x, pose.y, dx, dy, c)
+                if found is not None and found[0] < hit:
+                    hit, round_cos = found
+            echo = (self._reflects(dx, dy, face) if round_cos is None
+                    else round_cos >= self.reflectivity_min)
+            echoes.append(hit if hit < self.range_max and echo else None)
+        self._cached = (key, echoes)
+        return echoes
 
     def _reflects(self, dx: float, dy: float, face: int) -> bool:
         """Does the surface the beam entered send anything back along this beam?
@@ -212,6 +234,25 @@ class Lidar:
         dx = max(w.x0 - pose.x, 0.0, pose.x - w.x1)
         dy = max(w.y0 - pose.y, 0.0, pose.y - w.y1)
         return dx * dx + dy * dy <= self.range_max * self.range_max
+
+
+def _ray_circle(px: float, py: float, dx: float, dy: float, c) -> tuple | None:
+    """(distance to the circle along the unit ray, |cos| of the incidence angle there) or None.
+
+    The cosine is what `Lidar._reflects` asks of a flat face: beam against surface normal, which on a
+    circle is the direction from the centre to the hit. A beam that grazes the edge returns a cosine
+    near 0, exactly like a wall seen along its length.
+    """
+    fx, fy = px - c.x, py - c.y
+    b = fx * dx + fy * dy
+    disc = b * b - (fx * fx + fy * fy - c.r * c.r)
+    if disc < 0.0:
+        return None
+    t = -b - math.sqrt(disc)
+    if t <= 0.0:
+        return None
+    nx, ny = (fx + t * dx) / c.r, (fy + t * dy) / c.r
+    return t, abs(nx * dx + ny * dy)
 
 
 def _ray_rect(px: float, py: float, dx: float, dy: float, w) -> tuple | None:

@@ -74,6 +74,14 @@ class Rect:
 
 
 @dataclass
+class Circle:
+    """Round obstacle (pillar, barrel) in world meters: centre and radius. From `obstacles.circles`."""
+    x: float
+    y: float
+    r: float
+
+
+@dataclass
 class World:
     """Environment: collision rectangles, spawn poses, goal, decorative lines only."""
     name: str = "?"
@@ -82,6 +90,14 @@ class World:
     spawns: list = field(default_factory=list)       # list[Pose]
     goal: Pose | None = None
     size: tuple = (10.0, 10.0)                       # (width, height) in m
+    circles: list = field(default_factory=list)      # list[Circle], empty unless the config names some
+
+    def solids(self) -> list:
+        """Everything a robot collides with: the walls, and the circles when there are any.
+
+        Without circles this is `walls` itself, not a copy, so a hall without them runs exactly as before.
+        """
+        return self.walls + self.circles if self.circles else self.walls
 
     def spawn_pose(self, index: int) -> Pose:
         """Spawn pose for the n-th robot; repeats the last pose when needed."""
@@ -109,6 +125,10 @@ class World:
             if wall.x0 <= x <= wall.x1 and wall.y0 <= y <= wall.y1:
                 raise ValueError(f"{what} at ({x:g}, {y:g}) sits inside a wall of world "
                                  f"'{self.name}'{why}")
+        for c in self.circles or []:
+            if math.hypot(x - c.x, y - c.y) <= c.r:
+                raise ValueError(f"{what} at ({x:g}, {y:g}) sits inside the circle at "
+                                 f"({c.x:g}, {c.y:g}) of world '{self.name}'{why}")
 
 
 @dataclass
@@ -564,6 +584,12 @@ DEFAULT_CONFIG = {
     # names). A demo file that plants a source therefore also names the hall it is planted in
     # (`config/demo_poi_exploration.json`), and `--world production` moves it into the furnished one.
     "pois": [],
+    # Round obstacles, `[[x, y, r], ...]` in metres (worlds.apply_config). The ASCII grid has no way to say
+    # "radius", so they come from the config. Empty by default: no world of a graded task changes.
+    "obstacles": {"circles": []},
+    # Start poses `[[x, y, theta_deg], ...]` that replace the spawns of the world file, one per robot in
+    # order (worlds.apply_config). The grid only knows 0/90/180/270 degrees. Empty = the world's own.
+    "spawns": [],
     # The detector: messages per second, the `d0` of §6.13 for a source that does not name its own,
     # how many counts one unit of intensity is worth per reading (`counts`: the Poisson sigma is
     # sqrt(counts), so a weak reading is a noisier reading, which is what a counter does), and

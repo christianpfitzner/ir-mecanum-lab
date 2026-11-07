@@ -10,7 +10,7 @@ import json
 import logging
 import math
 
-from . import diffdrive, physics, pois, sensors, steering, wifi
+from . import diffdrive, physics, pois, sensors, steering, wifi, worlds
 from .types import (Joints, Pose, Robot, RobotSpec, SensorInfo, Twist, cfg_get, load_config,
                     merge, sanitize_name, PALETTE, MARKERS, VARIANTS)
 
@@ -29,7 +29,7 @@ class SimEngine:
 
     def __init__(self, world, cfg: dict | None = None, seed: int | None = None):
         self.cfg = cfg or load_config()
-        self.world = world
+        self.world = worlds.apply_config(world, self.cfg)   # circles and start poses of the config
         self.seed = seed
         self.t = 0.0
         self.t_task = 0.0                            # start of the current task
@@ -476,7 +476,7 @@ class SimEngine:
                 self._apply_cmd(r.spec.name, kind, payload)
             self._drive(r, dt)
             x0, y0 = r.chassis.pose.x, r.chassis.pose.y
-            r.chassis.step(dt, self.world.walls)
+            r.chassis.step(dt, self.world.solids())
             p, v = r.chassis.pose, r.chassis.twist
             r.pose.x, r.pose.y, r.pose.theta = p.x, p.y, p.theta
             r.twist.vx, r.twist.vy, r.twist.omega = v.vx, v.vy, v.omega

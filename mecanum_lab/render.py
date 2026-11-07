@@ -400,6 +400,8 @@ class Renderer:
             pygame.draw.rect(sc, self.col_wall, pygame.Rect(
                 corner, (max(1, math.ceil(bottom[0]) - corner[0]),
                        max(1, math.ceil(bottom[1]) - corner[1]))))
+        for c in w.circles or []:
+            pygame.draw.circle(sc, self.col_wall, self.px(c.x, c.y), max(1, round(c.r * self.s)))
         pygame.draw.rect(sc, mix(self.col_wall, (1, 1, 1), .3), box, 2)   # the world ends here
         if w.goal and self.show_goal:
             centre = self.px(w.goal.x, w.goal.y)
